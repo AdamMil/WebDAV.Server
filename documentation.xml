@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DAV>
+  <ConditionCode>
+    <Equals>
+      <summary>Determines whether this <see cref="ConditionCode"/> is equivalent to the given condition code.</summary>
+    </Equals>
+  </ConditionCode>
+  
+  <ISupportAuthorization>
+    <ShouldDenyAccess>
+      <summary>Determines whether the user making a request should be denied access to resource named in the request.</summary>
+      <param name="context">
+        The <see cref="WebDAVContext"/> in which the request is executing.
+      </param>
+      <param name="denyExistence">
+        If the user is to be denied access, this variable receives a value that indicates whether the WebDAV
+        service should deny the existence of the resource requested by the user by pretending that it was not found. If the user is allowed
+        access, the value of thihs variable is ignored.
+      </param>
+      <returns>
+        True if the user should be denied access, or false if the user may be permitted access. The user will be allowed access only
+        if all calls to <c>ShouldDenyAccess</c> return false.
+      </returns>
+    </ShouldDenyAccess>
+  </ISupportAuthorization>
+  
+  <IWebDAVResource>
+    <CanonicalPath>
+      <summary>
+        The canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>. Since it's relative, the path
+        must not begin with a leading slash.
+      </summary>
+    </CanonicalPath>
+    <PropFind>
+      <summary>
+        Executes a <see cref="PropFindRequest"/>. See the <see cref="PropFindRequest"/> documentation for details on how to
+        service it.
+      </summary>
+    </PropFind>
+  </IWebDAVResource>
+
+  <IWebDAVService>
+    <CreatePropFind>
+      <summary>
+        Creates a new <see cref="PropFindRequest"/> object to serve a <c>PROPFIND</c> request.
+      </summary>
+    </CreatePropFind>
+    <IsReusable>
+      <summary>
+        Gets whether the service object is safe for reuse across multiple requests. In order to be safe, a service must be
+        able to be accessed simultaneously by multiple threads, and should not fail in a way that would affect its operation on later
+        requests.
+      </summary>
+    </IsReusable>
+    <ResolveResource>
+      <summary>
+        Resolves the request URI to the corresponding <see cref="IWebDAVResource"/> (generally by using
+        <see cref="WebDAVContext.RequestPath"/>) , or returns null if the URI does not map to any resource.
+      </summary>
+    </ResolveResource>
+  </IWebDAVService>
+
+  <WebDAVRequest>
+    <ParseRequest>
+      <summary>Parses and validates the request.</summary>
+      <exception cref="System.Xml.XmlException">Thrown if the request body XML is invalid.</exception>
+      <exception cref="WebDAVException">Thrown if the request is invalid.</exception>
+    </ParseRequest>
+    <WriteResponse>
+      <summary>
+        Validates the processing performed by the <see cref="IWebDAVService"/> and writes the response to the client.
+      </summary>
+      <exception cref="ContractViolationException">
+        Thrown if the <see cref="IWebDAVService"/> that serviced the request failed to service it properly.
+      </exception>
+    </WriteResponse>
+  </WebDAVRequest>
+</DAV>
