@@ -265,6 +265,10 @@ public sealed class HttpModule : IHttpModule
     {
       ProcessMethod<PropFindRequest>(context, service.CreatePropFind, context.RequestResource.PropFind);
     }
+    else if(app.Request.HttpMethod.OrdinalEquals("PROPPATCH"))
+    {
+      ProcessMethod<PropPatchRequest>(context, service.CreatePropPatch, context.RequestResource.PropPatch);
+    }
     else
     {
       throw new NotImplementedException(); // TODO: implement support for arbitrary methods

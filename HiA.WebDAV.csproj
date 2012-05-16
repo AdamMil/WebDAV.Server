@@ -46,13 +46,14 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Methods\PropPatch.cs" />
     <Compile Include="Services\Authorization.cs" />
     <Compile Include="Common\ConditionCodes.cs" />
     <Compile Include="Common\Configuration.cs" />
     <Compile Include="Common\Context.cs" />
     <Compile Include="Common\Exceptions.cs" />
     <Compile Include="HttpModule.cs" />
-    <Compile Include="Methods\Request.cs" />
+    <Compile Include="Methods\Common.cs" />
     <Compile Include="Methods\PropFind.cs" />
     <Compile Include="Common\Miscellaneous.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

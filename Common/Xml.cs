@@ -31,11 +31,14 @@ public static class Names
   internal static readonly XmlQualifiedName include = new XmlQualifiedName("include", DAV);
   internal static readonly XmlQualifiedName multistatus = new XmlQualifiedName("multistatus", DAV);
   internal static readonly XmlQualifiedName prop = new XmlQualifiedName("prop", DAV);
+  internal static readonly XmlQualifiedName propertyupdate = new XmlQualifiedName("propertyupdate", DAV);
   internal static readonly XmlQualifiedName propfind = new XmlQualifiedName("propfind", DAV);
   internal static readonly XmlQualifiedName propname = new XmlQualifiedName("propname", DAV);
   internal static readonly XmlQualifiedName propstat = new XmlQualifiedName("propstat", DAV);
+  internal static readonly XmlQualifiedName remove = new XmlQualifiedName("remove", DAV);
   internal static readonly XmlQualifiedName response = new XmlQualifiedName("response", DAV);
   internal static readonly XmlQualifiedName responsedescription = new XmlQualifiedName("responsedescription", DAV);
+  internal static readonly XmlQualifiedName set = new XmlQualifiedName("set", DAV);
   internal static readonly XmlQualifiedName status = new XmlQualifiedName("status", DAV);
 
   /* WebDAV Property Names */
@@ -124,7 +127,7 @@ public static class Names
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsDouble = new XmlQualifiedName("double", XmlSchema);
-  /// <summary>The <c>xs:duration</c> type, which represents <see cref="TimeSpan"/> data, where <c>xs</c> refers to the
+  /// <summary>The <c>xs:duration</c> type, which represents <see cref="XmlDuration"/> data, where <c>xs</c> refers to the
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsDuration = new XmlQualifiedName("duration", XmlSchema);
@@ -215,6 +218,16 @@ static class XmlExtensions
       child.AssertElement();
       yield return (XmlElement)child;
     }
+  }
+
+  public static XmlElement GetChild(this XmlElement element, XmlQualifiedName qname)
+  {
+    foreach(XmlNode node in element.ChildNodes)
+    {
+      if(node.NodeType == XmlNodeType.Element && node.HasName(qname)) return (XmlElement)node;
+    }
+    throw Exceptions.BadRequest("Expected to find a child element named " + qname.ToString() + " in " +
+                                element.GetQualifiedName().ToString());
   }
 
   public static bool SetFlagOnce(this XmlNode node, XmlQualifiedName qname, ref bool flag)

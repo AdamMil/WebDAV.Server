@@ -1,4 +1,8 @@
-﻿namespace HiA.WebDAV
+﻿using System;
+using System.Collections.Generic;
+using System.Xml;
+
+namespace HiA.WebDAV
 {
 
 #region Depth
@@ -13,6 +17,38 @@ public enum Depth
   SelfAndChildren,
   /// <summary>The request should apply to the resource named by the request URI and all of its descendants.</summary>
   SelfAndDescendants
+}
+#endregion
+
+#region PropertyNameSet
+/// <summary>A read-only collection of property names referenced by the client.</summary>
+public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedName>
+{
+  internal PropertyNameSet() { }
+
+  /// <inheritdoc/>
+  public override bool IsReadOnly
+  {
+    get { return true; }
+  }
+
+  /// <inheritdoc/>
+  public new bool Contains(XmlQualifiedName qname)
+  {
+    return qname != null && names != null && names.Contains(qname);
+  }
+
+  internal void Add(XmlQualifiedName qname)
+  {
+    if(qname == null || qname.IsEmpty) throw new ArgumentException("The name must not be null or empty.");
+    if(names == null) names = new HashSet<XmlQualifiedName>();
+    if(!names.Add(qname)) throw Exceptions.BadRequest("Duplicate property name " + qname.ToString());
+    Items.Add(qname);
+  }
+
+  internal static readonly PropertyNameSet Empty = new PropertyNameSet();
+
+  HashSet<XmlQualifiedName> names;
 }
 #endregion
 
