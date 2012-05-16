@@ -57,7 +57,8 @@ public class ConditionCode
   /// <include file="documentation.xml" path="/DAV/ConditionCode/Equals/node()" />
   public virtual bool Equals(ConditionCode other)
   {
-    return other != null && StatusCode == other.StatusCode && ErrorElement == other.ErrorElement &&
+    return other == this ||
+           other != null && StatusCode == other.StatusCode && ErrorElement == other.ErrorElement &&
            string.Equals(Message, other.Message, StringComparison.Ordinal) && GetType() == other.GetType();
   }
 
@@ -122,7 +123,8 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   /// <include file="documentation.xml" path="/DAV/ConditionCode/Equals/node()" />
   public override bool Equals(ConditionCode other)
   {
-    if(!base.Equals(other)) return false;
+    if(other == this) return true;
+    else if(!base.Equals(other)) return false;
 
     LockConditionCodeWithUrls code = (LockConditionCodeWithUrls)other; // base.Equals() checked that the types are the same
     if(resourceUrls.Length == code.resourceUrls.Length)

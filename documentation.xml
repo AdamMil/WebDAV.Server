@@ -33,18 +33,27 @@
     </CanonicalPath>
     <PropFind>
       <summary>
-        Executes a <see cref="PropFindRequest"/>. See the <see cref="PropFindRequest"/> documentation for details on how to
-        service it.
+        Executes a <see cref="PropFindRequest"/>. All DAV-compliant resources must support the <c>PROPFIND</c> method (i.e. they cannot
+        respond with 405 Method Not Allowed). See the <see cref="PropFindRequest"/> documentation for details on how to service it.
       </summary>
     </PropFind>
+    <PropPatch>
+      <summary>
+        Executes a <see cref="PropPatchRequest"/>. All DAV-compliant resources must support the <c>PROPPATCH</c> method (i.e. they cannot
+        respond with 405 Method Not Allowed), although they can disable property setting by responding with 403 Forbidden (either for the
+        request as a whole or for individual properties). Resources should allow the setting of arbitrary (dead) properties. See the
+        <see cref="PropPatchRequest"/> documentation for more details on how to service it.
+      </summary>
+    </PropPatch>
   </IWebDAVResource>
 
   <IWebDAVService>
     <CreatePropFind>
-      <summary>
-        Creates a new <see cref="PropFindRequest"/> object to serve a <c>PROPFIND</c> request.
-      </summary>
+      <summary>Creates a new <see cref="PropFindRequest"/> object to serve a <c>PROPFIND</c> request.</summary>
     </CreatePropFind>
+    <CreatePropPatch>
+      <summary>Creates a new <see cref="PropPatchRequest"/> object to serve a <c>PROPPATCH</c> request.</summary>
+    </CreatePropPatch>
     <IsReusable>
       <summary>
         Gets whether the service object is safe for reuse across multiple requests. In order to be safe, a service must be

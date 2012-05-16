@@ -99,6 +99,53 @@ public class FileSystemService : WebDAVService
 
   readonly StringComparison comparison;
 
+  internal static string GetDriveName(DriveInfo drive)
+  {
+    int sep = drive.Name.IndexOf(Path.VolumeSeparatorChar);
+    return sep == -1 ? drive.Name : sep == 0 ? "fsroot" : drive.Name.Substring(0, sep);
+  }
+
+  static string GetCanonicalPath(string fsRoot, string fullPath, bool trailingSlash)
+  {
+    string relativePath = fullPath.Substring(fsRoot.Length);
+    if(relativePath.Length != 0 && (relativePath[0] == Path.DirectorySeparatorChar || relativePath[0] == Path.AltDirectorySeparatorChar))
+    {
+      relativePath = relativePath.Substring(1);
+    }
+    if(trailingSlash)
+    {
+      char c = relativePath.Length == 0 ? '\0' : relativePath[relativePath.Length-1];
+      if(c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar) relativePath += "/";
+    }
+
+    if(Path.DirectorySeparatorChar != '/') relativePath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+    if(Path.AltDirectorySeparatorChar != '/') relativePath = relativePath.Replace(Path.AltDirectorySeparatorChar, '/');
+    return relativePath;
+  }
+
+  static IWebDAVResource ResolveResource(string fsRoot, string requestPath, string davRoot)
+  {
+    string combinedPath = Path.Combine(fsRoot, requestPath);
+
+    DirectoryInfo directory = new DirectoryInfo(combinedPath);
+    if(directory.Exists) return new DirectoryResource(directory, davRoot + GetCanonicalPath(fsRoot, directory.FullName, true));
+
+    FileInfo file = new FileInfo(combinedPath);
+    if(file.Exists) return new FileResource(file, davRoot + GetCanonicalPath(fsRoot, file.FullName, false));
+
+    return null;
+  }
+}
+#endregion
+
+#region FileSystemResource
+abstract class FileSystemResource : WebDAVResource
+{
+  public override void PropPatch(PropPatchRequest request)
+  {
+    throw new WebDAVException(ConditionCodes.Forbidden); // disallow all property setting
+  }
+
   /// <summary>Adds a <see cref="PropFindResource"/> representing a directory to the response.</summary>
   internal static void AddPropFindDirectory(PropFindRequest request, IEnumerable<XmlQualifiedName> dirProps,
                                             IEnumerable<XmlQualifiedName> fileProps, string davPath, DirectoryInfo directory, int level)
@@ -161,43 +208,6 @@ public class FileSystemService : WebDAVService
     }
   }
 
-  internal static string GetDriveName(DriveInfo drive)
-  {
-    int sep = drive.Name.IndexOf(Path.VolumeSeparatorChar);
-    return sep == -1 ? drive.Name : sep == 0 ? "fsroot" : drive.Name.Substring(0, sep);
-  }
-
-  static string GetCanonicalPath(string fsRoot, string fullPath, bool trailingSlash)
-  {
-    string relativePath = fullPath.Substring(fsRoot.Length);
-    if(relativePath.Length != 0 && (relativePath[0] == Path.DirectorySeparatorChar || relativePath[0] == Path.AltDirectorySeparatorChar))
-    {
-      relativePath = relativePath.Substring(1);
-    }
-    if(trailingSlash)
-    {
-      char c = relativePath.Length == 0 ? '\0' : relativePath[relativePath.Length-1];
-      if(c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar) relativePath += "/";
-    }
-
-    if(Path.DirectorySeparatorChar != '/') relativePath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
-    if(Path.AltDirectorySeparatorChar != '/') relativePath = relativePath.Replace(Path.AltDirectorySeparatorChar, '/');
-    return relativePath;
-  }
-
-  static IWebDAVResource ResolveResource(string fsRoot, string requestPath, string davRoot)
-  {
-    string combinedPath = Path.Combine(fsRoot, requestPath);
-
-    DirectoryInfo directory = new DirectoryInfo(combinedPath);
-    if(directory.Exists) return new DirectoryResource(directory, davRoot + GetCanonicalPath(fsRoot, directory.FullName, true));
-
-    FileInfo file = new FileInfo(combinedPath);
-    if(file.Exists) return new FileResource(file, davRoot + GetCanonicalPath(fsRoot, file.FullName, false));
-
-    return null;
-  }
-
   static void SetEntryProperties(PropFindResource resource, XmlQualifiedName property, FileSystemInfo entry)
   {
     if(property == Names.displayname) resource.SetValue(property, entry.Name, null);
@@ -209,7 +219,7 @@ public class FileSystemService : WebDAVService
 #endregion
 
 #region DirectoryResource
-sealed class DirectoryResource : WebDAVResource
+sealed class DirectoryResource : FileSystemResource
 {
   public DirectoryResource(DirectoryInfo info, string canonicalPath)
   {
@@ -244,7 +254,7 @@ sealed class DirectoryResource : WebDAVResource
       fileProperties.Add(Names.getcontentlength);
     }
 
-    FileSystemService.AddPropFindDirectory(request, properties, fileProperties, CanonicalPath, Info, 0);
+    AddPropFindDirectory(request, properties, fileProperties, CanonicalPath, Info, 0);
   }
 
   string _canonicalPath;
@@ -252,7 +262,7 @@ sealed class DirectoryResource : WebDAVResource
 #endregion
 
 #region FileResource
-sealed class FileResource : WebDAVResource
+sealed class FileResource : FileSystemResource
 {
   public FileResource(FileInfo info, string canonicalPath)
   {
@@ -283,7 +293,7 @@ sealed class FileResource : WebDAVResource
       properties.Add(Names.getcontentlength);
     }
 
-    FileSystemService.AddPropFindFile(request, properties, CanonicalPath, Info);
+    AddPropFindFile(request, properties, CanonicalPath, Info);
   }
 
   string _canonicalPath;
@@ -291,7 +301,7 @@ sealed class FileResource : WebDAVResource
 #endregion
 
 #region RootResource
-sealed class RootResource : WebDAVResource
+sealed class RootResource : FileSystemResource
 {
   public override string CanonicalPath
   {
@@ -340,8 +350,7 @@ sealed class RootResource : WebDAVResource
 
       foreach(DriveInfo drive in DriveInfo.GetDrives().Where(d => d.IsReady))
       {
-        FileSystemService.AddPropFindDirectory(request, properties, fileProperties, FileSystemService.GetDriveName(drive) + "/",
-                                               drive.RootDirectory, 1);
+        AddPropFindDirectory(request, properties, fileProperties, FileSystemService.GetDriveName(drive) + "/", drive.RootDirectory, 1);
       }
     }
   }
