@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 using System.Web;
 using System.Xml;
 
-namespace HiA.WebDAV
+namespace HiA.WebDAV.Server
 {
 
 #region Exceptions
@@ -67,4 +67,4 @@ public class ContractViolationException : WebDAVException
 }
 #endregion
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

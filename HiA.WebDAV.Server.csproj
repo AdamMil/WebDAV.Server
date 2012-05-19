@@ -8,8 +8,8 @@
     <ProjectGuid>{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>HiA.WebDAV</RootNamespace>
-    <AssemblyName>HiA.WebDAV</AssemblyName>
+    <RootNamespace>HiA.WebDAV.Server</RootNamespace>
+    <AssemblyName>HiA.WebDAV.Server</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
@@ -22,7 +22,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Debug\HiA.WebDAV.XML</DocumentationFile>
+    <DocumentationFile>bin\Debug\HiA.WebDAV.Server.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,7 +31,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Release\HiA.WebDAV.XML</DocumentationFile>
+    <DocumentationFile>bin\Release\HiA.WebDAV.Server.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -46,7 +46,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Methods\Delete.cs" />
+    <Compile Include="Methods\Get.cs" />
+    <Compile Include="Methods\MkCol.cs" />
+    <Compile Include="Methods\Options.cs" />
     <Compile Include="Methods\PropPatch.cs" />
+    <Compile Include="Methods\Put.cs" />
     <Compile Include="Services\Authorization.cs" />
     <Compile Include="Common\ConditionCodes.cs" />
     <Compile Include="Common\Configuration.cs" />

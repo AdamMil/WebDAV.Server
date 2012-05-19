@@ -1,21 +1,39 @@
-﻿namespace HiA.WebDAV
+﻿using System;
+using System.Net;
+
+namespace HiA.WebDAV.Server
 {
 
 #region IWebDAVResource
 /// <summary>Represents a DAV-compliant resource.</summary>
 /// <remarks>Before implementing a WebDAV resource, it is strongly recommended that be familiar with the WebDAV specification as outlined
-/// in RFC 4918.
+/// in RFC 4918 and the HTTP specification as outline in RFC 2616.
 /// </remarks>
 public interface IWebDAVResource : ISupportAuthorization
 {
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   string CanonicalPath { get; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
+  void Delete(DeleteRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
+  void GetOrHead(GetOrHeadRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/HandleGenericRequest/node()" />
+  bool HandleGenericRequest(WebDAVContext context);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
+  void Options(OptionsRequest request);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   void PropFind(PropFindRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropPatch/node()" />
   void PropPatch(PropPatchRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
+  void Put(PutRequest request);
 }
 #endregion
 
@@ -29,11 +47,44 @@ public abstract class WebDAVResource : IWebDAVResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   public abstract string CanonicalPath { get; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
+  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource does not support deletion.</remarks>
+  public virtual void Delete(DeleteRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support deletion.");
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
+  public abstract void GetOrHead(GetOrHeadRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/HandleGenericRequest/node()" />
+  /// <remarks>The default implementation does not handle any generic requests.</remarks>
+  public virtual bool HandleGenericRequest(WebDAVContext context)
+  {
+    return false;
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
+  public abstract void Options(OptionsRequest request);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   public abstract void PropFind(PropFindRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropPatch/node()" />
-  public abstract void PropPatch(PropPatchRequest request);
+  /// <remarks>The default implementation disallows the setting of any properties.</remarks>
+  public virtual void PropPatch(PropPatchRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+
+    // decline to set any property
+    ConditionCode errorStatus = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support setting properties.");
+    foreach(PropertyPatch patch in request.Patches)
+    {
+      foreach(PropertyRemoval removal in patch.Remove) removal.Status = errorStatus;
+      foreach(PropertyPatchValue value in patch.Set.Values) value.Status = errorStatus;
+    }
+  }
 
   /// <include file="documentation.xml" path="/DAV/ISupportAuthorization/ShouldDenyAccess/node()" />
   /// <remarks>The default implementation always grants access to the resource.</remarks>
@@ -42,7 +93,15 @@ public abstract class WebDAVResource : IWebDAVResource
     denyExistence = false;
     return false;
   }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
+  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource not support setting its content.</remarks>
+  public virtual void Put(PutRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support setting its content.");
+  }
 }
 #endregion
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

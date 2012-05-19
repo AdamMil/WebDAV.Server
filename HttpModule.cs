@@ -6,9 +6,16 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.RegularExpressions;
 using System.Web;
-using HiA.WebDAV.Configuration;
+using HiA.WebDAV.Server.Configuration;
 
-namespace HiA.WebDAV
+// TODO: our uses of 405 Method Not Found are in violation of RFC 2616 section 10.4.6 because they don't supply an Allow header containing
+// a list of legal methods, but it would be nontrivial to construct such a header...
+
+// TODO: look into Microsoft's WebDAV extensions
+
+// TODO: add POST support
+
+namespace HiA.WebDAV.Server
 {
 
 /// <summary>Implements an <see cref="HttpModule"/> that provides WebDAV services.</summary>
@@ -32,20 +39,27 @@ public sealed class HttpModule : IHttpModule
   {
     public Configuration(WebDAVSection config)
     {
-      Enabled = config.Enabled;
+      Enabled             = config.Enabled;
+      ShowSensitiveErrors = config.ShowSensitiveErrors;
       if(Enabled)
       {
         Locations = new LocationConfig[config.Locations.Count];
         for(int i=0; i<Locations.Length; i++) Locations[i] = new LocationConfig(config.Locations[i]);
       }
+
+      ContextSettings = new WebDAVContext.Configuration(ShowSensitiveErrors);
     }
 
+    /// <summary>Gets the <see cref="WebDAVContext.Configuration"/> object that should be used when servicing requests.</summary>
+    public WebDAVContext.Configuration ContextSettings;
     /// <summary>The <see cref="LocationConfig"/> objects representing the WebDAV services defined in the configuration, or null if
     /// the WebDAV module is disabled (i.e. <see cref="Enabled"/> is false).
     /// </summary>
     public readonly LocationConfig[] Locations;
     /// <summary>Whether the WebDAV module is enabled. If false, the WebDAV module will not process any requests.</summary>
     public readonly bool Enabled;
+    /// <summary>Whether to show potentially sensitive error messages when an exception occurs.</summary>
+    public readonly bool ShowSensitiveErrors;
   }
   #endregion
 
@@ -84,16 +98,15 @@ public sealed class HttpModule : IHttpModule
 
       if(Enabled)
       {
-        providerCreator = GetCreationDelegate<IWebDAVService>(config.Type, config.Parameters);
-        AuthFilters     = new AuthFilterConfig[config.AuthorizationFilters.Count];
+        providerCreator  = GetCreationDelegate<IWebDAVService>(config.Type, config.Parameters);
+        AuthFilters      = new AuthFilterConfig[config.AuthorizationFilters.Count];
+        ServeRootOptions = config.ServeRootOptions;
         for(int i=0; i<AuthFilters.Length; i++) AuthFilters[i] = new AuthFilterConfig(config.AuthorizationFilters[i]);
       }
     }
 
-    public string RootPath
-    {
-      get { return path ?? "/"; }
-    }
+    public string RootPath { get; private set; }
+    public bool ServeRootOptions { get; private set; }
 
     public void ClearSharedService()
     {
@@ -139,7 +152,7 @@ public sealed class HttpModule : IHttpModule
     void ParseMatch(string matchString)
     {
       Match m = new Regex(LocationElement.MatchPattern).Match(matchString);
-      if(!m.Success) throw new ConfigurationErrorsException(matchString + " is not a valid HiA.WebDAV location match string.");
+      if(!m.Success) throw new ConfigurationErrorsException(matchString + " is not a valid HiA.WebDAV.Server location match string.");
 
       if(m.Groups["scheme"].Success) scheme = m.Groups["scheme"].Value.ToLowerInvariant();
 
@@ -156,12 +169,12 @@ public sealed class HttpModule : IHttpModule
 
       if(m.Groups["port"].Success) port = int.Parse(m.Groups["port"].Value, CultureInfo.InvariantCulture);
 
-      // TODO: what about escaped characters? should they be allowed in the match string? (currently, they are not)
       if(m.Groups["path"].Success)
       {
         path = m.Groups["path"].Value;
         if(path[path.Length-1] != '/') path += "/"; // make sure it has a trailing slash
       }
+      RootPath = "/" + path;
     }
 
     bool PathMatches(Uri requestUri)
@@ -194,85 +207,155 @@ public sealed class HttpModule : IHttpModule
       {
         if(location.Enabled)
         {
+          bool endRequest = true;
           try
           {
-            ProcessRequest(application, location);
+            endRequest = ProcessRequest(application, location);
           }
           catch(HttpException ex) // HttpExceptions might be okay (this includes WebDAVException)
           {
             int httpCode = ex.GetHttpCode();
             if(httpCode >= 500 && httpCode < 600) throw; // 500 errors represent server failure, so propagate the error to ASP.NET
             // lesser errors are the client's fault and don't represent server failure, so send the response to the client as normal
-            SetErrorResponse(application, httpCode, ex.Message);
+            WebDAVException wde = ex as WebDAVException; // if it's a WebDAVException, use the ConditionCode if it's available
+            if(wde != null && wde.ConditionCode != null) WriteErrorResponse(application, wde.ConditionCode);
+            else WriteErrorResponse(application, httpCode, ex.Message);
           }
           catch(UnauthorizedAccessException ex)
           {
-            SetErrorResponse(application, (int)HttpStatusCode.Forbidden, ex.Message); // TODO: does using ex.Message reveal too much?
+            WriteErrorResponse(application, (int)HttpStatusCode.Forbidden, FilterErrorMessage(ex.Message));
           }
+          catch(System.Threading.ThreadAbortException) { throw; } // don't throw away the service due to exceptions from Response.End, etc
           catch // if an non-WebDAV error occurs, prevent the service from being reused for future requests and propagate it to ASP.NET
           {
             location.ClearSharedService();
             throw;
           }
-          application.CompleteRequest();
+
+          if(endRequest) application.CompleteRequest();
         }
 
         break; // in any case, once we've found the right location, we're done
       }
+      // if the service is configured to serve OPTIONS requests to the root, and this is such a request, then we'll handle it also
+      else if(location.Enabled && location.ServeRootOptions && application.Request.HttpMethod.OrdinalEquals("OPTIONS") &&
+              (string.Equals(application.Request.Url.AbsolutePath, "/", StringComparison.Ordinal) ||
+               string.Equals(application.Request.RawUrl, "*", StringComparison.Ordinal)))
+      {
+        WebDAVContext context = new WebDAVContext(location.RootPath, "", application, config.ContextSettings);
+        IWebDAVService service = location.GetService();
+        OptionsRequest request = service.CreateOptions(context);
+        request.SetOutOfScope(); // enable special processing within OptionsRequest for out-of-scope requests
+        ProcessMethod(context, request, service.Options);
+        break; // don't complete the request because we only want to add our custom headers to ASP.NET's usual response
+      }
     }
   }
 
-  /// <summary>Processes a request based on an HTTP method, given functions to create and process the <see cref="WebDAVRequest"/>
-  /// appropriate to that HTTP method.
+  /// <summary>Processes a request based on an HTTP method, given a function to process the <see cref="WebDAVRequest"/> appropriate to
+  /// that HTTP method.
   /// </summary>
-  void ProcessMethod<T>(WebDAVContext context, Func<WebDAVContext, T> createMethod, Action<T> process) where T : WebDAVRequest
+  void ProcessMethod<T>(WebDAVContext context, T request, Action<T> process) where T : WebDAVRequest
   {
-    T request = createMethod(context);
-    try { request.ParseRequest(); }
-    catch(System.Xml.XmlException ex) { throw new WebDAVException((int)HttpStatusCode.BadRequest, "Invalid XML body. " + ex.Message, ex); }
+    try
+    {
+      request.ParseRequest();
+    }
+    catch(System.Xml.XmlException ex) // if an XML exception occurred when parsing the request, assume it was caused by an invalid XML
+    {                                 // request sent by the client
+      context.WriteStatusResponse(new ConditionCode(HttpStatusCode.BadRequest, "Invalid XML body. " + ex.Message));
+      return;
+    }
     process(request);
     request.WriteResponse();
   }
 
-  /// <summary>Processes a WebDAV request using the service represented by the given <see cref="LocationConfig"/>.</summary>
-  void ProcessRequest(HttpApplication app, LocationConfig config)
+  /// <summary>Processes a WebDAV request using the service represented by the given <see cref="LocationConfig"/>. Returns whether the
+  /// request was handled and should be completed.
+  /// </summary>
+  bool ProcessRequest(HttpApplication app, LocationConfig config)
   {
     // create the request context and service instance
-    WebDAVContext context = new WebDAVContext(config.RootPath, config.GetRelativeUrl(app.Request.Url), app);
+    WebDAVContext context = new WebDAVContext(config.RootPath, config.GetRelativeUrl(app.Request.Url), app,
+                                              HttpModule.config.ContextSettings);
     IWebDAVService service = config.GetService();
 
     // resolve the request Uri into a WebDAV resource
     context.RequestResource = service.ResolveResource(context);
 
-    // if the resource was not found, return a 404 Not Found result
-    if(context.RequestResource == null)
-    {
-      SetNotFoundResponse(app);
-      return;
-    }
-
-    // perform authorization against the resource using authorization filters first
+    // regardless of whether resolution succeeded, perform authorization using authorization filters first
     foreach(AuthFilterConfig filterConfig in config.AuthFilters)
     {
-      if(ShouldDenyAccess(app, filterConfig.GetFilter(), context)) return;
+      if(ShouldDenyAccess(app, filterConfig.GetFilter(), context)) return true;
     }
 
-    // then check the resource's built-in authorization
-    if(ShouldDenyAccess(app, context.RequestResource, context)) return;
+    if(context.RequestResource == null) // if the resource was not found...
+    {
+      // some verbs (like MKCOL and PUT) can be executed on unmapped URLs. if it's not a verb we care about and the service also declines
+      // to handle it, issue a 404 Not Found response
+      if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Options))
+      {
+        ProcessMethod(context, service.CreateOptions(context), service.Options);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Put))
+      {
+        ProcessMethod(context, service.CreatePut(context), service.Put);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.MkCol))
+      {
+        ProcessMethod(context, service.CreateMkCol(context), service.MakeCollection);
+      }
+      else if(!service.HandleGenericRequest(context))
+      {
+        // let ASP.NET handle TRACE requests if the WebDAV service didn't
+        if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Trace)) return false;
+        WriteNotFoundResponse(app);
+      }
+    }
+    else // otherwise, the URL was mapped to a resource
+    {
+      // check the resource's built-in authorization
+      if(ShouldDenyAccess(app, context.RequestResource, context)) return true;
 
-    // now process the WebDAV operation against the resource based on the HTTP method
-    if(app.Request.HttpMethod.OrdinalEquals("PROPFIND"))
-    {
-      ProcessMethod<PropFindRequest>(context, service.CreatePropFind, context.RequestResource.PropFind);
+      // now process the WebDAV operation against the resource based on the HTTP method
+      if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.PropFind))
+      {
+        ProcessMethod(context, service.CreatePropFind(context), context.RequestResource.PropFind);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Get) || app.Request.HttpMethod.OrdinalEquals(HttpMethods.Head))
+      {
+        ProcessMethod(context, service.CreateGetOrHead(context), context.RequestResource.GetOrHead);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Options))
+      {
+        ProcessMethod(context, service.CreateOptions(context), context.RequestResource.Options);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Put))
+      {
+        ProcessMethod(context, service.CreatePut(context), context.RequestResource.Put);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.PropPatch))
+      {
+        ProcessMethod(context, service.CreatePropPatch(context), context.RequestResource.PropPatch);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Delete))
+      {
+        ProcessMethod(context, service.CreateDelete(context), context.RequestResource.Delete);
+      }
+      else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.MkCol))
+      {
+        // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section 9.3.1
+        WriteErrorResponse(app, (int)HttpStatusCode.MethodNotAllowed, "A resource already exists there.");
+      }
+      else if(!context.RequestResource.HandleGenericRequest(context) && !service.HandleGenericRequest(context))
+      {
+        // let ASP.NET handle TRACE requests if the WebDAV service didn't
+        if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.Trace)) return false;
+        WriteErrorResponse(app, (int)HttpStatusCode.Forbidden, "The WebDAV service declined to respond to this request.");
+      }
     }
-    else if(app.Request.HttpMethod.OrdinalEquals("PROPPATCH"))
-    {
-      ProcessMethod<PropPatchRequest>(context, service.CreatePropPatch, context.RequestResource.PropPatch);
-    }
-    else
-    {
-      throw new NotImplementedException(); // TODO: implement support for arbitrary methods
-    }
+
+    return true;
   }
 
   /// <summary>Disposes resources related to the <see cref="HttpModule"/>. Note that this method is distinct from
@@ -281,6 +364,12 @@ public sealed class HttpModule : IHttpModule
   void IHttpModule.Dispose()
   {
     // we have nothing to dispose (and we don't need to remove the event handler delegate because we hold no reference to HttpApplication)
+  }
+
+  /// <summary>Returns the given string or null, depending on the value of <see cref="Configuration.ShowSensitiveErrors"/>.</summary>
+  string FilterErrorMessage(string message)
+  {
+    return config.ShowSensitiveErrors ? message : null;
   }
 
   /// <summary>Creates a <see cref="Func{T}"/> delegate that will instantiate and return a new object of type <typeparamref name="T"/>,
@@ -329,21 +418,6 @@ public sealed class HttpModule : IHttpModule
                                            "that accepts a System.Configuration.ConfigurationElement object.");
   }
 
-  /// <summary>Sets the status code to the given status code and writes an error message to the page.</summary>
-  static void SetErrorResponse(HttpApplication app, int httpStatusCode, string errorText)
-  {
-    HttpResponse response = app.Response;
-    response.ContentType = "text/plain";
-    response.StatusCode  = httpStatusCode;
-    response.Write(string.Format(CultureInfo.InvariantCulture, "{0}\n{1} {2}\n", app.Request.Url, httpStatusCode, errorText));
-  }
-
-  /// <summary>Sets a 404 Not Found status response for the request URI.</summary>
-  static void SetNotFoundResponse(HttpApplication app)
-  {
-    SetErrorResponse(app, (int)HttpStatusCode.NotFound, "Resource could not be found.");
-  }
-
   /// <summary>Attempts to authorize the user in the context of the current request. If true is returned, the user is immediately denied
   /// access. If false is returned, the user will be granted access only if all other authorization methods allow it.
   /// </summary>
@@ -352,13 +426,33 @@ public sealed class HttpModule : IHttpModule
     bool denyExistence;
     if(!authProvider.ShouldDenyAccess(context, out denyExistence)) return false;
 
-    if(denyExistence) SetNotFoundResponse(app); // if we should deny even the existence of the resource, return a 404
-    else SetErrorResponse(app, (int)HttpStatusCode.Forbidden, "Access denied to " + app.Request.Url.AbsolutePath);
+    if(denyExistence) WriteNotFoundResponse(app); // if we should deny even the existence of the resource, return a 404
+    else WriteErrorResponse(app, (int)HttpStatusCode.Forbidden, "Access denied.");
     return false;
+  }
+
+  /// <summary>Sets a 404 Not Found status response for the request URI.</summary>
+  static void WriteNotFoundResponse(HttpApplication app)
+  {
+    WriteErrorResponse(app, (int)HttpStatusCode.NotFound, "The requested resource could not be found.");
+  }
+
+  /// <summary>Sets the response status code to the given status code and writes an error message to the page.</summary>
+  static void WriteErrorResponse(HttpApplication app, int httpStatusCode, string errorText)
+  {
+    DAVUtility.WriteStatusResponse(app.Request, app.Response, httpStatusCode, errorText);
+  }
+
+  /// <summary>Sets the response status code to the given status code and writes an error response based on the given
+  /// <see cref="ConditionCode"/>.
+  /// </summary>
+  static void WriteErrorResponse(HttpApplication app, ConditionCode code)
+  {
+    DAVUtility.WriteStatusResponse(app.Request, app.Response, code);
   }
 
   /// <summary>The configuration of the WebDAV module.</summary>
   static readonly Configuration config = new Configuration(WebDAVSection.Get());
 }
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

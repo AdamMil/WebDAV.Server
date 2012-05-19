@@ -2,10 +2,78 @@
 using System.Collections.Generic;
 using System.Xml;
 
-namespace HiA.WebDAV
+namespace HiA.WebDAV.Server
 {
 
 // TODO: clean this up and make it public so others can use the same response-generation tools we do
+// TODO: add examples
+
+#region MultiStatusResponse
+/// <summary>Implements a wrapper around an <see cref="XmlWriter"/> that assists in the creation of 207 Multi-Status responses.</summary>
+public sealed class MultiStatusResponse : IDisposable
+{
+  internal MultiStatusResponse(XmlWriter writer, HashSet<string> namespaces)
+  {
+    Writer = writer;
+
+    // write the start element using the fully qualified name so the writer knows the namespace, since we haven't defined it yet with
+    // an xmlns attribute. if we don't define the namespace, we'll get an error when we try to create the xmlns attribute
+    writer.WriteStartElement(Names.multistatus);
+    writer.WriteAttributeString("xmlns", Names.DAV); // now add the xmlns element for the DAV: namespace
+
+    if(namespaces != null)
+    {
+      // add xmlns attributes to define each of the other namespaces used within the response
+      uint index = 0;
+      foreach(string ns in namespaces)
+      {
+        // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't
+        // strictly necessary, but makes the output more readable and increases interoperability with poorly written clients that make
+        // assumptions about namespace prefixes
+        string prefix = ns.OrdinalEquals(Names.DAV) ? null :
+                        ns.OrdinalEquals(Names.XmlSchemaInstance) ? "xsi" :
+                        ns.OrdinalEquals(Names.XmlSchema) ? "xs" : MakeNamespaceName(index++);
+        if(prefix != null) writer.WriteAttributeString("xmlns", prefix, null, ns);
+      }
+    }
+  }
+
+  /// <summary>Gets the <see cref="XmlWriter"/> used to write XML into the response stream.</summary>
+  public XmlWriter Writer { get; private set; }
+
+  /// <summary>Writes the <c>&lt;status&gt;</c>, <c>&lt;error&gt;</c>, and/or <c>&lt;responsedescription&gt;</c> elements based on a
+  /// <see cref="ConditionCode"/>.
+  /// </summary>
+  public void WriteStatus(ConditionCode code)
+  {
+    if(code == null) throw new ArgumentNullException();
+    Writer.WriteElementString(Names.status.Name, code.DAVStatusText); // write the DAV:status element
+    code.WriteErrorXml(Writer); // write the DAV:error element, if any
+    if(!string.IsNullOrEmpty(code.Message)) Writer.WriteElementString(Names.responsedescription.Name, code.Message);
+  }
+
+  /// <summary>Finishes writing the multi-status response and disposes the underlying <see cref="XmlWriter"/>.</summary>
+  public void Dispose()
+  {
+    if(!disposed)
+    {
+      Writer.WriteEndElement(); // close the <multistatus> tag
+      Utility.Dispose(Writer);
+      disposed = true;
+    }
+  }
+
+  bool disposed;
+
+  /// <summary>Creates a unique namespace name for a non-negative integer.</summary>
+  static string MakeNamespaceName(uint i)
+  {
+    const string letters = "abcdefghijklmnopqrstuvwxyz"; // first use letters a-z and then switch to names like ns26, ns27, etc.
+    return i < letters.Length ? new string(letters[(int)i], 1) : "ns" + i.ToInvariantString();
+  }
+}
+#endregion
+
 #region Names
 /// <summary>Contains the names of XML elements, attributes, etc. commonly used in generating WebDAV responses.</summary>
 public static class Names
@@ -13,11 +81,11 @@ public static class Names
   /* Namespaces */
   /// <summary>The <c>DAV:</c> namespace, in which all standard WebDAV names are defined.</summary>
   public static readonly string DAV = "DAV:";
-  /// <summary>The <c>http://www.w3.org/2001/XMLSchema</c> namespace, in which data type names (among other things) are defined.</summary>
+  /// <summary>The <c>http://www.w3.org/XML/1998/namespace</c>, which is bound by definition to the <c>xml:</c> prefix.</summary>
+  internal static readonly string Xml = "http://www.w3.org/XML/1998/namespace";
+  /// <summary>The <c>http://www.w3.org/2001/XMLSchema</c> namespace, conventionally bound to the <c>xs:</c> prefix.</summary>
   public static readonly string XmlSchema = "http://www.w3.org/2001/XMLSchema";
-  /// <summary>The <c>http://www.w3.org/2001/XMLSchema-instance</c> namespace, in which the <c>xsi:type</c> name (among other things) is
-  /// defined.
-  /// </summary>
+  /// <summary>The <c>http://www.w3.org/2001/XMLSchema-instance</c> namespace, conventionally bound to the <c>xsi:</c> prefix.</summary>
   internal static readonly string XmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
 
   /* WebDAV Element Names */
@@ -104,6 +172,7 @@ public static class Names
   public static readonly XmlQualifiedName supportedlock = new XmlQualifiedName("supportedlock", DAV);
 
   /* Other Attribute Names */
+  internal static readonly XmlQualifiedName xmlLang = new XmlQualifiedName("lang", Xml);
   internal static readonly XmlQualifiedName xsiType = new XmlQualifiedName("type", XmlSchemaInstance);
 
   /* Other Names */
@@ -246,4 +315,4 @@ static class XmlExtensions
 }
 #endregion
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

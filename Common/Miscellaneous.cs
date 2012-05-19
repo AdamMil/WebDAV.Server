@@ -1,440 +1,163 @@
-﻿using System.Collections.Generic;
-using System.Text;
-using System.Xml;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Net;
+using System.Text;
+using System.Web;
+using System.Xml;
 
-namespace HiA.WebDAV
+// TODO: move DAVUtility to the HiA.WebDAV namespace so it can be used by clients?
+
+namespace HiA.WebDAV.Server
 {
 
-static class DAVUtility
+#region DAVUtility
+/// <summary>Contains useful utilities for DAV services.</summary>
+public static class DAVUtility
 {
-  /// <summary>Gets the canonical message corresponding to an HTTP status code.</summary>
+  /// <summary>Encodes a string into the canonical URL path form so that it can be used to construct URL paths.</summary>
+  /// <remarks>This method only encodes the question mark (<c>?</c>) and number sign (<c>#</c>), which is the minimal encoding required
+  /// within a URL path.
+  /// </remarks>
+  public static string CanonicalPathEncode(string path)
+  {
+    if(path != null)
+    {
+      for(int i=0; i<path.Length; i++)
+      {
+        char c = path[i];
+        if(c == '?' || c == '#')
+        {
+          StringBuilder sb = new StringBuilder(path.Length + 10);
+          sb.Append(path, 0, i);
+          while(true)
+          {
+            if(c == '?') sb.Append("%3f");
+            else if(c == '#') sb.Append("%23");
+            else sb.Append(c);
+            if(++i == path.Length) break;
+            c = path[i];
+          }
+          path = sb.ToString();
+          break;
+        }
+      }
+    }
+
+    return path;
+  }
+
+  /// <summary>Gets the canonical message corresponding to an HTTP status code, or the message for the given status code is unknown.</summary>
   public static string GetStatusCodeMessage(int httpStatusCode)
   {
     return statusMessages.TryGetValue(httpStatusCode);
   }
 
-  /// <summary>Quotes a string in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
-  public static string QuoteString(string value)
+  /// <summary>Returns a random MIME boundary.</summary>
+  internal static string CreateMimeBoundary()
   {
-    if(value != null)
+    // technically, a MIME boundary must be guaranteed to not collide with any data in the message body, but that is unreasonably difficult
+    // to ensure (i.e. MIME sucks!), so we'll use a random MIME boundary. MIME boundaries can be up to 69 characters in length, and we'll
+    // use all 69 characters to provide the lowest chance of a collision with any data in the message body (although even 16 characters
+    // would provide an insanely low chance of collision). we'll use a strong random number generator to provide us with random bytes.
+    // since there are 74 characters in the MIME boundary alphabet, each character requires log2(74) ~= 6.21 bits. each random byte
+    // provides us with 8 bits, so we need ceil(log2(74) / 8 * 69) = 54 total random bytes. we actually care about reducing the number of
+    // random bytes generated because we're using a cryptographic RNG and want to consume no more entropy from the system than is necessary
+    // (just in case entropy is actually consumed by the RNG)
+    const string Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',.()-=_+/?:"; // legal MIME boundary characters
+    char[] chars = new char[69]; // 69 characters in the boundary
+    byte[] bytes = new byte[54]; // we'll need 54 random bytes
+    System.Security.Cryptography.RandomNumberGenerator.Create().GetBytes(bytes);
+
+    for(int value=0, ci=0, bi=0, bits=0; ci < chars.Length; ci++)
     {
-      for(int i=0; i<value.Length; i++)
+      if(bits < 621) // use a simple form of integer math to keep track of how many random bits we have (times 100). the accumulated error
+      {              // over the length of a MIME boundary is insignificant (but it would be significant if we only multiplied by 10)
+        value = value*74 + bytes[bi++];
+        bits += 800; // we received 8 new random bits
+      }
+
+      chars[ci] = Alphabet[value % 74];
+      value /= 74;
+      bits -= 621; // we consumed ~6.21 random bits
+    }
+    return new string(chars);
+  }
+
+  /// <summary>Encodes an ASCII string as an RFC 2616 <c>quoted-string</c> if it has any characters that need encoding.</summary>
+  internal static string HeaderEncode(string ascii)
+  {
+    if(ascii != null)
+    {
+      for(int i=0; i<ascii.Length; i++)
       {
-        char c = value[i];
-        if(c == '"' || c == '\\')
+        char c = ascii[i];
+        if(c < 32 && c != '\t' || c == 0x7f)
         {
-          StringBuilder sb = new StringBuilder(value.Length + 10);
-          sb.Append(value, 0, i);
-          for(; i<value.Length; i++)
-          {
-            c = value[i];
-            if(c == '"' || c == '\\') sb.Append('\\');
-            sb.Append(c);
-          }
-          value = sb.ToString();
+          ascii = QuoteString(ascii);
           break;
         }
       }
     }
-    return value;
+
+    return ascii;
   }
 
-  public static bool ValidateValueType(ref object value, XmlQualifiedName expectedType)
+  /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
+  internal static string QuoteString(string ascii)
   {
-    if(value == null)
+    if(ascii == null) throw new ArgumentNullException();
+    StringBuilder sb = new StringBuilder(ascii.Length + 20);
+    sb.Append('\"');
+    for(int i=0; i<ascii.Length; i++)
     {
-      return true;
+      char c = ascii[i];
+      if(c < 32 && c != '\t' || c == '"' || c == '\\' || c == 0x7f) sb.Append('\\');
+      sb.Append(c);
     }
-    else if(expectedType == Names.xsString)
-    {
-      if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
-      return true;
-    }
-    if(expectedType == Names.xsDateTime || expectedType == Names.xsDate)
-    {
-      if(value is DateTime || value is DateTimeOffset) return true;
-    }
-    else if(expectedType == Names.xsInt)
-    {
-      long intValue;
-      if(!ValidateSignedInteger(value, int.MinValue, int.MaxValue, out intValue)) return false;
-      value = (int)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsULong)
-    {
-      ulong intValue;
-      if(!ValidateUnsignedInteger(value, ulong.MaxValue, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsLong)
-    {
-      long intValue;
-      if(!ValidateSignedInteger(value, long.MinValue, long.MaxValue, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsBoolean)
-    {
-      if(value is bool) return true;
-    }
-    else if(expectedType == Names.xsUri)
-    {
-      Uri uri = value as Uri;
-      if(uri == null && value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) value = uri;
-      if(uri != null) return true;
-    }
-    else if(expectedType == Names.xsDouble)
-    {
-      if(value is double) return true;
-      if(value is float || IsInteger(value))
-      {
-        value = Convert.ToDouble(value);
-        return true;
-      }
-    }
-    else if(expectedType == Names.xsFloat)
-    {
-      if(value is float) return true;
-      if(IsInteger(value))
-      {
-        value = Convert.ToSingle(value);
-        return true;
-      }
-    }
-    else if(expectedType == Names.xsDecimal)
-    {
-      if(value is decimal) return true;
-      if(value is double || value is float || IsInteger(value))
-      {
-        value = Convert.ToDecimal(value);
-        return true;
-      }
-    }
-    else if(expectedType == Names.xsUInt)
-    {
-      ulong intValue;
-      if(!ValidateUnsignedInteger(value, uint.MaxValue, out intValue)) return false;
-      value = (uint)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsShort)
-    {
-      long intValue;
-      if(!ValidateSignedInteger(value, short.MinValue, short.MaxValue, out intValue)) return false;
-      value = (short)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUShort)
-    {
-      ulong intValue;
-      if(!ValidateUnsignedInteger(value, ushort.MaxValue, out intValue)) return false;
-      value = (ushort)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUByte)
-    {
-      ulong intValue;
-      if(!ValidateUnsignedInteger(value, byte.MaxValue, out intValue)) return false;
-      value = (byte)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsSByte)
-    {
-      long intValue;
-      if(!ValidateSignedInteger(value, sbyte.MinValue, sbyte.MaxValue, out intValue)) return false;
-      value = (sbyte)intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsDuration)
-    {
-      if(value is XmlDuration || value is TimeSpan) return true;
-    }
-    else if(expectedType == Names.xsB64Binary || expectedType == Names.xsHexBinary)
-    {
-      if(value is byte[]) return true;
-    }
-    else
-    {
-      return true; // we don't know how to validate it, so assume it's valid
-    }
-
-    return false;
+    sb.Append('"');
+    ascii = sb.ToString();
+    return ascii;
   }
 
-  public static bool TryParseValue(string str, out object value, XmlQualifiedName expectedType)
+  /// <summary>Sets the response status code to the given status code and writes an message to the page. This method does not terminate
+  /// the request.
+  /// </summary>
+  internal static void WriteStatusResponse(HttpRequest request, HttpResponse response, int httpStatusCode, string errorText)
   {
-    if(string.IsNullOrEmpty(str))
+    // TODO: should we apply logic here to filter out potentially sensitive error messages (e.g. for 5xx errors), or should we trust the
+    // callers to check the settings?
+    response.StatusCode        = httpStatusCode;
+    response.StatusDescription = DAVUtility.GetStatusCodeMessage(httpStatusCode);
+    // write a response body unless the status code is No Content (indicating that there's no body) or there was a message included
+    if(httpStatusCode != (int)HttpStatusCode.NoContent || !string.IsNullOrEmpty(errorText))
     {
-      value = null;
-      return true;
-    }
-    else if(expectedType == Names.xsString)
-    {
-      value = str;
-      return true;
-    }
-    if(expectedType == Names.xsDateTime || expectedType == Names.xsDate)
-    {
-      return XmlUtility.TryParseDateTime(str, out value);
-    }
-    else if(expectedType == Names.xsInt)
-    {
-      int intValue;
-      if(!int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsULong)
-    {
-      ulong intValue;
-      if(!ulong.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsLong)
-    {
-      long intValue;
-      if(!ValidateSignedInteger(value, long.MinValue, long.MaxValue, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsBoolean)
-    {
-      bool boolValue;
-      if(!XmlUtility.TryParseBoolean(str, out boolValue)) return false;
-      value = boolValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUri)
-    {
-      Uri uri;
-      if(!Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return false;
-      value = uri;
-      return true;
-    }
-    else if(expectedType == Names.xsDouble)
-    {
-      double doubleValue;
-      if(!double.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out doubleValue)) return false;
-      value = doubleValue;
-      return true;
-    }
-    else if(expectedType == Names.xsFloat)
-    {
-      float floatValue;
-      if(!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out floatValue)) return false;
-      value = floatValue;
-      return true;
-    }
-    else if(expectedType == Names.xsDecimal)
-    {
-      decimal decimalValue;
-      if(!decimal.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out decimalValue)) return false;
-      value = decimalValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUInt)
-    {
-      uint intValue;
-      if(!uint.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsShort)
-    {
-      short intValue;
-      if(!short.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUShort)
-    {
-      ushort intValue;
-      if(!ushort.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsUByte)
-    {
-      byte intValue;
-      if(!byte.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsSByte)
-    {
-      sbyte intValue;
-      if(!sbyte.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
-      value = intValue;
-      return true;
-    }
-    else if(expectedType == Names.xsDuration)
-    {
-      XmlDuration duration;
-      if(!XmlDuration.TryParse(str, out duration)) return false;
-      value = duration;
-      return true;
-    }
-    else if(expectedType == Names.xsB64Binary)
-    {
-      try { value = Convert.FromBase64String(str); }
-      catch(FormatException) { return false; }
-      return true;
-    }
-    else if(expectedType == Names.xsHexBinary)
-    {
-      byte[] binary;
-      if(!BinaryUtility.TryParseHex(str, out binary)) return false;
-      value = binary;
-      return true;
-    }
-
-    value = null;
-    return false;
-  }
-
-  static bool IsInteger(object value)
-  {
-    switch(Type.GetTypeCode(value.GetType()))
-    {
-      case TypeCode.Byte: case TypeCode.Int16: case TypeCode.Int32: case TypeCode.Int64: case TypeCode.SByte: case TypeCode.UInt16:
-      case TypeCode.UInt32: case TypeCode.UInt64:
-        return true;
-      case TypeCode.Decimal:
-      {
-        decimal d = (decimal)value;
-        return d == decimal.Truncate(d);
-      }
-      case TypeCode.Double:
-      {
-        double d = (double)value;
-        return d == Math.Truncate(d);
-      }
-      case TypeCode.Single:
-      {
-        float d = (float)value;
-        return d == Math.Truncate(d);
-      }
-      default: return false;
+      response.ContentType = "text/plain";
+      errorText = StringUtility.Combine(". ", response.StatusDescription, errorText);
+      response.Write(string.Format(CultureInfo.InvariantCulture, "{0} {1}\n{2} {3}\n",
+                                   request.HttpMethod, request.Url.AbsolutePath, httpStatusCode, errorText));
     }
   }
 
-  static bool ValidateSignedInteger(object value, long min, long max, out long intValue)
+  /// <summary>Sets the response status code to the given status code and writes an error response based on the given
+  /// <see cref="ConditionCode"/>. This method does not terminate the request.
+  /// </summary>
+  internal static void WriteStatusResponse(HttpRequest request, HttpResponse response, ConditionCode code)
   {
-    try
+    if(code.ErrorElement == null) // if the condition code has no XML error data...
     {
-      switch(Type.GetTypeCode(value.GetType()))
-      {
-        case TypeCode.Decimal:
-        {
-          decimal d = (decimal)value, trunc = decimal.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = decimal.ToInt64(trunc);
-          break;
-        }
-        case TypeCode.Double:
-        {
-          double d = (double)value, trunc = Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((long)trunc);
-          break;
-        }
-        case TypeCode.Int16: intValue = (short)value; break;
-        case TypeCode.Int32: intValue = (int)value; break;
-        case TypeCode.Int64: intValue = (long)value; break;
-        case TypeCode.SByte: intValue = (sbyte)value; break;
-        case TypeCode.Single:
-        {
-          float d =  (float)value, trunc = (float)Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((long)trunc);
-          break;
-        }
-        case TypeCode.UInt16: intValue = (ushort)value; break;
-        case TypeCode.UInt32: intValue = (uint)value; break;
-        case TypeCode.UInt64:
-        {
-          ulong v = (ulong)value;
-          if(v > (ulong)long.MaxValue) goto failed;
-          else intValue = (long)v;
-          break;
-        }
-        default: goto failed;
-      }
-
-      if(intValue >= min && intValue <= max) return true;
+      WriteStatusResponse(request, response, code.StatusCode, code.Message); // just write the error as text
     }
-    catch(OverflowException)
+    else // otherwise, the condition code has some structured XML data that we can insert into the response
     {
+      response.StatusCode        = code.StatusCode;
+      response.StatusDescription = DAVUtility.GetStatusCodeMessage(code.StatusCode);
+      response.ContentEncoding   = System.Text.Encoding.UTF8;
+      response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
+
+      XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = false, Indent = true, IndentChars = "\t" };
+      using(XmlWriter writer = XmlWriter.Create(response.OutputStream, settings)) code.WriteErrorXml(writer);
     }
-
-    failed:
-    intValue = 0;
-    return false;
-  }
-
-  static bool ValidateUnsignedInteger(object value, ulong max, out ulong intValue)
-  {
-    try
-    {
-      switch(Type.GetTypeCode(value.GetType()))
-      {
-        case TypeCode.Decimal:
-        {
-          decimal d = (decimal)value, trunc = decimal.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = decimal.ToUInt64(trunc);
-          break;
-        }
-        case TypeCode.Double:
-        {
-          double d = (double)value, trunc = Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((ulong)trunc);
-          break;
-        }
-        case TypeCode.Int16: intValue = checked((ulong)(short)value); break;
-        case TypeCode.Int32: intValue = checked((ulong)(int)value); break;
-        case TypeCode.Int64: intValue = checked((ulong)(long)value); break;
-        case TypeCode.SByte: intValue = checked((ulong)(sbyte)value); break;
-        case TypeCode.Single:
-        {
-          float d =  (float)value, trunc = (float)Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((ulong)trunc);
-          break;
-        }
-        case TypeCode.UInt16: intValue = (ushort)value; break;
-        case TypeCode.UInt32: intValue = (uint)value; break;
-        case TypeCode.UInt64: intValue = (ulong)value; break;
-        default: goto failed;
-      }
-
-      if(intValue <= max) return true;
-    }
-    catch(OverflowException)
-    {
-    }
-
-    failed:
-    intValue = 0;
-    return false;
   }
 
   static readonly Dictionary<int, string> statusMessages = new Dictionary<int, string>()
@@ -453,5 +176,16 @@ static class DAVUtility
     { 504, "Gateway Timeout" }, { 505, "HTTP Version Not Supported" }, { 507, "Insufficient Storage" }
   };
 }
+#endregion
 
-} // namespace HiA.WebDAV
+// TODO: make this public?
+#region HttpMethods
+static class HttpMethods
+{
+  public const string Copy = "COPY", Delete = "DELETE", Get = "GET", Head = "HEAD", Lock = "LOCK", MkCol = "MKCOL", Move = "MOVE";
+  public const string Options = "OPTIONS", Post = "POST", PropFind = "PROPFIND", PropPatch = "PROPPATCH", Put = "PUT", Trace = "TRACE";
+  public const string Unlock = "UNLOCK";
+}
+#endregion
+
+} // namespace HiA.WebDAV.Server
