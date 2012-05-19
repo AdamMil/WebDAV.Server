@@ -26,11 +26,35 @@
   
   <IWebDAVResource>
     <CanonicalPath>
-      <summary>
-        The canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>. Since it's relative, the path
-        must not begin with a leading slash.
-      </summary>
+      <summary>The canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
+      <remarks>
+        Since it's relative, the path must not begin with a slash. The path for a collection resource should end with a slash, but not if
+        it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
+        it's canonical, the path must not contain any unnecessarily encoded characters. In particular, you should not use
+        <see cref="System.Web.HttpUtility.UrlPathEncode"/> to construct the path, since it encodes characters unnecessarily and so does not
+        produce a canonical path. Only the question mark (<c>?</c>) and number sign (<c>#</c>) should be escaped (as <c>%3f</c> and
+        <c>%23</c>, respectively). <see cref="DAVUtility.CanonicalPathEncode"/> will perform the appropriate encoding for you.
+      </remarks>
     </CanonicalPath>
+    <Delete>
+      <summary>Executes a <see cref="DeleteRequest"/>. See the <see cref="DeleteRequest"/> documentation for details on how to service it.</summary>
+    </Delete>
+    <GetOrHead>
+      <summary>
+        Executes a <see cref="GetOrHeadRequest"/>. See the <see cref="GetOrHeadRequest"/> documentation for details on how to service it.
+      </summary>
+    </GetOrHead>
+    <HandleGenericRequest>
+      <summary>
+        Called to handle a request that is not handled by any other another method. The method must return true if it responded to the
+        request and false otherwise, in which case the <see cref="IWebDAVService"/> will be allowed to handle the request.
+      </summary>
+    </HandleGenericRequest>
+    <Options>
+      <summary>
+        Executes an <see cref="OptionsRequest"/>. See the <see cref="OptionsRequest"/> documentation for details on how to service it.
+      </summary>
+    </Options>
     <PropFind>
       <summary>
         Executes a <see cref="PropFindRequest"/>. All DAV-compliant resources must support the <c>PROPFIND</c> method (i.e. they cannot
@@ -45,15 +69,45 @@
         <see cref="PropPatchRequest"/> documentation for more details on how to service it.
       </summary>
     </PropPatch>
+    <Put>
+      <summary>Executes a <see cref="PutRequest"/>. See the <see cref="PutRequest"/> documentation for details on how to service it.</summary>
+    </Put>
   </IWebDAVResource>
 
   <IWebDAVService>
+    <CreateDelete>
+      <summary>Creates a new <see cref="DeleteRequest"/> object (or an object of a derived type) to serve a <c>DELETE</c> request.</summary>
+    </CreateDelete>
+    <CreateGetOrHead>
+      <summary>
+        Creates a new <see cref="GetOrHeadRequest"/> object (or an object of a derived type) to serve a <c>GET</c> or <c>HEAD</c> request.
+      </summary>
+    </CreateGetOrHead>
+    <CreateMkCol>
+      <summary>Creates a new <see cref="MkColRequest"/> object (or an object of a derived type) to serve a <c>MKCOL</c> request.</summary>
+    </CreateMkCol>
     <CreatePropFind>
-      <summary>Creates a new <see cref="PropFindRequest"/> object to serve a <c>PROPFIND</c> request.</summary>
+      <summary>Creates a new <see cref="OptionsRequest"/> object (or an object of a derived type) to serve an <c>OPTIONS</c> request.</summary>
+    </CreatePropFind>
+    <CreatePropFind>
+      <summary>Creates a new <see cref="PropFindRequest"/> object (or an object of a derived type) to serve a <c>PROPFIND</c> request.</summary>
     </CreatePropFind>
     <CreatePropPatch>
-      <summary>Creates a new <see cref="PropPatchRequest"/> object to serve a <c>PROPPATCH</c> request.</summary>
+      <summary>Creates a new <see cref="PropPatchRequest"/> object (or an object of a derived type) to serve a <c>PROPPATCH</c> request.</summary>
     </CreatePropPatch>
+    <CreatePut>
+      <summary>Creates a new <see cref="PutRequest"/> object (or an object of a derived type) to serve a <c>PUT</c> request.</summary>
+    </CreatePut>
+    <HandleGenericRequest>
+      <summary>
+        Called to handle a request that is not handled by any other another method. The method must return true if it responded to the
+        request and false otherwise, in which case the server will generate a default response.
+      </summary>
+      <remarks>
+        If the request URL mapped to a resource, <see cref="IWebDAVResource.HandleGenericRequest"/> will be called first to give the
+        resource a chance to handle the request, and this method will only be called if the resource declines to handle it.
+      </remarks>
+    </HandleGenericRequest>
     <IsReusable>
       <summary>
         Gets whether the service object is safe for reuse across multiple requests. In order to be safe, a service must be
@@ -61,6 +115,21 @@
         requests.
       </summary>
     </IsReusable>
+    <MakeCollection>
+      <summary>Executes a <see cref="MkColRequest"/>. See the <see cref="MkColRequest"/> documentation for details on how to service it.</summary>
+    </MakeCollection>
+    <Options>
+      <summary>
+        Executes an <see cref="OptionsRequest"/> that was not mapped to any URL. See the <see cref="OptionsRequest"/> documentation for
+        details on how to service it.
+      </summary>
+    </Options>
+    <Put>
+      <summary>
+        Executes a <see cref="PutRequest"/> that was not mapped to any URL. See the <see cref="PutRequest"/> documentation for
+        details on how to service it.
+      </summary>
+    </Put>
     <ResolveResource>
       <summary>
         Resolves the request URI to the corresponding <see cref="IWebDAVResource"/> (generally by using
@@ -84,4 +153,35 @@
       </exception>
     </WriteResponse>
   </WebDAVRequest>
+
+  <GetOrHeadRequest>
+    <IndexItem>
+      <Cons>
+        <param name="name">
+          The name of the item displayed in the index and also the path segment appended to the request URL to form the
+          URL of the item's resource.
+        </param>
+        <param name="isDirectory">Indicates whether the item represents a directory (collection member) or a file (non-collection member).</param>
+        <param name="lastModificationTime">The time that the item content was last changed, or null if the time is unknown.</param>
+        <param name="size">The size of the item content, or -1 if the size is unknown or inapplicable.</param>
+      </Cons>
+    </IndexItem>
+    <WriteStandardResponse>
+      <summary>
+        Writes a typical response to a <c>GET</c> or <c>HEAD</c> request.
+      </summary>
+      <param name="entityBody">A <see cref="Stream"/> containing the entity body.</param>
+      <param name="entityLength">
+        The length of the entity body, or -1 if unknown. (If the stream is seekable, the length of the stream will be used.)
+      </param>
+      <param name="contentType">
+        The RFC 2616 <c>media-type</c> of the entity. If null, no media type will be sent to the client.
+      </param>
+      <remarks>
+        This method implements standard <c>GET</c> and <c>HEAD</c> mechanisms. It respects the HTTP <c>Range</c> header and will
+        provide partial responses if necessary, including multi-range partial responses. It is capable of working with unseekable streams,
+        although partial responses cannot be provided for unseekable streams if the length is not known.
+      </remarks>
+    </WriteStandardResponse>
+  </GetOrHeadRequest>
 </DAV>

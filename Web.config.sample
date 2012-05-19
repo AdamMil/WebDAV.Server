@@ -1,11 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <!-- This is a sample configuration file, parts of which can be merged into a Web application's configuration file to configure it for use
-     with HiA.WebDAV.
+     with HiA.WebDAV.Server.
 -->
 <configuration>
   <!-- The HiA.WebDAV configuration must be in the HiA.WebDAV section. -->
   <configSections>
-    <section name="HiA.WebDAV" type="HiA.WebDAV.Configuration.WebDAVSection, HiA.WebDAV, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+    <section name="HiA.WebDAV" type="HiA.WebDAV.Server.Configuration.WebDAVSection, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
   </configSections>
 
   <system.webServer>
@@ -13,12 +13,16 @@
          system.web/httpModules instead.
     -->
     <modules>
-      <add name="HiA.WebDAV" type="HiA.WebDAV.HttpModule, HiA.WebDAV, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+      <add name="HiA.WebDAV" type="HiA.WebDAV.Server.HttpModule, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
     </modules>
   </system.webServer>
 
-  <!-- The 'enabled' property is optional and true by default. If false, all HiA.WebDAV services are disabled. -->
-  <HiA.WebDAV enabled="true">
+  <!-- The 'enabled' property is optional and true by default. If false, all HiA.WebDAV services are disabled.
+       The 'showSensitiveErrors' property is optional and false by default. If true, additional error information may be included with
+       responses. This information can help you troubleshoot issues with a WebDAV service but it's possible that in certain cases the
+       messages could contain sensitive information.
+  -->
+  <HiA.WebDAV enabled="true" showSensitiveErrors="false">
     <!-- The 'locations' collection defines the roots of WebDAV services within the URL space. -->
     <locations>
       <!-- A location is used to match request URIs against different WebDAV services. Multiple locations can match the same URI;
@@ -31,9 +35,10 @@
                         host within the request URI; otherwise, if an IP is used, it must match the IP of the network interface
                         servicing the connection. If the port is unspecified, the location matches any port. If the entire authority
                         portion is unspecified, the location matches any authority. If the path is specified, it identifies the root of a
-                        WebDAV service, and all URIs under that path are matched by the location; otherwise, it matches all paths. The
-                        match attribute is required, and must be unique among locations in the collection. If you want a match attribute
-                        value that matches all URIs, use "/". Examples:
+                        WebDAV service, and all URIs under that path are matched by the location; otherwise, it matches all paths. The URI
+                        must be in its canonical form, with no unnecessarily escaped characters. The match attribute is required, and must
+                        be unique among locations in the collection. If you want a match attribute value that matches all URIs, use "/".
+                        Examples:
                           https://www.example.com:8080/webdav/  - matches HTTPS requests to www.example.com on port 8080 under /webdav/
                           www.example.com:8080/webdav/          - matches both HTTP and HTTPS requests
                           www.example.com/webdav/               - matches requests to any port
@@ -43,16 +48,22 @@
                           www.example.com                       - matches all requests to www.example.com
             * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, and
                         they will not be processed by other locations in the list.
-            * type      The full type name of a class that implements the HiA.WebDAV.IWebDAVService interface. The class must either have a
-                        public default constructor or a constructor that accepts a HiA.WebDAV.Configuration.ParameterCollection (allowing
-                        additional configuration attributes to be processed by the service). This attribute is required for enabled
-                        locations.
-            * caseSensitive    If true, path matches (but not hostname matches) will be done case sensitively. If false, case will be
-                               ignored. The default is false.
-            * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.IWebDAVService instance as parameters
-                        if it has a public constructor that accepts a HiA.WebDAV.Configuration.ParameterCollection. Be aware that attribute
-                        names are case-sensitive, so if you specify an attribute named "Match" it will be interpreted as a custom attribute
-                        and not the required "match" attribute.
+            * type      The full type name of a class that implements the HiA.WebDAV.Server.IWebDAVService interface. The class must either
+                        have a public default constructor or a constructor that accepts a
+                        HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration attributes to be processed
+                        by the service). This attribute is required for enabled locations.
+            * caseSensitive      If true, path matches (but not hostname matches) will be done case sensitively. If false, case will be
+                                 ignored. The default is false.
+            * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
+                                 requests to the root of the server and to the "*" URL. This option is provided as a workaround for WebDAV
+                                 clients that incorrectly submit OPTIONS requests to the root of the server. Using this option is not
+                                 necessary if the 'match' attribute is such that the service would serve requests to the root anyway. If
+                                 this option is enabled, the service must be prepared to handle URLs outside its scope.
+                                 The default is false.
+            * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.Server.IWebDAVService instance as
+                        parameters if it has a public constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection. Be
+                        aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be interpreted
+                        as a custom attribute and not the required "match" attribute.
       -->
       <add match="https://www.example.com/webdav/help/" enabled="false" /> <!-- provide a non-WebDAV subtree within the WebDAV space -->
       <add match="https://www.example.com/webdav/" enabled="true"
@@ -61,14 +72,14 @@
         <!-- The 'authorization' collection defines authorization filters in addition to the authorization built into individual WebDAV
               resources. This allows additional authorization to be layered on top of an existing WebDAV service provider in order to deny
               access to resources that would otherwise be accessible. Authorization elements have the following attributes:
-              * type      The full type name of a class that implements the HiA.WebDAV.IAuthorizationFilter interface. The class must
-                          either have a public default constructor or a constructor that accepts a
-                          HiA.WebDAV.Configuration.ParameterCollection (allowing additional configuration parameters to be processed by the
-                          filter). This attribute is required.
-              * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.IAuthorizationFilter instance as
-                          parameters if it has a public constructor that accepts a HiA.WebDAV.Configuration.ParameterCollection. Be aware
-                          that attribute names are case-sensitive, so if you specify an attribute named "Type" it will be interpreted as a
-                          custom attribute and not the required "type" attribute.
+              * type      The full type name of a class that implements the HiA.WebDAV.Server.IAuthorizationFilter interface. The class
+                          must either have a public default constructor or a constructor that accepts a
+                          HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration parameters to be processed
+                          by the filter). This attribute is required.
+              * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.Server.IAuthorizationFilter instance
+                          as parameters if it has a public constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection.
+                          Be aware that attribute names are case-sensitive, so if you specify an attribute named "Type" it will be
+                          interpreted as a custom attribute and not the required "type" attribute.
         -->
         <authorization>
           <add type="MyWebDAV.AuthFilter, MyWebDAV, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fedcba9876543210" />

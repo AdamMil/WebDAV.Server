@@ -7,8 +7,9 @@ using System.Xml;
 // TODO: add dead properties, xml data types, etc.
 // TODO: xml:lang support (RFC section 14.26 says xml:lang must be retrievable from PROPFIND)
 // TODO: other stuff from RFC section 4.3
+// TODO: add a .Status property or something so that processors don't have to throw exceptions if they don't want to handle a request
 
-namespace HiA.WebDAV
+namespace HiA.WebDAV.Server
 {
 
 #region IElementValue
@@ -151,11 +152,11 @@ public enum PropFindFlags
 
 // TODO: add processing examples and documentation
 #region PropFindRequest
-/// <summary>Represents a standard <c>PROPFIND</c> request.</summary>
+/// <summary>Represents a <c>PROPFIND</c> request.</summary>
 /// <remarks>The <c>PROPFIND</c> request is described in section 9.1 of RFC 4918.</remarks>
 public class PropFindRequest : WebDAVRequest
 {
-  /// <summary>Initializes a new <see cref="PropFindRequest"/>.</summary>
+  /// <summary>Initializes a new <see cref="PropFindRequest"/> based on a new WebDAV request.</summary>
   public PropFindRequest(WebDAVContext context) : base(context)
   {
     Properties = new PropertyNameSet();
@@ -191,7 +192,7 @@ public class PropFindRequest : WebDAVRequest
 
     // the body of the request must either be empty (in which case we default to an allprop request) or an XML fragment describing the
     // properties desired
-    XmlDocument xml = Context.LoadBodyXml();
+    XmlDocument xml = Context.LoadRequestXml();
     if(xml == null) // if the body was empty...
     {
       Flags = PropFindFlags.IncludeAll; // default to an allprops match (as required by RFC 4918 section 9.1)
@@ -232,40 +233,14 @@ public class PropFindRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal override void WriteResponse()
   {
-    // validate the request processing and collect the set of XML namespaces used in the response
+    // validate the request processing and collect the set of XML namespaces used in the response (DAV: is added automatically)
     HashSet<string> namespaces = new HashSet<string>();
-    namespaces.Add(Names.DAV); // we use DAV: ourselves, so add it
-    namespaces.Add(Names.XmlSchemaInstance); // we use xsi: too, in xsi:type
+    namespaces.Add(Names.XmlSchemaInstance); // we use xsi:, in xsi:type
     foreach(PropFindResource resource in Resources) resource.Validate(this, namespaces);
 
-    // begin outputting a multistatus (HTTP 207) response as defined in RFC 4918
-    Context.Response.StatusCode        = 207;
-    Context.Response.StatusDescription = DAVUtility.GetStatusCodeMessage(207); // 207 is an extension, so set the description manually
-    Context.Response.ContentEncoding   = System.Text.Encoding.UTF8;
-    Context.Response.ContentType       = "application/xml"; // content type specified by RFC 4918 section 8.2
-    XmlWriterSettings settings = new XmlWriterSettings()
+    using(MultiStatusResponse response = Context.OpenMultiStatusResponse(namespaces))
     {
-      CloseOutput = false, Encoding = Context.Response.ContentEncoding, Indent = true, IndentChars = "\t", OmitXmlDeclaration = true
-    };
-    using(XmlWriter writer = XmlWriter.Create(Context.Response.OutputStream, settings))
-    {
-      // write the start element using the fully qualified name so the writer knows the namespace, since we haven't defined it yet with
-      // an xmlns attribute. if we don't define the namespace, we'll get an error when we try to create the xmlns attribute
-      writer.WriteStartElement(Names.multistatus);
-
-      // add xmlns attributes to define each of the namespaces used within the response
-      uint index = 0;
-      foreach(string ns in namespaces)
-      {
-        // select a prefix name for the namespace. DAV: will have no prefix because most elements will be in that namespace.
-        // XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't strictly necessary, but makes the output
-        // more readable and increases interoperability with poorly written clients that make assumptions about namespace prefixes
-        string prefix = ns.OrdinalEquals(Names.DAV) ? null :
-                        ns.OrdinalEquals(Names.XmlSchemaInstance) ? "xsi" :
-                        ns.OrdinalEquals(Names.XmlSchema) ? "xs" : MakeNamespaceName(index++);
-        if(prefix == null) writer.WriteAttributeString("xmlns", ns);
-        else writer.WriteAttributeString("xmlns", prefix, null, ns);
-      }
+      XmlWriter writer = response.Writer;
 
       // now output a <response> tag for each resource
       var valuesByStatus = new MultiValuedDictionary<ConditionCode, KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>();
@@ -287,11 +262,11 @@ public class PropFindRequest : WebDAVRequest
           writer.WriteStartElement(Names.propstat.Name);
 
           // output the properties
-          writer.WriteStartElement(Names.prop);
+          writer.WriteStartElement(Names.prop.Name);
           foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
           {
             writer.WriteStartElement(ppair.Key); // write the property name
-            if(ppair.Value != null) // if the property has a type or value...
+            if(ppair.Value != null) // if the property has a type or value or language...
             {
               // if the property has a type that should be reported, write it in an xsi:type attribute
               XmlQualifiedName type = ppair.Value.Type;
@@ -299,6 +274,9 @@ public class PropFindRequest : WebDAVRequest
               {
                 writer.WriteAttributeString(Names.xsiType, StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
               }
+
+              // if the property has a language, write it in an xml:lang attribute
+              if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(Names.xmlLang, ppair.Value.Language);
 
               object value = ppair.Value.Value;
               if(value != null) // if the property has a value...
@@ -320,7 +298,7 @@ public class PropFindRequest : WebDAVRequest
                   if(type == Names.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
                   else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
                 }
-                else if(type == Names.xsDate) // if the type is specified as xs:date, write only the date portions
+                else if(type == Names.xsDate) // if the type is specified as xs:date, write only the date portions of any datetime values
                 {
                   if(value is DateTime) writer.WriteDate((DateTime)value);
                   else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
@@ -328,11 +306,11 @@ public class PropFindRequest : WebDAVRequest
                 }
                 else if(value is XmlDuration)
                 {
-                  writer.WriteString(value.ToString());
+                  writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration values
                 }
-                else // in the general case, just use .WriteValue(object) to write a value of the appropriate type
+                else // in the general case, just use .WriteValue(object) to write the value appropriately
                 {
-                  writer.WriteValue(value); // TODO: test this with uncommon numeric types such as byte, sbyte, etc.
+                  writer.WriteValue(value); // TODO: test this with numeric types such as sbyte, uint, etc. (the WriteValue documentation doesn't mention them)
                 }
               }
             }
@@ -341,17 +319,13 @@ public class PropFindRequest : WebDAVRequest
           writer.WriteEndElement(); // </prop>
 
           // now write the status for the aforementioned properties
-          writer.WriteElementString(Names.status.Name, spair.Key.DAVStatusText); // write the DAV:status element
-          spair.Key.WriteErrorElement(writer); // write the DAV:error element, if any
-          if(!string.IsNullOrEmpty(spair.Key.Message)) writer.WriteElementString(Names.responsedescription.Name, spair.Key.Message);
+          response.WriteStatus(spair.Key);
 
           writer.WriteEndElement(); // </propstat>
         }
 
         writer.WriteEndElement(); // </response>
       }
-
-      writer.WriteEndElement(); // </multistatus>
     }
   }
 
@@ -394,13 +368,6 @@ public class PropFindRequest : WebDAVRequest
     }
 
     return null;
-  }
-
-  /// <summary>Creates a unique namespace name for a non-negative integer.</summary>
-  static string MakeNamespaceName(uint i)
-  {
-    const string letters = "abcdefghijklmnopqrstuvwxyz"; // first use letters a-z and then switch to names like ns26, ns27, etc.
-    return i < letters.Length ? new string(letters[(int)i], 1) : "ns" + i.ToInvariantString();
   }
 
   // use a System.Collections.Hashtable because it has a special implementation that allows lock-free reads
@@ -475,10 +442,21 @@ public sealed class PropFindResource
 
   /// <summary>Sets the value of a property on the resource. If the value is not null and the property is not a built-in WebDAV property
   /// (i.e. one defined in RFC 4918), the property data type will be inferred from the value. If you do not want this inference to occur,
-  /// call <see cref="SetValue(XmlQualifiedName,object,XmlQualifiedName)"/> and pass the correct type or null if you don't want any type
-  /// information to be reported.
+  /// call <see cref="SetValue(XmlQualifiedName,XmlQualifiedName,object,string)"/> and pass the correct type, or null if you don't want any
+  /// type information to be reported.
   /// </summary>
   public void SetValue(XmlQualifiedName property, object value)
+  {
+    SetValue(property, value, null);
+  }
+
+  /// <summary>Sets the value and language of a property on the resource. If the value is not null and the property is not a built-in
+  /// WebDAV property (i.e. one defined in RFC 4918), the property data type will be inferred from the value. If you do not want this
+  /// inference to occur, call <see cref="SetValue(XmlQualifiedName,XmlQualifiedName,object,string)"/> and pass the correct type, or null
+  /// if you don't want any type information to be reported. This method also accepts the language of the value. If not null or empty,
+  /// the language will be reported in the value's <c>xml:lang</c> attribute and must be in the corresponding format.
+  /// </summary>
+  public void SetValue(XmlQualifiedName property, object value, string language)
   {
     XmlQualifiedName type = null;
     if(value != null && builtInTypes.ContainsKey(property))
@@ -511,7 +489,7 @@ public sealed class PropFindResource
       }
     }
 
-    SetValueCore(property, value, type);
+    SetValueCore(property, value, type, language);
   }
 
   /// <summary>Sets the value and type of a property on the resource.</summary>
@@ -522,7 +500,7 @@ public sealed class PropFindResource
   /// known property types are the types of built-in WebDAV properties as well as most types defined in the
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace (e.g. xs:boolean, xs:int, etc).
   /// </remarks>
-  public void SetValue(XmlQualifiedName property, object value, XmlQualifiedName type)
+  public void SetValue(XmlQualifiedName property, XmlQualifiedName type, object value, string language)
   {
     if(property == null) throw new ArgumentNullException();
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
@@ -530,15 +508,25 @@ public sealed class PropFindResource
     {
       value = ValidateValueType(property, value, type);
     }
-    SetValueCore(property, value, type);
+    SetValueCore(property, value, type, language);
   }
 
   /// <summary>Represents the value, type, and status code of an attempt to retrieve a property on a resource.</summary>
   internal sealed class PropertyValue
   {
+    public PropertyValue() { }
+    
+    public PropertyValue(XmlQualifiedName type, object value, string language)
+    {
+      Type     = type;
+      Value    = value;
+      Language = language;
+    }
+
     public object Value;
     public XmlQualifiedName Type;
     public ConditionCode Code;
+    public string Language;
   }
 
   /// <summary>Ensures that this <see cref="PropFindResource"/> passes basic validity checks, and adds the XML namespaces needed for the
@@ -597,7 +585,7 @@ public sealed class PropFindResource
 
   internal readonly Dictionary<XmlQualifiedName, PropertyValue> properties = new Dictionary<XmlQualifiedName, PropertyValue>();
 
-  void SetValueCore(XmlQualifiedName property, object value, XmlQualifiedName type)
+  void SetValueCore(XmlQualifiedName property, object value, XmlQualifiedName type, string language)
   {
     if(property == null) throw new ArgumentNullException();
 
@@ -656,20 +644,223 @@ public sealed class PropFindResource
     }
 
     // save the property value. don't bother creating a PropertyValue object if it doesn't hold anything useful
-    properties[property] = type == null && value == null ? null : new PropertyValue() { Code = null, Type = type, Value = value };
+    properties[property] = type == null && value == null && language == null ? null : new PropertyValue(type, value, language);
+  }
+
+  static bool IsInteger(object value)
+  {
+    switch(Type.GetTypeCode(value.GetType()))
+    {
+      case TypeCode.Byte: case TypeCode.Int16: case TypeCode.Int32: case TypeCode.Int64: case TypeCode.SByte: case TypeCode.UInt16:
+      case TypeCode.UInt32: case TypeCode.UInt64:
+        return true;
+      case TypeCode.Decimal:
+      {
+        decimal d = (decimal)value;
+        return d == decimal.Truncate(d);
+      }
+      case TypeCode.Double:
+      {
+        double d = (double)value;
+        return d == Math.Truncate(d);
+      }
+      case TypeCode.Single:
+      {
+        float d = (float)value;
+        return d == Math.Truncate(d);
+      }
+      default: return false;
+    }
+  }
+
+  static long ValidateSignedInteger(XmlQualifiedName property, object value, long min, long max)
+  {
+    long intValue;
+    try
+    {
+      switch(Type.GetTypeCode(value.GetType()))
+      {
+        case TypeCode.Decimal:
+        {
+          decimal d = (decimal)value, trunc = decimal.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = decimal.ToInt64(trunc);
+          break;
+        }
+        case TypeCode.Double:
+        {
+          double d = (double)value, trunc = Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((long)trunc);
+          break;
+        }
+        case TypeCode.Int16: intValue = (short)value; break;
+        case TypeCode.Int32: intValue = (int)value; break;
+        case TypeCode.Int64: intValue = (long)value; break;
+        case TypeCode.SByte: intValue = (sbyte)value; break;
+        case TypeCode.Single:
+        {
+          float d =  (float)value, trunc = (float)Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((long)trunc);
+          break;
+        }
+        case TypeCode.UInt16: intValue = (ushort)value; break;
+        case TypeCode.UInt32: intValue = (uint)value; break;
+        case TypeCode.UInt64:
+        {
+          ulong v = (ulong)value;
+          if(v > (ulong)long.MaxValue) goto failed;
+          else intValue = (long)v;
+          break;
+        }
+        default: goto failed;
+      }
+
+      if(intValue >= min && intValue <= max) return intValue;
+    }
+    catch(OverflowException)
+    {
+    }
+
+    failed:
+    throw new ContractViolationException(property.ToString() + " was expected to be an integer between " + min.ToInvariantString() +
+                                         " and " + max.ToInvariantString() + " (inclusive), but was " + value.ToString());
+  }
+
+  static ulong ValidateUnsignedInteger(XmlQualifiedName property, object value, ulong max)
+  {
+    ulong intValue;
+    try
+    {
+      switch(Type.GetTypeCode(value.GetType()))
+      {
+        case TypeCode.Decimal:
+        {
+          decimal d = (decimal)value, trunc = decimal.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = decimal.ToUInt64(trunc);
+          break;
+        }
+        case TypeCode.Double:
+        {
+          double d = (double)value, trunc = Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((ulong)trunc);
+          break;
+        }
+        case TypeCode.Int16: intValue = checked((ulong)(short)value); break;
+        case TypeCode.Int32: intValue = checked((ulong)(int)value); break;
+        case TypeCode.Int64: intValue = checked((ulong)(long)value); break;
+        case TypeCode.SByte: intValue = checked((ulong)(sbyte)value); break;
+        case TypeCode.Single:
+        {
+          float d =  (float)value, trunc = (float)Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((ulong)trunc);
+          break;
+        }
+        case TypeCode.UInt16: intValue = (ushort)value; break;
+        case TypeCode.UInt32: intValue = (uint)value; break;
+        case TypeCode.UInt64: intValue = (ulong)value; break;
+        default: goto failed;
+      }
+
+      if(intValue <= max) return intValue;
+    }
+    catch(OverflowException)
+    {
+    }
+
+    failed:
+    throw new ContractViolationException(property.ToString() + " was expected to be an integer between 0 and " + max.ToInvariantString() +
+                                         " (inclusive), but was " + value.ToString());
   }
 
   static object ValidateValueType(XmlQualifiedName property, object value, XmlQualifiedName expectedType)
   {
-    if(DAVUtility.ValidateValueType(ref value, expectedType))
+    if(value == null)
     {
       return value;
     }
+    else if(expectedType == Names.xsString)
+    {
+      if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
+      return value;
+    }
+    if(expectedType == Names.xsDateTime || expectedType == Names.xsDate)
+    {
+      if(value is DateTime || value is DateTimeOffset) return value;
+    }
+    else if(expectedType == Names.xsInt)
+    {
+      return (int)ValidateSignedInteger(property, value, int.MinValue, int.MaxValue);
+    }
+    else if(expectedType == Names.xsULong)
+    {
+      return ValidateUnsignedInteger(property, value, ulong.MaxValue);
+    }
+    else if(expectedType == Names.xsLong)
+    {
+      return ValidateSignedInteger(property, value, long.MinValue, long.MaxValue);
+    }
+    else if(expectedType == Names.xsBoolean)
+    {
+      if(value is bool) return value;
+    }
+    else if(expectedType == Names.xsUri)
+    {
+      if(value is Uri) return value;
+      Uri uri;
+      if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
+    }
+    else if(expectedType == Names.xsDouble)
+    {
+      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value);
+    }
+    else if(expectedType == Names.xsFloat)
+    {
+      if(value is float || IsInteger(value)) return Convert.ToSingle(value);
+    }
+    else if(expectedType == Names.xsDecimal)
+    {
+      if(value is double || value is float || value is decimal || IsInteger(value)) return Convert.ToDecimal(value);
+    }
+    else if(expectedType == Names.xsUInt)
+    {
+      return (uint)ValidateUnsignedInteger(property, value, uint.MaxValue);
+    }
+    else if(expectedType == Names.xsShort)
+    {
+      return (short)ValidateSignedInteger(property, value, short.MinValue, short.MaxValue);
+    }
+    else if(expectedType == Names.xsUShort)
+    {
+      return (ushort)ValidateUnsignedInteger(property, value, ushort.MaxValue);
+    }
+    else if(expectedType == Names.xsUByte)
+    {
+      return (byte)ValidateUnsignedInteger(property, value, byte.MaxValue);
+    }
+    else if(expectedType == Names.xsSByte)
+    {
+      return (sbyte)ValidateSignedInteger(property, value, sbyte.MinValue, sbyte.MaxValue);
+    }
+    else if(expectedType == Names.xsDuration)
+    {
+      if(value is XmlDuration || value is TimeSpan) return value;
+    }
+    else if(expectedType == Names.xsB64Binary || expectedType == Names.xsHexBinary)
+    {
+      if(value is byte[]) return value;
+    }
     else
     {
-      throw new ContractViolationException(property + " is expected to be of type " + expectedType.ToString() + " but was of type " +
-                                           value.GetType().FullName + " with value " + value.ToString());
+      return value; // we don't know how to validate it, so assume it's valid
     }
+
+    throw new ContractViolationException(property + " is expected to be of type " + expectedType.ToString() + " but was of type " +
+                                         value.GetType().FullName);
   }
 
   static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
@@ -681,4 +872,4 @@ public sealed class PropFindResource
 }
 #endregion
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

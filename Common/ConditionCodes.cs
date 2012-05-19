@@ -2,7 +2,7 @@
 using System.Net;
 using System.Xml;
 
-namespace HiA.WebDAV
+namespace HiA.WebDAV.Server
 {
 
 #region ConditionCode
@@ -78,21 +78,32 @@ public class ConditionCode
                                  Message);
   }
 
-  /// <summary>If <see cref="ErrorElement"/> is not null, this method should write a <c>DAV:error</c> element representing the error.</summary>
-  protected internal virtual void WriteErrorElement(XmlWriter writer)
+  /// <summary>If <see cref="ErrorElement"/> is not null, this method may be called to write a description of the error. The context will
+  /// be a <c>DAV:error</c> element (which will have already been written) where the <c>DAV:</c> namespace has been defined as the default
+  /// namespace. If any other namespaces are needed, appropriate <c>xmlns</c> attributes should be used to define them.
+  /// </summary>
+  protected virtual void WriteErrorElement(XmlWriter writer)
   {
-    if(ErrorElement != null)
-    {
-      writer.WriteStartElement(Names.error);
-      writer.WriteEmptyElement(ErrorElement);
-      writer.WriteEndElement();
-    }
+    if(ErrorElement == null) throw new InvalidOperationException();
+    writer.WriteEmptyElement(ErrorElement);
   }
 
   /// <summary>Gets the content that should be sent in the <c>DAV:status</c> element.</summary>
   internal string DAVStatusText
   {
     get { return StringUtility.Combine(" ", "HTTP/1.1 " + StatusCode.ToInvariantString(), DAVUtility.GetStatusCodeMessage(StatusCode)); }
+  }
+
+  /// <summary>If <see cref="ErrorElement"/> is not null, this method should write a <c>DAV:error</c> element representing the error.</summary>
+  internal void WriteErrorXml(XmlWriter writer)
+  {
+    if(ErrorElement != null)
+    {
+      writer.WriteStartElement(Names.error);
+      if(writer.LookupPrefix(Names.DAV) == null) writer.WriteAttributeString("xmlns", Names.DAV); // define our namespace if necessary
+      WriteErrorElement(writer);
+      writer.WriteEndElement();
+    }
   }
 }
 #endregion
@@ -139,15 +150,13 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
     return false;
   }
 
-  /// <summary>Writes a <c>DAV:error</c> element containing the <see cref="ConditionCode.ErrorElement"/> and <c>DAV:href</c> tags pointing
-  /// to the related locked resources.
+  /// <summary>Writes the <see cref="ConditionCode.ErrorElement"/> containing <c>DAV:href</c> tags pointing to the related locked
+  /// resources.
   /// </summary>
-  protected internal override void WriteErrorElement(XmlWriter writer)
+  protected override void WriteErrorElement(XmlWriter writer)
   {
-    writer.WriteStartElement(Names.error);
     writer.WriteStartElement(ErrorElement);
     foreach(Uri uri in resourceUrls) writer.WriteElementString(Names.href, uri.ToString());
-    writer.WriteEndElement();
     writer.WriteEndElement();
   }
 
@@ -204,89 +213,95 @@ public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
 public static class ConditionCodes
 {
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 502 Bad Gateway status code.</summary>
-  public readonly static ConditionCode BadGateway = new ConditionCode(HttpStatusCode.BadGateway);
+  public static readonly ConditionCode BadGateway = new ConditionCode(HttpStatusCode.BadGateway);
 
   /// <summary>The DAV:cannot-modify-protected-property precondition, used when a PROPPATCH request attempts to modify a protected
   /// property.
   /// </summary>
-  public readonly static ConditionCode CannotModifyProtectedProperty =
+  public static readonly ConditionCode CannotModifyProtectedProperty =
     new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("cannot-modify-protected-property", Names.DAV),
                       "An attempt was made to set a protected property.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 409 Conflict status code.</summary>
-  public readonly static ConditionCode Conflict = new ConditionCode(HttpStatusCode.Conflict);
+  public static readonly ConditionCode Conflict = new ConditionCode(HttpStatusCode.Conflict);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 201 Created status code.</summary>
-  public readonly static ConditionCode Created = new ConditionCode(HttpStatusCode.Created);
+  public static readonly ConditionCode Created = new ConditionCode(HttpStatusCode.Created);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 424 Failed Dependency status code.</summary>
-  public readonly static ConditionCode FailedDependency = new ConditionCode(424);
+  public static readonly ConditionCode FailedDependency = new ConditionCode(424);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 403 Forbidden status code.</summary>
-  public readonly static ConditionCode Forbidden = new ConditionCode(HttpStatusCode.Forbidden);
+  public static readonly ConditionCode Forbidden = new ConditionCode(HttpStatusCode.Forbidden);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 507 Insufficient Storage status code.</summary>
-  public readonly static ConditionCode InsufficientStorage = new ConditionCode(507);
+  public static readonly ConditionCode InsufficientStorage = new ConditionCode(507);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 423 Locked status code. It is generally better to use the more specific
   /// <see cref="LockTokenSubmittedConditionCode"/> and <see cref="NoConflictingLockConditionCode"/> condition codes.
   /// </summary>
-  public readonly static ConditionCode Locked = new ConditionCode(423);
+  public static readonly ConditionCode Locked = new ConditionCode(423);
 
   /// <summary>The DAV:lock-token-matches-request-uri precondition, used when the request URL does not lie within the scope of the lock
   /// token submitted in the <c>Lock-Token</c> header.
   /// </summary>
-  public readonly static ConditionCode LockTokenMatchesRequestUri =
+  public static readonly ConditionCode LockTokenMatchesRequestUri =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", Names.DAV),
       "The request URI does not fall within the scope of the lock token.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 405 Method Not Allowed status code.</summary>
-  public readonly static ConditionCode MethodNotAllowed = new ConditionCode(HttpStatusCode.MethodNotAllowed);
+  public static readonly ConditionCode MethodNotAllowed = new ConditionCode(HttpStatusCode.MethodNotAllowed);
 
   /// <summary>The DAV:no-conflicting-lock precondition, used when a LOCK request fails due to the presence of a preexisting, conflicting
   /// lock. The condition code represented by this field does not provide the URL of the resource with the conflicting lock. If known, you
   /// should construct and use a <see cref="NoConflictingLockConditionCode"/> instead.
   /// </summary>
-  public readonly static ConditionCode NoConflictingLock = new NoConflictingLockConditionCode();
+  public static readonly ConditionCode NoConflictingLock = new NoConflictingLockConditionCode();
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 204 No Content status code.</summary>
-  public readonly static ConditionCode NoContent = new ConditionCode(HttpStatusCode.NoContent);
+  public static readonly ConditionCode NoContent = new ConditionCode(HttpStatusCode.NoContent);
 
   /// <summary>The DAV:no-external-entities precondition, used when a request body contains an external XML entity and the server does not
   /// allow that.
   /// </summary>
-  public readonly static ConditionCode NoExternalEntities =
+  public static readonly ConditionCode NoExternalEntities =
     new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("no-external-entities", Names.DAV),
                       "This server does not allow external XML entities.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 404 Not Found status code.</summary>
-  public readonly static ConditionCode NotFound = new ConditionCode(HttpStatusCode.NotFound);
+  public static readonly ConditionCode NotFound = new ConditionCode(HttpStatusCode.NotFound);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 501 Not Implemented status code.</summary>
+  public static readonly ConditionCode NotImplemented = new ConditionCode(HttpStatusCode.NotImplemented);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 200 OK status code.</summary>
-  public readonly static ConditionCode OK = new ConditionCode(HttpStatusCode.OK);
+  public static readonly ConditionCode OK = new ConditionCode(HttpStatusCode.OK);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 412 Precondition Failed status code.</summary>
-  public readonly static ConditionCode PreconditionFailed = new ConditionCode(HttpStatusCode.PreconditionFailed);
+  public static readonly ConditionCode PreconditionFailed = new ConditionCode(HttpStatusCode.PreconditionFailed);
 
   /// <summary>The DAV:preserved-live-properties postcondition, used when a COPY or MOVE request is unable to maintain one or more live
   /// properties with the same behavior and semantics at the destination.
   /// </summary>
-  public readonly static ConditionCode PreservedLiveProperties =
+  public static readonly ConditionCode PreservedLiveProperties =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("preserved-live-properties", Names.DAV),
                       "The server received a valid COPY or MOVE request, but was unable to preserve all of the live properties at the " +
                       "destination.");
 
   /// <summary>The DAV:propfind-finite-depth precondition, used when an infinite-depth PROPFIND request is not supported by a collection.</summary>
-  public readonly static ConditionCode PropFindFiniteDepth =
+  public static readonly ConditionCode PropFindFiniteDepth =
     new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("propfind-finite-depth", Names.DAV),
                       "This server does not allow infinite-depth PROPFIND requests on this collection.");
 
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 416 Requested Range Not Satisfiable status code.</summary>
+  public static readonly ConditionCode RequestedRangeNotSatisfiable = new ConditionCode(HttpStatusCode.RequestedRangeNotSatisfiable);
+
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 401 Unauthorized status code.</summary>
-  public readonly static ConditionCode Unauthorized = new ConditionCode(HttpStatusCode.Unauthorized);
+  public static readonly ConditionCode Unauthorized = new ConditionCode(HttpStatusCode.Unauthorized);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 415 Unsupported Media Type status code.</summary>
-  public readonly static ConditionCode UnsupportedMediaType = new ConditionCode(HttpStatusCode.UnsupportedMediaType);
+  public static readonly ConditionCode UnsupportedMediaType = new ConditionCode(HttpStatusCode.UnsupportedMediaType);
 }
 #endregion
 
-} // namespace HiA.WebDAV
+} // namespace HiA.WebDAV.Server

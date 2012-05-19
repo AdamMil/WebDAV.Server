@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Configuration;
 using HiA.Configuration;
 
-namespace HiA.WebDAV.Configuration
+namespace HiA.WebDAV.Server.Configuration
 {
 
 #region AuthorizationFilterCollection
@@ -114,9 +114,15 @@ public sealed class LocationElement : ConfigurationElement
   }
 
   /// <summary>Gets a collection of additional parameters for the <see cref="IWebDAVService"/>.</summary>
-  public ParameterCollection Parameters
+  public ParameterCollection Parameters { get; private set; }
+
+  /// <summary>Gets whether the location should serve OPTIONS requests to the root of the server even if it would not normally serve the
+  /// root. This option is provided as a workaround for WebDAV clients that incorrectly submit OPTIONS requests to the root of the server.
+  /// </summary>
+  [ConfigurationProperty("serveRootOptions", DefaultValue=false), TypeConverter(typeof(BooleanConverter))]
+  public bool ServeRootOptions
   {
-    get; private set;
+    get { return (bool)this["serveRootOptions"]; }
   }
 
   /// <summary>Gets the type implementing the <see cref="IWebDAVService"/> interface, used to service requests for the location.</summary>
@@ -170,6 +176,13 @@ public sealed class WebDAVSection : ConfigurationSection
     get { return (LocationCollection)this["locations"]; }
   }
 
+  /// <summary>Gets whether to show potentially sensitive error messages when exceptions occur.</summary>
+  [ConfigurationProperty("showSensitiveErrors", DefaultValue=false), TypeConverter(typeof(BooleanConverter))]
+  public bool ShowSensitiveErrors
+  {
+    get { return (bool)this["showSensitiveErrors"]; }
+  }
+
   /// <summary>Gets the <see cref="WebDAVSection"/> containing the WebDAV configuration.</summary>
   public static WebDAVSection Get()
   {
@@ -178,4 +191,4 @@ public sealed class WebDAVSection : ConfigurationSection
 }
 #endregion
 
-} // namespace HiA.WebDAV.Configuration
+} // namespace HiA.WebDAV.Server.Configuration
