@@ -247,7 +247,7 @@ public class GetOrHeadRequest : WebDAVRequest
   /// be "name", "type", "size", or "date" to sort by name, item type, size, or last modification date respectively. The <c>desc</c>
   /// parameter can be "0" or "1" to sort by ascending or descending order, or it can be omitted to sort by the column's default order.
   /// </remarks>
-  public void WriteSimpleIndexHtml(IndexItem[] children)
+  public void WriteSimpleIndexHtml(IEnumerable<IndexItem> children)
   {
     if(children == null) throw new ArgumentNullException();
 
@@ -292,6 +292,7 @@ public class GetOrHeadRequest : WebDAVRequest
     }
 
     // sort the children to put directories first and ensure they're in sorted order
+    IndexItem[] childArray = System.Linq.Enumerable.ToArray(children);
     {
       Comparison<IndexItem> secondComparison; // the comparison to use after files and directories have been separated
       Comparison<IndexItem> thirdComparison = (a, b) => string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
@@ -312,7 +313,7 @@ public class GetOrHeadRequest : WebDAVRequest
         secondComparison = thirdComparison;
         thirdComparison  = null;
       }
-      Array.Sort(children, (a, b) =>
+      Array.Sort(childArray, (a, b) =>
       {
         if(a == b) return 0;
         if(a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
@@ -324,7 +325,7 @@ public class GetOrHeadRequest : WebDAVRequest
 
     // write links to the items
     basePath = HttpUtility.HtmlEncode(Context.ServiceRoot + basePath);
-    foreach(IndexItem item in children)
+    foreach(IndexItem item in childArray)
     {
       if(item == null) throw new ArgumentException("An item was null.");
       string encodedName = HttpUtility.HtmlEncode(item.Name), encodedType = HttpUtility.HtmlEncode(item.Type);

@@ -37,7 +37,7 @@
     <SignAssembly>true</SignAssembly>
   </PropertyGroup>
   <PropertyGroup>
-    <AssemblyOriginatorKeyFile>..\Devkey.snk</AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyFile>..\..\Devkey.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
@@ -71,7 +71,7 @@
     <None Include="Web.config.sample" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\HiA\HiA.csproj">
+    <ProjectReference Include="..\..\HiA\HiA.csproj">
       <Project>{244CD49E-2EBF-4F75-B566-444C5462D980}</Project>
       <Name>HiA</Name>
     </ProjectReference>

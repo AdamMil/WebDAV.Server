@@ -37,7 +37,7 @@ public sealed class HttpModule : IHttpModule
   /// <summary>Represents the configuration of the WebDAV module.</summary>
   sealed class Configuration
   {
-    public Configuration(WebDAVSection config)
+    public Configuration(WebDAVServerSection config)
     {
       Enabled             = config.Enabled;
       ShowSensitiveErrors = config.ShowSensitiveErrors;
@@ -344,8 +344,14 @@ public sealed class HttpModule : IHttpModule
       }
       else if(app.Request.HttpMethod.OrdinalEquals(HttpMethods.MkCol))
       {
-        // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section 9.3.1
-        WriteErrorResponse(app, (int)HttpStatusCode.MethodNotAllowed, "A resource already exists there.");
+        // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section 9.3.1.
+        // this requires adding an Allow header that describes the allowed methods. the easiest way to do that is to process it as though
+        // it was an OPTIONS request, so that's what we'll do
+        ProcessMethod(context, service.CreateOptions(context), request =>
+        {
+          context.RequestResource.Options(request);
+          request.Status = new ConditionCode(HttpStatusCode.MethodNotAllowed, "A resource already exists there.");
+        });
       }
       else if(!context.RequestResource.HandleGenericRequest(context) && !service.HandleGenericRequest(context))
       {
@@ -452,7 +458,7 @@ public sealed class HttpModule : IHttpModule
   }
 
   /// <summary>The configuration of the WebDAV module.</summary>
-  static readonly Configuration config = new Configuration(WebDAVSection.Get());
+  static readonly Configuration config = new Configuration(WebDAVServerSection.Get());
 }
 
 } // namespace HiA.WebDAV.Server
