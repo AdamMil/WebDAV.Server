@@ -158,9 +158,9 @@ public sealed class ParameterCollection : ReadOnlyDictionaryWrapper<string, stri
 }
 #endregion
 
-#region WebDAVSection
+#region WebDAVServerSection
 /// <summary>Implements a <see cref="ConfigurationSection"/> that contains the FlairPoint configuration.</summary>
-public sealed class WebDAVSection : ConfigurationSection
+public sealed class WebDAVServerSection : ConfigurationSection
 {
   /// <summary>Gets whether the WebDAV service should be enabled.</summary>
   [ConfigurationProperty("enabled", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
@@ -183,10 +183,10 @@ public sealed class WebDAVSection : ConfigurationSection
     get { return (bool)this["showSensitiveErrors"]; }
   }
 
-  /// <summary>Gets the <see cref="WebDAVSection"/> containing the WebDAV configuration.</summary>
-  public static WebDAVSection Get()
+  /// <summary>Gets the <see cref="WebDAVServerSection"/> containing the WebDAV configuration.</summary>
+  public static WebDAVServerSection Get()
   {
-    return ConfigurationManager.GetSection("HiA.WebDAV") as WebDAVSection;
+    return ConfigurationManager.GetSection("HiA.WebDAV/server") as WebDAVServerSection;
   }
 }
 #endregion

@@ -83,6 +83,13 @@ public class FileSystemService : WebDAVService
   /// </summary>
   public string RootPath { get; private set; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/MakeCollection/node()" />
+  public override void MakeCollection(MkColRequest request)
+  {
+    // TODO: implement this
+    base.MakeCollection(request);
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
   public override void Options(OptionsRequest request)
   {
@@ -91,7 +98,8 @@ public class FileSystemService : WebDAVService
     // if we allow writes and the OPTIONS request refers to a specific unmapped file...
     if(!IsReadOnly && !request.IsServerQuery && request.Context.RequestPath.EndsWith("/", StringComparison.Ordinal))
     {
-      request.AllowedMethods.Add("PUT"); // then we support the PUT verb to create a new file there
+      request.AllowedMethods.Add(HttpMethods.Put);   // then we support the PUT verb to create a new file there
+      request.AllowedMethods.Add(HttpMethods.MkCol); // and the MKCOL verb to create a new directory there
     }
   }
 
@@ -444,7 +452,7 @@ public class DirectoryResource : FileSystemResource
 
 #region FileResource
 /// <summary>Implements a <see cref="FileSystemResource"/> that represents a file in the filesystem.</summary>
-public sealed class FileResource : FileSystemResource
+public class FileResource : FileSystemResource
 {
   /// <summary>Initializes a new <see cref="FileResource"/>.</summary>
   /// <param name="info">A <see cref="FileInfo"/> representing the file to serve.</param>
@@ -542,7 +550,7 @@ public sealed class FileResource : FileSystemResource
 /// <summary>Implements a <see cref="FileSystemResource"/> that represents a virtual directory containing all of the system's active
 /// drives.
 /// </summary>
-public sealed class FileSystemRootResource : FileSystemResource
+public class FileSystemRootResource : FileSystemResource
 {
   /// <summary>Initializes a new <see cref="FileSystemRootResource"/> at the root of the WebDAV service.</summary>
   public FileSystemRootResource() : this("") { }

@@ -180,7 +180,10 @@
       <remarks>
         This method implements standard <c>GET</c> and <c>HEAD</c> mechanisms. It respects the HTTP <c>Range</c> header and will
         provide partial responses if necessary, including multi-range partial responses. It is capable of working with unseekable streams,
-        although partial responses cannot be provided for unseekable streams if the length is not known.
+        although partial responses cannot be provided for unseekable streams if the length is not known. It provides the
+        <c>Accept-Ranges</c>, <c>Content-Length</c>, <c>Content-Type</c>, and <c>Content-Range</c> headers to the client as necessary. If
+        you want to send additional headers, you must add them to the response before calling this method, as this method disables
+        output buffering before writing the entity body.
       </remarks>
     </WriteStandardResponse>
   </GetOrHeadRequest>
