@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.IO.Compression;
+using System.Net;
+using System.Text.RegularExpressions;
 using System.Web;
 using System.Xml;
 using HiA.IO;
@@ -115,8 +119,146 @@ public sealed class WebDAVContext
     Response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
 
     // TODO: we remove Indent and IndentChars unless we can easily preserve whitespace in property values
-    XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = false, Indent = true, IndentChars = "\t" };
-    return new MultiStatusResponse(XmlWriter.Create(Response.OutputStream, settings), namespaces);
+    XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = true, Indent = true, IndentChars = "\t" };
+    return new MultiStatusResponse(XmlWriter.Create(OpenResponseBody(), settings), namespaces);
+  }
+
+  /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
+  /// when you are done reading from it.
+  /// </summary>
+  /// <remarks>This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
+  /// cause a <see cref="WebDAVException"/> to be thrown with a 415 Unsupported Media Type status. If you need to support additional
+  /// content encodings, you must do so yourself, using the <see cref="HttpRequest.InputStream"/> directly.
+  /// </remarks>
+  public Stream OpenRequestBody()
+  {
+    Stream stream = Request.InputStream;
+    bool wrappedStream = false;
+
+    // process the Content-Encoding header so that we can decode the content appropriately
+    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[HttpHeaders.ContentEncoding]);
+    if(encodings != null)
+    {
+      bool hadEncoding = false;
+      foreach(string encoding in encodings)
+      {
+        if(!hadEncoding && encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
+        {
+          stream = new GZipStream(stream, CompressionMode.Decompress, true);
+          hadEncoding = wrappedStream = true;
+        }
+        else if(!hadEncoding && encoding.Equals("deflate", StringComparison.OrdinalIgnoreCase))
+        {
+          stream = new DeflateStream(stream, CompressionMode.Decompress, true);
+          hadEncoding = wrappedStream = true;
+        }
+        else if(!hadEncoding && encoding.Equals("identity", StringComparison.OrdinalIgnoreCase)) // identity means no encoding
+        {
+          hadEncoding = true;
+        }
+        else
+        {
+          throw new WebDAVException(new ConditionCode(HttpStatusCode.UnsupportedMediaType,
+                                                      "Unsupported or multiple content encoding: " + encoding));
+        }
+      }
+    }
+
+    return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/node()" />
+  public Stream OpenResponseBody()
+  {
+    return OpenResponseBody(true);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/node()" />
+  /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
+  /// it's preferred by the client. Otherwise, only the uncompressed <c>identity</c> encoding can be chosen.
+  /// </param>
+  public Stream OpenResponseBody(bool enableCompression)
+  {
+    Stream stream = Response.OutputStream;
+    bool wrappedStream = false;
+
+    // parse the Accept-Encoding header so that we can encode the content appropriately (see RFC 2616 section 14.3)
+    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[HttpHeaders.AcceptEncoding]);
+    if(encodings != null)
+    {
+      List<Accept> acceptedEncodings = new List<Accept>();
+      int starIndex = -1; // the index of the * pseudo-encoding, or -1 if it was not submitted
+      for(int i=0; i<encodings.Length; i++)
+      {
+        Accept acceptable = new Accept(encodings[i].ToLowerInvariant());
+        if(acceptable.Name.OrdinalEquals("*")) starIndex = i;
+        acceptedEncodings.Add(acceptable);
+      }
+
+      // if the * encoding was given, expand it
+      if(starIndex != -1)
+      {
+        bool hasGzip = false, hasDeflate = false, hasIdentity = false;
+        foreach(Accept acceptable in acceptedEncodings)
+        {
+          if(!hasGzip && acceptable.Name.OrdinalEquals("gzip")) hasGzip = true;
+          else if(!hasDeflate && acceptable.Name.OrdinalEquals("deflate")) hasDeflate = true;
+          else if(!hasIdentity && acceptable.Name.OrdinalEquals("identity")) hasIdentity = true;
+        }
+
+        float preference = acceptedEncodings[starIndex].Preference;
+        if(!hasGzip) acceptedEncodings.Add(new Accept("gzip", preference));
+        if(!hasDeflate) acceptedEncodings.Add(new Accept("deflate", preference));
+        if(!hasIdentity) acceptedEncodings.Add(new Accept("identity", preference));
+      }
+
+      // sort the encodings by preference, putting the most-preferred ones first
+      acceptedEncodings.Sort((a, b) =>
+      {
+        int cmp = b.Preference.CompareTo(a.Preference);
+        if(cmp == 0) cmp = GetDefaultPreference(b.Name).CompareTo(GetDefaultPreference(a.Name));
+        return cmp;
+      });
+
+      string encoding = "identity"; // the identity encoding is assumed to always be available unless it's explicitly disallowed
+      foreach(Accept acceptable in acceptedEncodings)
+      {
+        string name = acceptable.Name;
+        if(acceptable.Preference != 0) // if the encoding is allowed...
+        {
+          if(name.OrdinalEquals("gzip") || name.OrdinalEquals("deflate") || name.OrdinalEquals("identity"))
+          {
+            encoding = name; // use it
+            break;
+          }
+        }
+        else if(name.OrdinalEquals("identity")) // otherwise, if identity is disallowed...
+        {
+          encoding = null; // we can't use it
+          break;
+        }
+      }
+
+      if(encoding == null)
+      {
+        throw new WebDAVException(new ConditionCode(HttpStatusCode.NotAcceptable,
+                                                    "No content encoding supported by the server was acceptable to the client."));
+      }
+      else if(encoding.OrdinalEquals("gzip"))
+      {
+        stream = new GZipStream(stream, CompressionMode.Compress, true);
+        wrappedStream = true;
+      }
+      else if(encoding.OrdinalEquals("deflate"))
+      {
+        stream = new DeflateStream(stream, CompressionMode.Compress, true);
+        wrappedStream = true;
+      }
+
+      if(wrappedStream) Response.Headers[HttpHeaders.ContentEncoding] = encoding;
+    }
+
+    return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
   }
 
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>
@@ -131,11 +273,41 @@ public sealed class WebDAVContext
   public string ReadRequestText()
   {
     // use a DelegateStream to prevent the StreamReader from closing the HTTP request stream
-    using(StreamReader reader = new StreamReader(new DelegateStream(Request.InputStream, false), Request.ContentEncoding))
-    {
-      return reader.ReadToEnd();
-    }
+    using(StreamReader reader = new StreamReader(OpenRequestBody(), Request.ContentEncoding)) return reader.ReadToEnd();
   }
+
+  #region Accept
+  /// <summary>Represents an HTTP token and qvalue from an Accept-* header.</summary>
+  struct Accept
+  {
+    public Accept(string headerValue)
+    {
+      Name       = headerValue;
+      Preference = 0.5f;
+
+      Match m = acceptRe.Match(headerValue);
+      if(m.Success)
+      {
+        Name = m.Groups["token"].Value;
+        if(m.Groups["q"].Success) Preference = float.Parse(m.Groups["q"].Value, CultureInfo.InvariantCulture);
+      }
+    }
+
+    public Accept(string name, float preference)
+    {
+      Name       = name;
+      Preference = preference;
+    }
+
+    public string Name;
+    public float Preference;
+
+    // note: this regular expression doesn't match all valid encodings, because tokens can contain more than letters. however, it matches
+    // all of the encodings that we support (i.e. gzip, deflate, and identity, and the * pseudo-encoding)
+    static readonly Regex acceptRe = new Regex(@"^(?<token>\*|[A-Za-z]+)(?:;q=(?<q>\d(?:\.\d+)?)(?:;.*)?)?$",
+                                               RegexOptions.Compiled | RegexOptions.ECMAScript);
+  }
+  #endregion
 
   #region RestrictiveResolver
   /// <summary>Implements an <see cref="XmlResolver"/> that disallows external entities.</summary>
@@ -156,6 +328,15 @@ public sealed class WebDAVContext
     public static readonly RestrictiveResolver Instance = new RestrictiveResolver();
   }
   #endregion
+
+  /// <summary>Returns a default preference value for a content encoding.</summary>
+  static int GetDefaultPreference(string encoding)
+  {
+    if(encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase)) return 3;
+    else if(encoding.Equals("deflate", StringComparison.OrdinalIgnoreCase)) return 2;
+    else if(encoding.Equals("identity", StringComparison.OrdinalIgnoreCase)) return 1;
+    else return 0;
+  }
 }
 
 } // namespace HiA.WebDAV.Server

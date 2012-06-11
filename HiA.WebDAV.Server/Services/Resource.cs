@@ -11,6 +11,8 @@ namespace HiA.WebDAV.Server
 /// </remarks>
 public interface IWebDAVResource : ISupportAuthorization
 {
+  // TODO: we no longer really use the CanonicalPath within the core system (having switched to using the RequestPath instead). if we don't
+  // find a new use for it (e.g. adding it to a Location header), we should remove the property from the interface
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   string CanonicalPath { get; }
 
@@ -66,7 +68,12 @@ public abstract class WebDAVResource : IWebDAVResource
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
-  public abstract void Options(OptionsRequest request);
+  /// <remarks>The default implementation returns options suitable for read-only access to the resource, including the use of <c>GET</c>
+  /// and <c>PROPFIND</c> methods, but excluding support for locking or writing.
+  /// </remarks>
+  public virtual void Options(OptionsRequest request)
+  {
+  }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   public abstract void PropFind(PropFindRequest request);

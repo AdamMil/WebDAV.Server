@@ -40,6 +40,38 @@ public class ConditionCode
   /// </summary>
   public XmlQualifiedName ErrorElement { get; private set; }
 
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 4xx client error code.</summary>
+  public bool IsClientError
+  {
+    get { return StatusCode >= 400 && StatusCode < 500; }
+  }
+
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 1xx information code.</summary>
+  public bool IsInformational
+  {
+    get { return StatusCode < 200 && StatusCode >= 100; }
+  }
+
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 3xx redirection code. Note that this does not necessarily indicate a typical
+  /// 301 Moved Permanently code, but can be any 3xx code, including 304 Not Modified which is a redirection in name only.
+  /// </summary>
+  public bool IsRedirection
+  {
+    get { return StatusCode < 200 && StatusCode >= 100; }
+  }
+
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 5xx server error code.</summary>
+  public bool IsServerError
+  {
+    get { return StatusCode >= 500 && StatusCode < 600; }
+  }
+
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 2xx success code.</summary>
+  public bool IsSuccessful
+  {
+    get { return StatusCode < 300 && StatusCode >= 200; }
+  }
+
   /// <summary>Gets the additional description of the result, which will be rendered in the <c>DAV:responsedescription</c> element, or null
   /// if no <c>DAV:responsedescription</c> element should be sent to the client.
   /// </summary>
@@ -268,11 +300,17 @@ public static class ConditionCodes
     new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("no-external-entities", Names.DAV),
                       "This server does not allow external XML entities.");
 
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 406 Not Acceptable status code.</summary>
+  public static readonly ConditionCode NotAcceptable = new ConditionCode(HttpStatusCode.NotAcceptable);
+
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 404 Not Found status code.</summary>
   public static readonly ConditionCode NotFound = new ConditionCode(HttpStatusCode.NotFound);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 501 Not Implemented status code.</summary>
   public static readonly ConditionCode NotImplemented = new ConditionCode(HttpStatusCode.NotImplemented);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 304 Not Modified status code.</summary>
+  public static readonly ConditionCode NotModified = new ConditionCode(HttpStatusCode.NotModified);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 200 OK status code.</summary>
   public static readonly ConditionCode OK = new ConditionCode(HttpStatusCode.OK);

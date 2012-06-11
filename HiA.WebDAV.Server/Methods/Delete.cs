@@ -41,12 +41,6 @@ public class DeleteRequest : WebDAVRequest
   /// </summary>
   public FailedMemberCollection FailedMembers { get; private set; }
 
-  /// <summary>Gets or sets the <see cref="ConditionCode"/> representing the overall result of the deletion request. If
-  /// <see cref="FailedMembers"/> is not empty, a 207 Multi-Status response will be sent instead of using the status from this property.
-  /// Otherwise, if the status is null, the deletion is assumed to have been successful and <see cref="ConditionCodes.NoContent"/> is used.
-  /// </summary>
-  public ConditionCode Status { get; set; }
-
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
@@ -59,7 +53,7 @@ public class DeleteRequest : WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   /// <remarks>The default implementation writes a multi-status response if <see cref="FailedMembers"/> is not empty, and outputs a
-  /// response based on <see cref="Status"/> otherwise.
+  /// response based on <see cref="WebDAVRequest.Status"/> otherwise.
   /// </remarks>
   protected internal override void WriteResponse()
   {
