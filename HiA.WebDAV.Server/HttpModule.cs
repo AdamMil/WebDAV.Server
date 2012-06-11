@@ -12,8 +12,8 @@ using HiA.WebDAV.Server.Configuration;
 // a list of legal methods, but it would be nontrivial to construct such a header...
 
 // TODO: look into Microsoft's WebDAV extensions
-
 // TODO: add POST support
+// TODO: support the Expects header (RFC 2616 section 14.20) if IIS doesn't do it for us
 
 namespace HiA.WebDAV.Server
 {

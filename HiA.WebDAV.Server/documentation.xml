@@ -138,6 +138,31 @@
     </ResolveResource>
   </IWebDAVService>
 
+  <WebDAVContext>
+    <OpenRequestBody>
+      <summary>
+        Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
+        when you are done reading from it.
+      </summary>
+      <remarks>
+        This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
+        cause a <see cref="WebDAVException"/> to be thrown with a 415 Unsupported Media Type status. If you need to support additional
+        content encodings, you must do so yourself, using the <see cref="HttpRequest.InputStream"/> directly.
+      </remarks>
+    </OpenRequestBody>
+    <OpenResponseBody>
+      <summary>
+        Returns the response stream after encoding it according to the <c>Accept-Encoding</c> header. The returned stream should be
+        closed when you are done writing to it.
+      </summary>
+      <remarks>
+        This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
+        cause a <see cref="WebDAVException"/> to be thrown with a 406 Not Acceptable status. If you need to support additional content
+        encodings, you must do so yourself, using the <see cref="HttpResponse.OutputStream"/> directly.
+      </remarks>
+    </OpenResponseBody>
+  </WebDAVContext>
+
   <WebDAVRequest>
     <ParseRequest>
       <summary>Parses and validates the request.</summary>
@@ -167,24 +192,85 @@
       </Cons>
     </IndexItem>
     <WriteStandardResponse>
-      <summary>
-        Writes a typical response to a <c>GET</c> or <c>HEAD</c> request.
-      </summary>
-      <param name="entityBody">A <see cref="Stream"/> containing the entity body.</param>
-      <param name="entityLength">
-        The length of the entity body, or -1 if unknown. (If the stream is seekable, the length of the stream will be used.)
-      </param>
-      <param name="contentType">
-        The RFC 2616 <c>media-type</c> of the entity. If null, no media type will be sent to the client.
+      <summary>Writes a typical response to a <c>GET</c> or <c>HEAD</c> request.</summary>
+      <param name="entityBody">A <see cref="Stream"/> containing the entity body. It is best if the stream is seekable.</param>
+      <param name="mediaType">The RFC 2616 <c>media-type</c> of the entity. If null, no media type will be sent to the client.</param>
+      <param name="metadata">
+        Metadata about the entity body. As much information should be provided as possible. If <see cref="EntityMetadata.MediaType"/> is
+        null, no media type will be sent to the client. If <see cref="EntityMetadata.Length"/> is null, the length will be taken from
+        <paramref name="entityBody"/> if the stream is seekable. If <see cref="EntityMetadata.EntityTag"/> is null, an entity tag will be
+        taken from the <c>ETag</c> header if it has been set or computed from the stream (using
+        <see cref="DAVUtility.ComputeDefaultEntityTag"/>) if the stream is seekable. If <see cref="EntityMetadata.LastModifiedTime"/>
+        is null, the last modification time will be taken from the <c>Last-Modified</c> header if it has been set. If the entity tag or
+        last modification time is unavailable, request preconditions (e.g. <c>If-Match</c> or <c>If-Unmodified-Since</c> headers) cannot be
+        processed correctly, but the method will attempt to do the best it can with the available information.
       </param>
       <remarks>
         This method implements standard <c>GET</c> and <c>HEAD</c> mechanisms. It respects the HTTP <c>Range</c> header and will
-        provide partial responses if necessary, including multi-range partial responses. It is capable of working with unseekable streams,
-        although partial responses cannot be provided for unseekable streams if the length is not known. It provides the
-        <c>Accept-Ranges</c>, <c>Content-Length</c>, <c>Content-Type</c>, and <c>Content-Range</c> headers to the client as necessary. If
-        you want to send additional headers, you must add them to the response before calling this method, as this method disables
-        output buffering before writing the entity body.
+        provide partial responses if necessary, including multi-range partial responses. It uses
+        <see cref="DAVUtility.ComputeDefaultEntityTag" /> to compute the entity tag of the body when possible. It is capable of working
+        with unseekable streams, although partial responses cannot be provided for unseekable streams if the length is not known, and the
+        entity tag cannot be automatically computed for unseekable streams. It provides the <c>Accept-Ranges</c>, <c>Content-Length</c>,
+        <c>Content-Range</c>, <c>Content-Type</c>, <c>ETag</c>, and <c>Last-Modified</c> headers to the client as appropriate. If you want
+        to send additional headers, you must add them to the response before calling this method, as the method may disable output
+        buffering before writing the entity body.
       </remarks>
     </WriteStandardResponse>
   </GetOrHeadRequest>
+
+  <PropFindRequest>
+    <ProcessStandardRequest>
+      <summary>
+        Implements standard <c>PROPFIND</c> processing for a non-collection resource, given a dictionary containing all of the
+        resource's properties.
+      </summary>
+      <param name="properties">
+        A dictionary containing all of the properties for the request resource. Live properties that are expensive
+        to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
+        <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
+        be null).
+      </param>
+    </ProcessStandardRequest>
+    <ProcessStandardRequestRec>
+      <summary>Implements standard <c>PROPFIND</c> processing for a collection resource.</summary>
+      <typeparam name="T">A value type representing the resources to be processed.</typeparam>
+      <param name="rootValue">
+        The value of the initial value being processed, which should correspond to the request resource. This
+        parameter is not directly interpreted by the method, but is passed to <paramref name="getChildren"/>, etc.
+      </param>
+      <param name="getMemberName">
+        Given a value representing a resource, returns the canonical name of the path segment that maps to the resource within the
+        collection. If the resource is the request resource itself, an empty string should be returned. Otherwise, if the resource is a
+        child collection, the member name should end with a trailing slash.
+      </param>
+      <param name="getProperties">
+        Given a value representing a resource, returns a dictionary containing all of the resource's properties.
+        Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
+        <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
+        case, the property values are ignored and can be null).
+      </param>
+      <param name="getChildren">
+        Given a value representing a resource, returns the values representing the resource's children, if any. If
+        null, the root resource will be processed as though it was a non-collection resource. It is valid for the delegate to return null
+        for non-collection resources, as a null return will be interpreted to mean that the resource has no children.
+      </param>
+      <remarks>
+        The URLs returned to the client will be based on the <see cref="WebDAVContext.RequestPath"/> rather than the request resource's
+        <see cref="IWebDAVResource.CanonicalPath" />. This allows resources from one part of the URL namespace to be linked within a
+        collection that resides in another part of the URL namespace, if desired.
+      </remarks>
+    </ProcessStandardRequestRec>
+  </PropFindRequest>
+
+  <PropFindResource>
+    <SetValueNIRemarks>
+      <remarks>
+        If the property is a built-in WebDAV property (i.e. one defined in RFC 4918), the specified type will be ignored as per RFC 4316
+        which states in section 5 that the property must not have a data type already defined in the WebDAV specification.
+        If the value is not null and the property data type is known, the value will be validated against the the data type. Currently, the
+        known property types are the types of built-in WebDAV properties as well as most types defined in the
+        <c>http://www.w3.org/2001/XMLSchema</c> namespace (e.g. xs:boolean, xs:int, etc).
+      </remarks>
+    </SetValueNIRemarks>
+  </PropFindResource>
 </DAV>

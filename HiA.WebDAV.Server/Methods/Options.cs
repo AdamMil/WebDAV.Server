@@ -128,10 +128,15 @@ public class OptionsRequest : SimpleRequest
   protected bool OutOfScope { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
+  /// <remarks>The default implementation </remarks>
   protected internal override void WriteResponse()
   {
-    // report partial GET support (but only if the request is in the service's scope)
-    if(!OutOfScope) Context.Response.AddHeader("Accept-Ranges", AllowPartialGet ? "bytes" : "none"); // see RFC 2616 section 14.5
+    // report support for encoded bodies and partial transfers (but only if the request is in the service's scope)
+    if(!OutOfScope)
+    {
+      Context.Response.Headers[HttpHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
+      Context.Response.Headers[HttpHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 2616 section 14.5
+    }
 
     if(IsDAVCompliant || AllowedMethods.Count != 0)
     {
@@ -161,7 +166,7 @@ public class OptionsRequest : SimpleRequest
           if(sb.Length != 0) sb.Append(", ");
           sb.Append(method);
         }
-        Context.Response.AddHeader("Allow", sb.ToString());
+        Context.Response.AppendHeader("Allow", sb.ToString());
       }
 
       // get the level of DAV compliance and write the DAV header. we'll do this even if the request is out of scope. (in fact, writing
@@ -176,13 +181,13 @@ public class OptionsRequest : SimpleRequest
         {
           foreach(string extension in SupportedExtensions) sb.Append(", ").Append(extension);
         }
-        Context.Response.AddHeader("DAV", sb.ToString());
+        Context.Response.AppendHeader("DAV", sb.ToString());
 
         // the Microsoft Web Folder client prefers to use the Frontend protocol so much that it may refuse to use WebDAV unless we
         // add a special header
         if(Context.Request.UserAgent != null && Context.Request.UserAgent.StartsWith("Microsoft ", StringComparison.Ordinal))
         {
-          Context.Response.AddHeader("MS-Author-Via", "DAV");
+          Context.Response.Headers["MS-Author-Via"] = "DAV";
         }
       }
     }

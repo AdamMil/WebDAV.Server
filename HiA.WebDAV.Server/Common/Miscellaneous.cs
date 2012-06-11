@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web;
 using System.Xml;
 
@@ -10,6 +12,117 @@ using System.Xml;
 
 namespace HiA.WebDAV.Server
 {
+
+#region ContentRange
+/// <summary>Represents a value from the HTTP <c>Content-Range</c> header.</summary>
+public sealed class ContentRange
+{
+  /// <summary>Initializes a new <see cref="ContentRange"/> that represents an entire entity body of any length.</summary>
+  public ContentRange()
+  {
+    Start       = -1;
+    Length      = -1;
+    TotalLength = -1;
+  }
+
+  /// <summary>Initializes a new <see cref="ContentRange"/> from an HTTP <c>Content-Range</c> header value.</summary>
+  public ContentRange(string headerValue)
+  {
+    long start, length, totalLength;
+    if(!TryParse(headerValue, out start, out length, out totalLength)) throw new FormatException();
+    Start       = start;
+    Length      = length;
+    TotalLength = totalLength;
+  }
+
+  /// <summary>Initializes a new <see cref="ContentRange"/> that represents an entire entity body of the given length.</summary>
+  public ContentRange(long totalLength)
+  {
+    if(totalLength < 0) throw new ArgumentOutOfRangeException();
+    Start       = -1;
+    Length      = -1;
+    TotalLength = totalLength;
+  }
+
+  /// <summary>Initializes a new <see cref="ContentRange"/> that represents the given range within an entity body.</summary>
+  public ContentRange(long start, long length)
+  {
+    if(start < 0 || length < 0 || start + length < 0) throw new ArgumentOutOfRangeException();
+    Start       = start;
+    Length      = length;
+    TotalLength = -1;
+  }
+
+  /// <summary>Initializes a new <see cref="ContentRange"/> that represents the given range within an entity body of the given length.</summary>
+  public ContentRange(long start, long length, long totalLength)
+  {
+    long end = start + length;
+    if(start < 0 || length < 0 || totalLength < 0 || end < 0 || end > totalLength) throw new ArgumentOutOfRangeException();
+    Start       = start;
+    Length      = length;
+    TotalLength = totalLength;
+  }
+
+  /// <summary>Gets the start of the range within the entity body, or -1 if entire entity body is referenced.</summary>
+  public long Start { get; private set; }
+
+  /// <summary>Gets the length of the range within the entity body, or -1 if the entire entity body is referenced.</summary>
+  public long Length { get; private set; }
+
+  /// <summary>Gets the total length of the entity body, or -1 if the total length is unspecified.</summary>
+  public long TotalLength { get; private set; }
+
+  /// <summary>Returns a string suitable for an HTTP <c>Content-Range</c> value.</summary>
+  public string ToHeaderString()
+  {
+    return "bytes " + (Start == -1 ? "*" : Start.ToInvariantString() + "-" + (Start+Length-1).ToInvariantString()) + "/" +
+           (TotalLength == -1 ? "*" : TotalLength.ToInvariantString());
+  }
+
+  /// <summary>Attempts to parse an HTTP <c>Content-Range</c> header value and return the <see cref="ContentRange"/> object representing
+  /// it. If the value could not be parsed, null will be returned.
+  /// </summary>
+  public static ContentRange TryParse(string headerValue)
+  {
+    long start, length, totalLength;
+    if(!TryParse(headerValue, out start, out length, out totalLength)) return null;
+
+    return totalLength == -1 ? start == -1 ? new ContentRange() : new ContentRange(start, length)
+                              : start == -1 ? new ContentRange(totalLength) : new ContentRange(start, length, totalLength);
+  }
+
+  static bool TryParse(string headerValue, out long start, out long length, out long totalLength)
+  {
+    start       = -1;
+    length      = -1;
+    totalLength = -1;
+
+    Match m = rangeRe.Match(headerValue);
+    if(!m.Success) return false;
+
+    if(m.Groups["s"].Success)
+    {
+      long end;
+      if(!long.TryParse(m.Groups["s"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out start) ||
+          !long.TryParse(m.Groups["e"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out end) || start > end)
+      {
+        return false;
+      }
+      length = end - start + 1;
+    }
+
+    if(m.Groups["L"].Success && !long.TryParse(m.Groups["L"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out totalLength))
+    {
+      return false;
+    }
+
+    return true;
+  }
+
+  static readonly Regex rangeRe = new Regex(@"^\s*bytes (?:\*|(?<s>\d+)-(?<e>\d+))/(?:\*|(?<L>\d+))\s*$",
+                                            RegexOptions.Compiled | RegexOptions.ECMAScript);
+}
+#endregion
 
 #region DAVUtility
 /// <summary>Contains useful utilities for DAV services.</summary>
@@ -45,6 +158,15 @@ public static class DAVUtility
     }
 
     return path;
+  }
+
+  /// <summary>Computes an entity tag by hashing the given entity body. The entity body stream is not rewound before or after computing
+  /// the entity tag.
+  /// </summary>
+  public static EntityTag ComputeDefaultEntityTag(Stream entityBody)
+  {
+    if(entityBody == null) throw new ArgumentNullException();
+    return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false);
   }
 
   /// <summary>Gets the canonical message corresponding to an HTTP status code, or the message for the given status code is unknown.</summary>
@@ -84,6 +206,19 @@ public static class DAVUtility
     return new string(chars);
   }
 
+  /// <summary>Converts the given date time to UTC and truncates it to one-second precision as necessary. This produces a
+  /// <see cref="DateTime"/> value that can be compared with other <c>HTTP-date</c> values.
+  /// </summary>
+  internal static DateTime GetHttpDate(DateTime dateTime)
+  {
+    // HTTP dates are in UTC, so convert the last modified time to UTC as well. also, round the timestamp down to the nearest second
+    // because HTTP dates only have one-second precision and DateTime.ToString("R") also truncates downward
+    if(dateTime.Kind == DateTimeKind.Local) dateTime = dateTime.ToUniversalTime();
+    long subsecondTicks = dateTime.Ticks % TimeSpan.TicksPerSecond;
+    if(subsecondTicks != 0) dateTime = dateTime.AddTicks(-subsecondTicks);
+    return dateTime;
+  }
+
   /// <summary>Encodes an ASCII string as an RFC 2616 <c>quoted-string</c> if it has any characters that need encoding.</summary>
   internal static string HeaderEncode(string ascii)
   {
@@ -103,6 +238,44 @@ public static class DAVUtility
     return ascii;
   }
 
+  internal static string[] ParseHttpTokenList(string headerString)
+  {
+    return headerString == null ? null : headerString.Split(',', s => s.Trim(), StringSplitOptions.RemoveEmptyEntries);
+  }
+
+  /// <summary>Attempts to parse an <c>HTTP-date</c> value, as defined in RFC 2616 section 3.3.1.</summary>
+  internal static bool TryParseHttpDate(string value, out DateTime date)
+  {
+    Match m = httpDateRe.Match(value);
+    if(!m.Success)
+    {
+      date = default(DateTime);
+      return false;
+    }
+
+    int year  = int.Parse(m.Groups["y"].Value, CultureInfo.InvariantCulture);
+    int month = months.IndexOf(m.Groups["mon"].Value) + 1;
+    int day   = int.Parse(m.Groups["d"].Value, CultureInfo.InvariantCulture);
+    int hour  = int.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture);
+    int min   = int.Parse(m.Groups["min"].Value, CultureInfo.InvariantCulture);
+    int sec   = int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture);
+
+    if(year < 100) // if we have a two-digit year...
+    {
+      int currentYear = DateTime.UtcNow.Year, century = currentYear - currentYear % 100;
+      year += century; // start by assuming it's within the same century
+      int difference = year - currentYear;
+      if(difference > 50) year -= 100; // if that would put it more than 50 years in the future, then assume it's actually in the past
+      else if(difference < -50) year += 100; // and if that would put it more than 50 years in the past, assume it's actually in the future
+      // (to be really correct we should also take into account months, days, etc. when checking if it'd be more than 50 years away, but
+      // that's not really worth the effort given that no HTTP/1.1-compliant system can generate a two-digit year anyway, and anybody using
+      // ancient or non-compliant software should be prepared to handle varying interpretations of two-digit years when they're ambiguous)
+    }
+
+    date = new DateTime(year, month, day, hour, min, sec, DateTimeKind.Utc); // all HTTP dates are in UTC
+    return true;
+  }
+
   /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
   internal static string QuoteString(string ascii)
   {
@@ -120,6 +293,33 @@ public static class DAVUtility
     return ascii;
   }
 
+  /// <summary>Decodes an HTTP <c>quoted-string</c> given the span of text within the quotation marks.</summary>
+  internal static string UnquoteDecode(string value, int start, int length)
+  {
+    if(value == null) throw new ArgumentNullException();
+    for(int i=start, end=start+length; i<end; i++)
+    {
+      if(value[i] == '\\')
+      {
+        StringBuilder sb = new StringBuilder(length-1);
+        sb.Append(value, start, i-start);
+        do
+        {
+          char c = value[i++];
+          if(c == '\\')
+          {
+            if(i == end) throw new FormatException();
+            c = value[i++];
+          }
+          sb.Append(c);
+        } while(i < end);
+        return sb.ToString();
+      }
+    }
+
+    return value.Substring(start, length);
+  }
+
   /// <summary>Sets the response status code to the given status code and writes an message to the page. This method does not terminate
   /// the request.
   /// </summary>
@@ -129,8 +329,8 @@ public static class DAVUtility
     // callers to check the settings?
     response.StatusCode        = httpStatusCode;
     response.StatusDescription = DAVUtility.GetStatusCodeMessage(httpStatusCode);
-    // write a response body unless the status code is No Content (indicating that there's no body) or there was a message included
-    if(httpStatusCode != (int)HttpStatusCode.NoContent || !string.IsNullOrEmpty(errorText))
+    // write a response body unless the status code disallows it
+    if(CanIncludeBody(httpStatusCode))
     {
       response.ContentType = "text/plain";
       errorText = StringUtility.Combine(". ", response.StatusDescription, errorText);
@@ -152,12 +352,20 @@ public static class DAVUtility
     {
       response.StatusCode        = code.StatusCode;
       response.StatusDescription = DAVUtility.GetStatusCodeMessage(code.StatusCode);
-      response.ContentEncoding   = System.Text.Encoding.UTF8;
-      response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
-
-      XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = false, Indent = true, IndentChars = "\t" };
-      using(XmlWriter writer = XmlWriter.Create(response.OutputStream, settings)) code.WriteErrorXml(writer);
+      if(CanIncludeBody(code.StatusCode))
+      {
+        response.ContentEncoding   = System.Text.Encoding.UTF8;
+        response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
+        XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = false, Indent = true, IndentChars = "\t" };
+        using(XmlWriter writer = XmlWriter.Create(response.OutputStream, settings)) code.WriteErrorXml(writer);
+      }
     }
+  }
+
+  /// <summary>Determines whether the given HTTP status code allows entity bodies.</summary>
+  static bool CanIncludeBody(int statusCode)
+  {
+    return statusCode != (int)HttpStatusCode.NoContent && statusCode != (int)HttpStatusCode.NotModified;
   }
 
   static readonly Dictionary<int, string> statusMessages = new Dictionary<int, string>()
@@ -175,10 +383,124 @@ public static class DAVUtility
     { 500, "Internal Server Error" }, { 501, "Not Implemented" }, { 502, "Bad Gateway" }, { 503, "Service Unavailable" },
     { 504, "Gateway Timeout" }, { 505, "HTTP Version Not Supported" }, { 507, "Insufficient Storage" }
   };
+
+  const string wkdayRe = @"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)";
+  const string monthRe = @"(?<mon>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)";
+  const string timeRe  = @"(?<h>\d\d):(?<min>\d\d):(?<s>\d\d)";
+  const string rfc1123dateRe = wkdayRe + @", (?<d>\d\d) " + monthRe + @" (?<y>\d{4}) " + timeRe + " GMT";
+  const string rfc850dateRe = @"(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, (?<d>\d\d)-" + monthRe + @"-(?<y>\d\d) " + timeRe + " GMT";
+  const string ascdateRe = wkdayRe + " " + monthRe + @" (?<d>[\d ]\d) " + timeRe + @" (?<y>\d{4})";
+  static readonly Regex httpDateRe = new Regex(@"^\s*(?:" + rfc1123dateRe + "|" + rfc850dateRe + "|" + ascdateRe + @")\s*$",
+                                               RegexOptions.Compiled | RegexOptions.ECMAScript);
+  static readonly string[] months = new string[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 }
 #endregion
 
-// TODO: make this public?
+#region EntityTag
+/// <summary>Represents an HTTP entity tag. (See the description of entity tags in RFC 2616 for more details.)</summary>
+public sealed class EntityTag : IElementValue
+{
+  /// <summary>Initializes a new <see cref="EntityTag"/>.</summary>
+  /// <param name="tag">The entity tag. This is an arbitrary string value that represents the state of a resource's content, such that
+  /// identical tag values represent either identical or equivalent content, depending on the value of the <paramref name="isWeak"/>
+  /// parameter.
+  /// </param>
+  /// <param name="isWeak">If false, this represents a strong entity tag, where entities may have the same tag only if they are
+  /// byte-for-byte identical. If true, this represents a weak entity tag, where entities may have the same tag as long as they could be
+  /// swapped with no significant change in semantics.
+  /// </param>
+  public EntityTag(string tag, bool isWeak)
+  {
+    if(tag == null) throw new ArgumentNullException();
+    Tag    = tag;
+    IsWeak = isWeak;
+  }
+
+  /// <summary>Initializes a new <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header.</summary>
+  public EntityTag(string headerValue)
+  {
+    if(headerValue == null) throw new ArgumentNullException();
+    if(headerValue.Length < 2) throw new FormatException();
+    int start = 1;
+    char c = headerValue[0];
+    if(c == 'W') // if the value starts with W/, that indicates a weak entity tag
+    {
+      if(headerValue[1] != '/' || headerValue.Length < 4) throw new FormatException();
+      c = headerValue[2];
+      IsWeak = true;
+      start = 3;
+    }
+
+    if(c != '"' || headerValue[headerValue.Length-1] != '"') throw new FormatException();
+    Tag = DAVUtility.UnquoteDecode(headerValue, start, headerValue.Length - start - 1);
+  }
+
+  /// <summary>Gets the entity tag string.</summary>
+  public string Tag { get; private set; }
+
+  /// <summary>If true, this represents a weak entity tag. If false, it represents a strong entity tag.</summary>
+  public bool IsWeak { get; private set; }
+
+  /// <inheritdoc/>
+  /// <remarks>This method is uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
+  public override bool Equals(object obj)
+  {
+    return StronglyEquals(obj as EntityTag);
+  }
+
+  /// <inheritdoc/>
+  public override int GetHashCode()
+  {
+    return Tag.GetHashCode();
+  }
+
+  /// <summary>Determines whether two entity tags are identical in every way. This is the strong comparison function defined by RFC 2616
+  /// section 13.3.3.
+  /// </summary>
+  public bool StronglyEquals(EntityTag match)
+  {
+    return !IsWeak && match != null && !match.IsWeak && Tag.OrdinalEquals(match.Tag);
+  }
+
+  /// <summary>Gets the value of the entity tag used within the HTTP <c>ETag</c> header as defined by RFC 2616 section 14.19.</summary>
+  public string ToHeaderString()
+  {
+    string value = DAVUtility.QuoteString(Tag);
+    if(IsWeak) value = "W/" + value;
+    return value;
+  }
+
+  /// <summary>Determines whether two entity tags have identical tag strings. (The weakness flasg don't have to match.) This is the weak
+  /// comparison function defined by RFC 2616 section 13.3.3.
+  /// </summary>
+  public bool WeaklyEquals(EntityTag match)
+  {
+    return match != null && Tag.OrdinalEquals(match.Tag);
+  }
+
+  IEnumerable<string> IElementValue.GetNamespaces()
+  {
+    return null;
+  }
+
+  void IElementValue.WriteValue(XmlWriter writer)
+  {
+    writer.WriteString(ToHeaderString());
+  }
+}
+#endregion
+
+// TODO: make these public?
+#region HttpHeaders
+static class HttpHeaders
+{
+  public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", ContentEncoding = "Content-Encoding";
+  public const string ContentLength = "Content-Length", ContentRange = "Content-Range";
+  public const string ETag = "ETag", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
+  public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified", Range = "Range";
+}
+#endregion
+
 #region HttpMethods
 static class HttpMethods
 {

@@ -4,9 +4,9 @@ using System.Globalization;
 using System.Linq;
 using System.Xml;
 
-// TODO: add dead properties, xml data types, etc.
-// TODO: xml:lang support (RFC section 14.26 says xml:lang must be retrievable from PROPFIND)
-// TODO: other stuff from RFC section 4.3
+// TODO: add dead properties, etc.
+// TODO: add or find xml types for guid and other common values that aren't in xs:
+// TODO: other stuff from DAV RFC section 4.3
 // TODO: add a .Status property or something so that processors don't have to throw exceptions if they don't want to handle a request
 
 namespace HiA.WebDAV.Server
@@ -35,45 +35,6 @@ public class ActiveLock
   public ActiveLock()
   {
     throw new NotImplementedException();
-  }
-}
-#endregion
-
-#region EntityTag
-/// <summary>Represents an HTTP entity tag. (See the description of entity tags in RFC 2616 for more details.)</summary>
-public sealed class EntityTag : IElementValue
-{
-  /// <summary>Initializes a new <see cref="EntityTag"/>.</summary>
-  /// <param name="tag">The entity tag. This is an arbitrary string value that represents the state of a resource's content, such that
-  /// identical tag values represent either identical or equivalent content, depending on the value of the <paramref name="isWeak"/>
-  /// parameter.
-  /// </param>
-  /// <param name="isWeak">If false, this represents a strong entity tag, where entities may have the same tag only if they are
-  /// byte-for-byte identical. If true, this represents a weak entity tag, where entities may have the same tag as long as they could be
-  /// swapped with no significant change in semantics.
-  /// </param>
-  public EntityTag(string tag, bool isWeak)
-  {
-    if(tag == null) throw new ArgumentNullException();
-    Tag    = tag;
-    IsWeak = isWeak;
-  }
-
-  /// <summary>Gets the entity tag string.</summary>
-  public string Tag { get; private set; }
-  /// <summary>If true, this represents a weak entity tag. If false, it represents a strong entity tag.</summary>
-  public bool IsWeak { get; private set; }
-
-  IEnumerable<string> IElementValue.GetNamespaces()
-  {
-    return null;
-  }
-
-  void IElementValue.WriteValue(XmlWriter writer)
-  {
-    string value = DAVUtility.QuoteString(Tag);
-    if(IsWeak) value = "W/" + value;
-    writer.WriteString(value);
   }
 }
 #endregion
@@ -184,6 +145,37 @@ public class PropFindRequest : WebDAVRequest
   /// </summary>
   public PropFindResourceCollection Resources { get; private set; }
 
+  /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
+  {
+    if(properties == null) throw new ArgumentNullException();
+    AddResource(Context.RequestPath, properties);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
+  {
+    if(properties == null) throw new ArgumentNullException();
+    AddResource(Context.RequestPath, properties);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
+  public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
+                                        Func<T, IDictionary<XmlQualifiedName, object>> getProperties, Func<T, IEnumerable<T>> getChildren)
+  {
+    if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
+    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, Context.RequestPath, 0);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
+  public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
+                                        Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties,
+                                        Func<T, IEnumerable<T>> getChildren)
+  {
+    if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
+    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, Context.RequestPath, 0);
+  }
+
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
@@ -233,6 +225,12 @@ public class PropFindRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal override void WriteResponse()
   {
+    if(Status != null)
+    {
+      Context.WriteStatusResponse(Status);
+      return;
+    }
+
     // validate the request processing and collect the set of XML namespaces used in the response (DAV: is added automatically)
     HashSet<string> namespaces = new HashSet<string>();
     namespaces.Add(Names.XmlSchemaInstance); // we use xsi:, in xsi:type
@@ -304,9 +302,9 @@ public class PropFindRequest : WebDAVRequest
                   else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
                   else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
                 }
-                else if(value is XmlDuration)
+                else if(value is XmlDuration || value is Guid)
                 {
-                  writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration values
+                  writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
                 }
                 else // in the general case, just use .WriteValue(object) to write the value appropriately
                 {
@@ -345,9 +343,9 @@ public class PropFindRequest : WebDAVRequest
           // IEnumerable<T>, then IEnumerable<T> will still be in the output of type.GetInterfaces()
           foreach(Type iface in type.GetInterfaces())
           {
-            if(iface.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)) // if it's IEnumerable<*> for some *...
+            if(iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>)) // if it's IEnumerable<*> for some *...
             {
-              Type[] typeArgs = type.GetGenericArguments();
+              Type[] typeArgs = iface.GetGenericArguments();
               if(typeArgs.Length == 1 && typeof(IElementValue).IsAssignableFrom(typeArgs[0])) // IEnumerable<T> where T : IElementValue...
               {
                 // then we know this is a value that we should output using IElementValue. note that it's theoretically possible for the
@@ -370,6 +368,116 @@ public class PropFindRequest : WebDAVRequest
     return null;
   }
 
+  /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
+  /// <see cref="Resources"/>.
+  /// </summary>
+  void AddResource(string canonicalPath, IDictionary<XmlQualifiedName, object> properties)
+  {
+    PropFindResource resource = new PropFindResource(canonicalPath);
+    if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
+    {
+      resource.SetNames(properties.Keys); // add them
+    }
+    else // otherwise, the client wants property values
+    {
+      foreach(XmlQualifiedName name in Properties) // add the values of properties that the client explicitly requested
+      {
+        object value;
+        if(properties.TryGetValue(name, out value)) resource.SetValue(name, value);
+        else resource.SetError(name, ConditionCodes.NotFound);
+      }
+
+      if((Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all other properties too...
+      {
+        foreach(KeyValuePair<XmlQualifiedName, object> pair in properties)
+        {
+          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, pair.Value); // add them if we haven't done so already
+        }
+      }
+    }
+
+    Resources.Add(resource);
+  }
+
+  /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
+  /// <see cref="Resources"/>.
+  /// </summary>
+  void AddResource(string canonicalPath, IDictionary<XmlQualifiedName, PropFindValue> properties)
+  {
+    PropFindResource resource = new PropFindResource(canonicalPath);
+    if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
+    {
+      resource.SetNames(properties.Keys); // add them
+    }
+    else // otherwise, the client wants property values
+    {
+      foreach(XmlQualifiedName name in Properties) // add the values of properties that the client explicitly requested
+      {
+        PropFindValue value;
+        if(!properties.TryGetValue(name, out value)) resource.SetError(name, ConditionCodes.NotFound);
+        else resource.SetValue(name, value);
+      }
+
+      if((Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all other properties too...
+      {
+        foreach(KeyValuePair<XmlQualifiedName, PropFindValue> pair in properties)
+        {
+          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, pair.Value); // set the property if we haven't already...
+        }
+      }
+    }
+
+    Resources.Add(resource);
+  }
+
+  /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
+  void ProcessStandardRequest<T>(T resource, Func<T, string> getCanonicalPath,
+                                 Func<T, IDictionary<XmlQualifiedName, object>> getProperties, Func<T, IEnumerable<T>> getChildren,
+                                 string davPath, int depth)
+  {
+    // add the given resource, validating the return values from the delegates first
+    string name = getCanonicalPath(resource);
+    if(name == null) throw new ArgumentException("A member name was null.");
+    IDictionary<XmlQualifiedName,object> properties = getProperties(resource);
+    if(properties == null) throw new ArgumentException("The properties dictionary for " + name + " was null.");
+    davPath += name;
+    AddResource(davPath, properties);
+
+    if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
+    {
+      IEnumerable<T> children = getChildren(resource);
+      if(children != null)
+      {
+        if(davPath.Length != 0 && davPath[davPath.Length-1] != '/') davPath += "/";
+        foreach(T child in children) ProcessStandardRequest(child, getCanonicalPath, getProperties, getChildren, davPath, depth+1);
+      }
+    }
+  }
+
+  /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
+  void ProcessStandardRequest<T>(T resource, Func<T, string> getMemberName,
+                                 Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties, Func<T, IEnumerable<T>> getChildren,
+                                 string davPath, int depth)
+  {
+    // add the given resource, validating the return values from the delegates first
+    string name = getMemberName(resource);
+    if(name == null) throw new ArgumentException("A member name was null.");
+    IDictionary<XmlQualifiedName, PropFindValue> properties = getProperties(resource);
+    if(properties == null) throw new ArgumentException("The properties dictionary for " + name + " was null.");
+    davPath += name;
+    AddResource(davPath, properties);
+
+    if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
+    {
+      IEnumerable<T> children = getChildren(resource);
+      if(children != null)
+      {
+        if(davPath.Length != 0 && davPath[davPath.Length-1] != '/') davPath += "/";
+        foreach(T child in children) ProcessStandardRequest(child, getMemberName, getProperties, getChildren, davPath, depth+1);
+      }
+    }
+  }
+
   // use a System.Collections.Hashtable because it has a special implementation that allows lock-free reads
   static readonly System.Collections.Hashtable isIElementValuesEnumerable = new System.Collections.Hashtable();
   static readonly object @true = true, @false = false; // pre-boxed values stored within the hashtable
@@ -380,16 +488,16 @@ public class PropFindRequest : WebDAVRequest
 /// <summary>Represents a resource whose properties will be returned in response to a <c>PROPFIND</c> request.</summary>
 public sealed class PropFindResource
 {
-  /// <summary>Initializes a new <see cref="PropFindResource"/> given the canonical path to the resource, relative to the
-  /// <see cref="WebDAVContext.ServiceRoot"/>.
+  /// <summary>Initializes a new <see cref="PropFindResource"/> given the path to the resource, relative to the
+  /// <see cref="WebDAVContext.ServiceRoot"/>. This is usually but not necessarily the canonical path.
   /// </summary>
-  public PropFindResource(string canonicalRelativePath)
+  public PropFindResource(string relativePath)
   {
-    if(canonicalRelativePath == null) throw new ArgumentNullException();
-    RelativePath = canonicalRelativePath;
+    if(relativePath == null) throw new ArgumentNullException();
+    RelativePath = relativePath;
   }
 
-  /// <summary>Gets the canonical path to the resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
+  /// <summary>Gets the path to the resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
   public string RelativePath { get; private set; }
 
   /// <summary>Determines whether the given property has been defined on the resource.</summary>
@@ -440,26 +548,41 @@ public sealed class PropFindResource
     foreach(XmlQualifiedName name in propertyNames) SetName(name);
   }
 
+  /// <summary>Sets the value or error status of a property on the resource, based on the given <see cref="PropFindValue"/>.</summary>
+  /// <param name="property">The name of the property to set.</param>
+  /// <param name="value">The value to set. If null, the property will be set to a null value. Otherwise, if
+  /// <see cref="PropFindValue.Status"/> is not null, the status will be set as the property's error status. Otherwise, the value,
+  /// type, and language will be set, potentially with the type being inferred from the value (as determined by how the
+  /// <see cref="PropFindValue"/> object was constructed).
+  /// </param>
+  public void SetValue(XmlQualifiedName property, PropFindValue value)
+  {
+    if(value == null) SetValue(property, null, null, null);
+    else if(value.Status != null) SetError(property, value.Status);
+    else if(value.InferType) SetValue(property, value.Value, value.Language);
+    else SetValue(property, value.Value, value.Type, value.Language);
+  }
+
   /// <summary>Sets the value of a property on the resource. If the value is not null and the property is not a built-in WebDAV property
   /// (i.e. one defined in RFC 4918), the property data type will be inferred from the value. If you do not want this inference to occur,
-  /// call <see cref="SetValue(XmlQualifiedName,XmlQualifiedName,object,string)"/> and pass the correct type, or null if you don't want any
+  /// call <see cref="SetValue(XmlQualifiedName,object,XmlQualifiedName,string)"/> and pass the correct type, or null if you don't want any
   /// type information to be reported.
   /// </summary>
   public void SetValue(XmlQualifiedName property, object value)
   {
-    SetValue(property, value, null);
+    SetValue(property, value, (string)null);
   }
 
   /// <summary>Sets the value and language of a property on the resource. If the value is not null and the property is not a built-in
   /// WebDAV property (i.e. one defined in RFC 4918), the property data type will be inferred from the value. If you do not want this
-  /// inference to occur, call <see cref="SetValue(XmlQualifiedName,XmlQualifiedName,object,string)"/> and pass the correct type, or null
+  /// inference to occur, call <see cref="SetValue(XmlQualifiedName,object,XmlQualifiedName,string)"/> and pass the correct type, or null
   /// if you don't want any type information to be reported. This method also accepts the language of the value. If not null or empty,
   /// the language will be reported in the value's <c>xml:lang</c> attribute and must be in the corresponding format.
   /// </summary>
   public void SetValue(XmlQualifiedName property, object value, string language)
   {
     XmlQualifiedName type = null;
-    if(value != null && builtInTypes.ContainsKey(property))
+    if(value != null && !builtInTypes.ContainsKey(property))
     {
       switch(Type.GetTypeCode(value.GetType()))
       {
@@ -485,6 +608,7 @@ public sealed class PropFindResource
         case TypeCode.Object:
           if(value is DateTimeOffset) type = Names.xsDateTime;
           else if(value is XmlDuration || value is TimeSpan) type = Names.xsDuration;
+          else if(value is byte[]) type = Names.xsB64Binary;
           break;
       }
     }
@@ -493,14 +617,15 @@ public sealed class PropFindResource
   }
 
   /// <summary>Sets the value and type of a property on the resource.</summary>
-  /// <remarks>
-  /// If the property is a built-in WebDAV property (i.e. one defined in RFC 4918), the specified type will be ignored as per RFC 4316
-  /// which states in section 5 that the property must not have a data type already defined in the WebDAV specification.
-  /// If the value is not null and the property data type is known, the value will be validated against the the data type. Currently, the
-  /// known property types are the types of built-in WebDAV properties as well as most types defined in the
-  /// <c>http://www.w3.org/2001/XMLSchema</c> namespace (e.g. xs:boolean, xs:int, etc).
-  /// </remarks>
-  public void SetValue(XmlQualifiedName property, XmlQualifiedName type, object value, string language)
+  /// <include file="documentation.xml" path="/DAV/PropFindResource/SetValueNIRemarks/node()" />
+  public void SetValue(XmlQualifiedName property, object value, XmlQualifiedName type)
+  {
+    SetValue(property, value, type, null);
+  }
+
+  /// <summary>Sets the value, type, and language of a property on the resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/PropFindResource/SetValueNIRemarks/node()" />
+  public void SetValue(XmlQualifiedName property, object value, XmlQualifiedName type, string language)
   {
     if(property == null) throw new ArgumentNullException();
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
@@ -511,6 +636,7 @@ public sealed class PropFindResource
     SetValueCore(property, value, type, language);
   }
 
+  #region PropertyValue
   /// <summary>Represents the value, type, and status code of an attempt to retrieve a property on a resource.</summary>
   internal sealed class PropertyValue
   {
@@ -528,6 +654,7 @@ public sealed class PropFindResource
     public ConditionCode Code;
     public string Language;
   }
+  #endregion
 
   /// <summary>Ensures that this <see cref="PropFindResource"/> passes basic validity checks, and adds the XML namespaces needed for the
   /// response to the <paramref name="namespaces"/> set.
@@ -869,6 +996,65 @@ public sealed class PropFindResource
     { Names.getcontentlength, Names.xsULong }, { Names.getcontenttype, Names.xsString }, { Names.getetag, null },
     { Names.getlastmodified, Names.xsDateTime }, { Names.lockdiscovery, null }, { Names.resourcetype, null }, { Names.supportedlock, null }
   };
+}
+#endregion
+
+#region PropFindValue
+/// <summary>Represents a property value and status to be sent to a client in response to a <c>PROPFIND</c> request.</summary>
+public sealed class PropFindValue
+{
+  /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's error status.</summary>
+  public PropFindValue(ConditionCode errorStatus)
+  {
+    Status = errorStatus;
+  }
+
+  /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's value. The type of the value will be inferred. If you
+  /// do not want the type to be inferred, use the <see cref="PropFindValue(object,XmlQualifiedName)"/> constructor and pass null for the
+  /// type.
+  /// </summary>
+  public PropFindValue(object value) : this(value, null, null)
+  {
+    InferType = true;
+  }
+
+  /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's value and language. The type of the value will be
+  /// inferred. If you do not want the type to be inferred, use the <see cref="PropFindValue(object,XmlQualifiedName,string)"/> constructor
+  /// and pass null for the type.
+  /// </summary>
+  public PropFindValue(object value, string language) : this(value, null, language)
+  {
+    InferType = true;
+  }
+
+  /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's type and value.</summary>
+  /// <include file="documentation.xml" path="/DAV/PropFindResource/SetValueNIRemarks/node()" />
+  public PropFindValue(object value, XmlQualifiedName type) : this(value, type, null) { }
+
+  /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's type, value, and language.</summary>
+  /// <include file="documentation.xml" path="/DAV/PropFindResource/SetValueNIRemarks/node()" />
+  public PropFindValue(object value, XmlQualifiedName type, string language)
+  {
+    Type        = type;
+    Value       = value;
+    Language    = string.IsNullOrEmpty(language) ? null : language;
+  }
+
+  /// <summary>Gets the language of the value in <c>xml:lang</c> format, or null if no language is defined.</summary>
+  public string Language { get; private set; }
+
+  /// <summary>Gets the status representing the result of attempting to set the property. If null, the operation will be assumed
+  /// to be successful and <see cref="ConditionCodes.OK"/> will be used.
+  /// </summary>
+  public ConditionCode Status { get; private set; }
+
+  /// <summary>Gets the <c>xsi:type</c> of the property element, or null if no type was declared.</summary>
+  public XmlQualifiedName Type { get; private set; }
+
+  /// <summary>Gets the value of the </summary>
+  public object Value { get; private set; }
+
+  internal bool InferType { get; private set; }
 }
 #endregion
 

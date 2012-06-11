@@ -5,7 +5,6 @@ using System.Linq;
 using System.Xml;
 
 // TODO: add processing examples and documentation
-// TODO: add a .Status property or something so that processors don't have to throw exceptions if they don't want to handle a request
 
 namespace HiA.WebDAV.Server
 {
@@ -264,7 +263,8 @@ public class PropPatchRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal override void WriteResponse()
   {
-    WriteResponseCore();
+    if(Status != null) Context.WriteStatusResponse(Status);
+    else WriteResponseCore();
   }
 
   void WriteResponseCore()
@@ -290,7 +290,7 @@ public class PropPatchRequest : WebDAVRequest
     {
       XmlWriter writer = response.Writer;
       writer.WriteStartElement(Names.response.Name);
-      writer.WriteElementString(Names.href.Name, Context.ServiceRoot + Context.RequestResource.CanonicalPath);
+      writer.WriteElementString(Names.href.Name, Context.ServiceRoot + Context.RequestPath);
 
       foreach(KeyValuePair<ConditionCode, List<XmlQualifiedName>> pair in namesByStatus)
       {
