@@ -20,7 +20,7 @@ public class PutRequest : SimpleRequest
     if(!string.IsNullOrEmpty(context.Request.Headers[HttpHeaders.ContentRange]))
     {
       range = ContentRange.TryParse(context.Request.Headers[HttpHeaders.ContentRange]);
-      if(range == null) throw new WebDAVException(new ConditionCode(HttpStatusCode.BadRequest, "Invalid Content-Range header."));
+      if(range == null) throw Exceptions.BadRequest("Invalid Content-Range header.");
       if(range.Start == -1 && range.TotalLength == -1) range = null; // treat useless values as though they weren't submitted at all
     }
     ContentRange = range;
@@ -44,9 +44,9 @@ public class PutRequest : SimpleRequest
   /// <param name="metadata">Metadata about the entity body. This parameter cannot be null, and as much information should be provided as
   /// possible. If <see cref="EntityMetadata.Length"/> is null, the length will be taken from the <paramref name="entityBody"/> if the
   /// stream is seekable. If <see cref="EntityMetadata.EntityTag"/> is null, an entity tag will be computed from the stream (using
-  /// <see cref="DAVUtility.ComputeDefaultEntityTag"/>) if the stream is readable and seekable. If the entity tag or last modification time
-  /// is unavailable, request preconditions (e.g. <c>If-Match</c> or <c>If-Unmodified-Since</c> headers), which are particularly important
-  /// for <c>PUT</c> requests, cannot be processed correctly.
+  /// <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/>) if the stream is readable and seekable. If the entity tag or last
+  /// modification time is unavailable, request preconditions (e.g. <c>If-Match</c> or <c>If-Unmodified-Since</c> headers), which are
+  /// particularly important for <c>PUT</c> requests, cannot be processed correctly.
   /// </param>
   /// <remarks>This method implements the standard <c>PUT</c> method, which replaces the entity body entirely. If
   /// <paramref name="entityBody"/> is seekable, the method also supports a partial <c>PUT</c> extension that allows clients to specify the
@@ -59,7 +59,7 @@ public class PutRequest : SimpleRequest
   /// invalid), but you can add additional headers either before or after the method returns. In particular, you should add the <c>ETag</c>
   /// and <c>Last-Modified</c> headers if the <c>PUT</c> request was successfully processed (i.e. if <see cref="WebDAVRequest.Status"/> is
   /// null or <see cref="ConditionCode.IsSuccessful"/> is true after this method returns). If you do not have your own method for computing
-  /// entity tags, you should rewind <paramref name="entityBody"/> and use the <see cref="DAVUtility.ComputeDefaultEntityTag"/> method.
+  /// entity tags, you should use the <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/> method.
   /// </para>
   /// </remarks>
   public void ProcessStandardRequest(Stream entityBody, EntityMetadata metadata)
@@ -77,8 +77,7 @@ public class PutRequest : SimpleRequest
       EntityTag entityTag = metadata.EntityTag;
       if(entityTag == null && entityBody.CanSeek && entityBody.CanRead) // otherwise, if we can make a scan through the entity body...
       {
-        entityBody.Position = 0;
-        entityTag = DAVUtility.ComputeDefaultEntityTag(entityBody); // compute an entity tag from the body
+        entityTag = DAVUtility.ComputeEntityTag(entityBody, true); // compute an entity tag from the body
         entityBody.Position = 0;
       }
 
@@ -102,7 +101,7 @@ public class PutRequest : SimpleRequest
         // straightforward extension/interpretation. however, i'm not 100% sure how error cases should be reported to the client. (for
         // instance, if partial PUTs are not allowed, what should we reply with? 416 Requested Range Not Satisfiable is for Range headers
         // rather than Content-Range headers and may cause the client to retry with another partial PUT, while 403 Forbidden or 501 Not
-        // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope clients figure it out.)
+        // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope it works.)
         // TODO: do a bit more research on this. in particular, see if we can find and read some existing client and server code
 
         // if the client indicated knowledge of the entity length but was incorrect...
@@ -145,9 +144,11 @@ public class PutRequest : SimpleRequest
           // if the range doesn't start at the beginning or if the client is replacing a piece of the entity with a smaller one, or if the
           // client is not known to be replacing data through the end of the entity, then we'll need to be able to seek within the file.
           // also, if we need to shift any data over (i.e. the part we're replacing isn't the same length as the new data), then we'll need
-          // the ability to read from the stream as well
+          // the ability to read from the stream as well. we also disallow the start position to be past the end of the stream, because
+          // there's unlikely to be a good use case and it makes DOS attacks too easy. (a client could ask to write at the trillionth byte)
           if((isPartialUpdate || entityLength == -1) && // if it's a partial update or we can't be sure...
-             (!entityBody.CanSeek || !entityBody.CanRead && ContentRange.Length != replacementStream.Length))
+             (!entityBody.CanSeek || ContentRange.Start > Math.Max(0, entityLength) ||
+              !entityBody.CanRead && ContentRange.Length != replacementStream.Length))
           {
             Status = ConditionCodes.RequestedRangeNotSatisfiable; // if we can't, reply with a 416 status without a Content-Range header
             return;
@@ -179,11 +180,7 @@ public class PutRequest : SimpleRequest
           }
 
           // now we need to move to the beginning of the update range. if we can't seek, then the stream is already at the right place
-          if(entityBody.CanSeek)
-          {
-            if(ContentRange.Start > entityLength) entityBody.SetLength(ContentRange.Start); // extend the stream if necessary
-            entityBody.Position = ContentRange.Start;
-          }
+          if(entityBody.CanSeek) entityBody.Position = ContentRange.Start;
 
           // write the replacement data into the entity body
           replacementStream.CopyTo(entityBody);

@@ -59,6 +59,22 @@ public sealed class EntityMetadata
 }
 #endregion
 
+#region FailedMemberCollection
+/// <summary>A collection of <see cref="ResourceStatus"/> objects representing internal collection members that could not be deleted.</summary>
+public sealed class FailedMemberCollection : CollectionBase<ResourceStatus>
+{
+  internal FailedMemberCollection() { }
+
+  /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the path to the resource (relative to
+  /// <see cref="WebDAVContext.ServiceRoot"/>) and the status of the resource.
+  /// </summary>
+  public void Add(string relativePath, ConditionCode status)
+  {
+    Add(new ResourceStatus(relativePath, status));
+  }
+}
+#endregion
+
 #region PropertyNameSet
 /// <summary>A read-only collection of property names referenced by the client.</summary>
 public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedName>
@@ -102,17 +118,18 @@ public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedNa
 /// </summary>
 public sealed class ResourceStatus
 {
-  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the absolute path to the resource and the status of the resource.</summary>
-  public ResourceStatus(string absolutePath, ConditionCode status)
+  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the path to the resource (relative to
+  /// <see cref="WebDAVContext.ServiceRoot"/>) and the status of the resource.
+  /// </summary>
+  public ResourceStatus(string relativePath, ConditionCode status)
   {
-    if(string.IsNullOrEmpty(absolutePath)) throw new ArgumentException("The resource path cannot be null or empty.");
-    if(status == null) throw new ArgumentNullException();
-    AbsolutePath = absolutePath;
+    if(relativePath == null || status == null) throw new ArgumentNullException();
+    RelativePath = relativePath;
     Status       = status;
   }
 
-  /// <summary>Gets the absolute path to the resource.</summary>
-  public string AbsolutePath { get; private set; }
+  /// <summary>Gets the path to the resource, relative to <see cref="WebDAVContext.ServiceRoot"/>.</summary>
+  public string RelativePath { get; private set; }
 
   /// <summary>Gets the status of the resource.</summary>
   public ConditionCode Status { get; private set; }

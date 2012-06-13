@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Web;
 using System.Xml;
 using HiA.WebDAV.Server.Configuration;
 
@@ -86,8 +87,50 @@ public class FileSystemService : WebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/MakeCollection/node()" />
   public override void MakeCollection(MkColRequest request)
   {
-    // TODO: implement this
-    base.MakeCollection(request);
+    if(IsReadOnly)
+    {
+      base.MakeCollection(request); // call the default implementation, which denies the request
+    }
+    else if(request.Context.Request.InputStream.Length != 0) // if the client submitted a request body...
+    {
+      request.Status = ConditionCodes.UnsupportedMediaType; // reply with 415 Unsupported Media Type as per RFC 4918 section 9.3
+    }
+    else // the request might be valid...
+    {
+      // it's unlikely that the client will submit any preconditions with a MKCOL request, but check them just in case
+      ConditionCode precondition = request.CheckPreconditions(null, null, false);
+      if(precondition != null) // if the client specified that the entity must exist...
+      {
+        request.Status = precondition; // give an error
+      }
+      else
+      {
+        try
+        {
+          string path = request.Context.RequestPath.TrimEnd('/');
+          if(string.IsNullOrEmpty(path)) // if the user is requesting to create the root directory...
+          {
+            // RootPath should be null and nonexistent. otherwise, ResolveResource would have returned something
+            Directory.CreateDirectory(RootPath);
+          }
+          else
+          {
+            int lastSlash = path.LastIndexOf('/');
+            string parent = lastSlash == -1 ? "" : path.Substring(0, lastSlash);
+
+            IWebDAVResource resource = ResolveResource(parent);
+            DirectoryResource directory = resource as DirectoryResource;
+            if(resource == null) request.Status = ConditionCodes.Conflict; // nonexistent parent gets 409 Conflict as per RFC 4918 sec. 9.3
+            else if(directory == null) request.Status = ConditionCodes.Forbidden; // non-directory parents don't support MKCOL
+            else directory.Info.CreateSubdirectory(HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1)));
+          }
+        }
+        catch(Exception ex)
+        {
+          request.Status = FileSystemResource.GetStatusFromException(request, ex);
+        }
+      }
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
@@ -103,39 +146,76 @@ public class FileSystemService : WebDAVService
     }
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Put/node()" />
+  public override void Put(PutRequest request)
+  {
+    if(IsReadOnly)
+    {
+      base.Put(request); // call the default implementation, which denies the request
+    }
+    else
+    {
+      // check preconditions in case the client expects the resource to exist
+      ConditionCode precondition = request.CheckPreconditions(null, null, false);
+      if(precondition != null)
+      {
+        request.Status = precondition;
+      }
+      else
+      {
+        try
+        {
+          string path = request.Context.RequestPath;
+          int lastSlash = path.LastIndexOf('/');
+          string fileName = HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1));
+          if(string.IsNullOrEmpty(fileName))
+          {
+            request.Status = new ConditionCode(HttpStatusCode.BadRequest, "The file name was missing.");
+          }
+          else
+          {
+            string parent = lastSlash == -1 ? "" : path.Substring(0, lastSlash);
+            IWebDAVResource resource = ResolveResource(parent);
+            DirectoryResource directory = resource as DirectoryResource;
+            if(resource == null) // if the parent doesn't exist...
+            {
+              request.Status = ConditionCodes.Conflict; // nonexistent parents cause a 409 Conflict response as per RFC 4918 sec. 9.7
+            }
+            else if(directory == null) // if the parent is not a directory...
+            {
+              request.Status = ConditionCodes.Forbidden; // non-directory parents don't support creating children
+            }
+            else // the parent is a directory
+            {
+              path = Path.Combine(directory.Info.FullName, fileName);
+              using(FileStream stream = File.Open(path, FileMode.CreateNew, FileAccess.ReadWrite))
+              {
+                request.ProcessStandardRequest(stream, new EntityMetadata() { Exists = false });
+                if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
+                {
+                  // write the ETag and Last-Modified headers
+                  request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
+                  stream.Close(); // close the file to ensure the last modified time gets updated
+                  request.Context.Response.Headers[HttpHeaders.LastModified] =
+                    new FileInfo(path).LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
+                }
+              }
+            }
+          }
+        }
+        catch(Exception ex)
+        {
+          request.Status = FileSystemResource.GetStatusFromException(request, ex);
+        }
+      }
+    }
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
   public override IWebDAVResource ResolveResource(WebDAVContext context)
   {
     if(context == null) throw new ArgumentNullException();
-
-    // disallow .. in the request path
-    if(context.RequestPath.StartsWith("../", StringComparison.Ordinal) || context.RequestPath.EndsWith("/..", StringComparison.Ordinal) ||
-       context.RequestPath.Contains("/../", StringComparison.Ordinal))
-    {
-      throw Exceptions.BadRequest("It is illegal to use .. to access a parent directory in the request URL.");
-    }
-
-    if(RootPath != null) // if we're serving a place on the filesystem...
-    {
-      return ResolveResource(RootPath, context.RequestPath, ""); // then resolve the request normally
-    }
-    else // otherwise, we have a virtual root that encompasses the system's drives, so we'll need to resolve it specially
-    {
-      // resolve the first component to a drive name. if there is no first component, then they're referencing the root itself
-      if(string.IsNullOrEmpty(context.RequestPath)) return new FileSystemRootResource();
-
-      int slash = context.RequestPath.IndexOf('/');
-      string driveName = slash == -1 ? context.RequestPath : context.RequestPath.Substring(0, slash);
-      string requestPath = slash == -1 ? null : context.RequestPath.Substring(slash+1);
-
-      DriveInfo drive = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && string.Equals(driveName, GetDriveName(d), comparison));
-      if(drive == null) return null; // if there's no such drive, then we couldn't find the resource
-
-      string canonicalDrivePath = DAVUtility.CanonicalPathEncode(GetDriveName(drive)) + "/";
-      // if the root of the drive was requested, then we've got all the information needed to resolve the resource
-      if(string.IsNullOrEmpty(requestPath)) return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly);
-      else return ResolveResource(drive.RootDirectory.FullName, requestPath, canonicalDrivePath); // otherwise, resolve it normally
-    }
+    return ResolveResource(context.RequestPath);
   }
 
   readonly StringComparison comparison;
@@ -154,13 +234,45 @@ public class FileSystemService : WebDAVService
     return name;
   }
 
+  IWebDAVResource ResolveResource(string requestPath)
+  {
+    // disallow .. in the request path
+    if(requestPath.StartsWith("../", StringComparison.Ordinal) || requestPath.EndsWith("/..", StringComparison.Ordinal) ||
+       requestPath.Contains("/../", StringComparison.Ordinal))
+    {
+      throw Exceptions.BadRequest("It is illegal to use .. to access a parent directory in the request URL.");
+    }
+
+    if(RootPath != null) // if we're serving a place on the filesystem...
+    {
+      return ResolveResource(RootPath, requestPath, ""); // then resolve the request normally
+    }
+    else // otherwise, we have a virtual root that encompasses the system's drives, so we'll need to resolve it specially
+    {
+      // resolve the first component to a drive name. if there is no first component, then they're referencing the root itself
+      if(string.IsNullOrEmpty(requestPath)) return new FileSystemRootResource();
+
+      int slash = requestPath.IndexOf('/');
+      string driveName = slash == -1 ? requestPath : requestPath.Substring(0, slash);
+      requestPath = slash == -1 ? null : requestPath.Substring(slash+1);
+
+      DriveInfo drive = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && string.Equals(driveName, GetDriveName(d), comparison));
+      if(drive == null) return null; // if there's no such drive, then we couldn't find the resource
+
+      string canonicalDrivePath = DAVUtility.CanonicalPathEncode(GetDriveName(drive)) + "/";
+      // if the root of the drive was requested, then we've got all the information needed to resolve the resource
+      if(string.IsNullOrEmpty(requestPath)) return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly);
+      else return ResolveResource(drive.RootDirectory.FullName, requestPath, canonicalDrivePath); // otherwise, resolve it normally
+    }
+  }
+
   /// <summary>Performs the normal resolution algorithm for a request.</summary>
   /// <param name="fsRoot">A location on the filesystem from where to begin searching.</param>
   /// <param name="requestPath">The relative request path.</param>
   /// <param name="davRoot">The canonical relative URL corresponding to <paramref name="fsRoot"/>.</param>
   IWebDAVResource ResolveResource(string fsRoot, string requestPath, string davRoot)
   {
-    string combinedPath = Path.Combine(fsRoot, requestPath); // add the request path to the file system root
+    string combinedPath = Path.Combine(fsRoot, HttpUtility.UrlDecode(requestPath)); // add the request path to the file system root
 
     DirectoryInfo directory = new DirectoryInfo(combinedPath); // the combined path names a directory, return a directory resource
     if(directory.Exists) return new DirectoryResource(directory, davRoot + GetCanonicalPath(fsRoot, directory.FullName, true), IsReadOnly);
@@ -346,8 +458,8 @@ public class DirectoryResource : FileSystemResource
   public override void Delete(DeleteRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    if(IsReadOnly) request.Status = ConditionCodes.Forbidden;
-    else Delete(request, request.Context.ServiceRoot + CanonicalPath, Info, true);
+    if(IsReadOnly) base.Delete(request); // call the default implementation, which denies the request
+    else Delete(request, CanonicalPath, Info, true);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
@@ -366,12 +478,7 @@ public class DirectoryResource : FileSystemResource
   public override void Options(OptionsRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    if(!IsReadOnly) // writable directories support deletion, copying, and moving
-    {
-      request.AllowedMethods.Add(HttpMethods.Delete);
-      request.AllowedMethods.Add(HttpMethods.Copy); // TODO: implement copy and move and locking
-      request.AllowedMethods.Add(HttpMethods.Move);
-    }
+    if(!IsReadOnly) request.AllowedMethods.Add(HttpMethods.Delete); // writable directories can be deleted
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
@@ -513,11 +620,9 @@ public class FileResource : FileSystemResource
   public override void Options(OptionsRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    if(!IsReadOnly) // writable directories support deletion, copying, and moving
+    if(!IsReadOnly) // writable files can be deleted and modified
     {
-      request.AllowedMethods.Add(HttpMethods.Delete);
-      request.AllowedMethods.Add(HttpMethods.Copy); // TODO: implement copy and move and locking
-      request.AllowedMethods.Add(HttpMethods.Move);
+      request.AllowedMethods.Add(HttpMethods.Delete); // TODO: support locking
       request.AllowedMethods.Add(HttpMethods.Put);
     }
   }
@@ -548,7 +653,7 @@ public class FileResource : FileSystemResource
     if(request == null) throw new ArgumentNullException();
     if(IsReadOnly)
     {
-      request.Status = ConditionCodes.Forbidden;
+      base.Put(request); // call the default implementation, which denies the request
     }
     else
     {
@@ -566,10 +671,9 @@ public class FileResource : FileSystemResource
           if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
           {
             // write the ETag and Last-Modified headers
-            stream.Position = 0;
-            request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeDefaultEntityTag(stream).ToHeaderString();
-            stream.Close();
-            Info.Refresh();
+            request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
+            stream.Close(); // close the file to ensure the last modified time gets updated
+            Info.Refresh(); // refresh the last modified time
             request.Context.Response.Headers[HttpHeaders.LastModified] = Info.LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
           }
         }

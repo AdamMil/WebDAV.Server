@@ -16,6 +16,9 @@ public interface IWebDAVResource : ISupportAuthorization
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   string CanonicalPath { get; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CopyOrMove/node()" />
+  void CopyOrMove(CopyOrMoveRequest request);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
   void Delete(DeleteRequest request);
 
@@ -48,6 +51,14 @@ public abstract class WebDAVResource : IWebDAVResource
 {
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   public abstract string CanonicalPath { get; }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CopyOrMove/node()" />
+  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource does not support being copied or moved.</remarks>
+  public virtual void CopyOrMove(CopyOrMoveRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support being copied or moved.");
+  }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
   /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource does not support deletion.</remarks>

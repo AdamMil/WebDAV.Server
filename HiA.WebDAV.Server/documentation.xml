@@ -36,6 +36,13 @@
         <c>%23</c>, respectively). <see cref="DAVUtility.CanonicalPathEncode"/> will perform the appropriate encoding for you.
       </remarks>
     </CanonicalPath>
+    <CopyOrMove>
+      <summary>
+        Executes a <see cref="CopyOrMoveRequest"/>. All DAV-compliant resources must support the <c>COPY</c> and <c>MOVE</c> methods (i.e.
+        they cannot respond with 405 Method Not Allowed), although they can disable copies and moves by responding with 403 Forbidden.
+        See the <see cref="CopyOrMoveRequest"/> documentation for details on how to service it.
+      </summary>
+    </CopyOrMove>
     <Delete>
       <summary>Executes a <see cref="DeleteRequest"/>. See the <see cref="DeleteRequest"/> documentation for details on how to service it.</summary>
     </Delete>
@@ -75,6 +82,12 @@
   </IWebDAVResource>
 
   <IWebDAVService>
+    <CreateCopyOrMove>
+      <summary>
+        Creates a new <see cref="CopyOrMoveRequest"/> object (or an object of a derived type) to serve a <c>COPY</c> or <c>MOVE</c>
+        request.
+      </summary>
+    </CreateCopyOrMove>
     <CreateDelete>
       <summary>Creates a new <see cref="DeleteRequest"/> object (or an object of a derived type) to serve a <c>DELETE</c> request.</summary>
     </CreateDelete>
@@ -200,7 +213,7 @@
         null, no media type will be sent to the client. If <see cref="EntityMetadata.Length"/> is null, the length will be taken from
         <paramref name="entityBody"/> if the stream is seekable. If <see cref="EntityMetadata.EntityTag"/> is null, an entity tag will be
         taken from the <c>ETag</c> header if it has been set or computed from the stream (using
-        <see cref="DAVUtility.ComputeDefaultEntityTag"/>) if the stream is seekable. If <see cref="EntityMetadata.LastModifiedTime"/>
+        <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/>) if the stream is seekable. If <see cref="EntityMetadata.LastModifiedTime"/>
         is null, the last modification time will be taken from the <c>Last-Modified</c> header if it has been set. If the entity tag or
         last modification time is unavailable, request preconditions (e.g. <c>If-Match</c> or <c>If-Unmodified-Since</c> headers) cannot be
         processed correctly, but the method will attempt to do the best it can with the available information.
@@ -208,12 +221,12 @@
       <remarks>
         This method implements standard <c>GET</c> and <c>HEAD</c> mechanisms. It respects the HTTP <c>Range</c> header and will
         provide partial responses if necessary, including multi-range partial responses. It uses
-        <see cref="DAVUtility.ComputeDefaultEntityTag" /> to compute the entity tag of the body when possible. It is capable of working
-        with unseekable streams, although partial responses cannot be provided for unseekable streams if the length is not known, and the
-        entity tag cannot be automatically computed for unseekable streams. It provides the <c>Accept-Ranges</c>, <c>Content-Length</c>,
-        <c>Content-Range</c>, <c>Content-Type</c>, <c>ETag</c>, and <c>Last-Modified</c> headers to the client as appropriate. If you want
-        to send additional headers, you must add them to the response before calling this method, as the method may disable output
-        buffering before writing the entity body.
+        <see cref="DAVUtility.ComputeEntityTag(Stream,bool)" /> to compute the entity tag of the body when possible. It is capable of
+        working with unseekable streams, although partial responses cannot be provided for unseekable streams if the length is not known,
+        and the entity tag cannot be automatically computed for unseekable streams. It provides the <c>Accept-Ranges</c>,
+        <c>Content-Length</c>, <c>Content-Range</c>, <c>Content-Type</c>, <c>ETag</c>, and <c>Last-Modified</c> headers to the client as
+        appropriate. If you want to send additional headers, you must add them to the response before calling this method, as the method
+        may disable output buffering before writing the entity body.
       </remarks>
     </WriteStandardResponse>
   </GetOrHeadRequest>

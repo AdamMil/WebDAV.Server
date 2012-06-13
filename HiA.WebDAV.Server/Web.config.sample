@@ -15,7 +15,7 @@
          system.web/httpModules instead.
     -->
     <modules>
-      <add name="HiA.WebDAV" type="HiA.WebDAV.Server.HttpModule, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+      <add name="HiA.WebDAV" type="HiA.WebDAV.Server.WebDAVModule, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
     </modules>
   </system.webServer>
 

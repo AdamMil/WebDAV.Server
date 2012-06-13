@@ -79,11 +79,11 @@ public class OptionsRequest : SimpleRequest
   #endregion
 
   /// <summary>Gets a collection that should be filled with the list of supported HTTP methods for the request URL. By default, the
-  /// collection contains <c>GET</c>, <c>HEAD</c>, <c>OPTIONS</c>, and <c>TRACE</c>. In addition, <c>PROPFIND</c> and <c>PROPPATCH</c> will
-  /// be treated as effectively present for all WebDAV-compliant resources, as required by RFC 4918 sections 9.1 and 9.2. Similarly,
-  /// <c>LOCK</c> and <c>UNLOCK</c> will advertised automatically if <see cref="SupportsLocking"/> is true. Generally, this default and
-  /// automatic behavior is sufficient for read-only resources. Writable resources should implement <see cref="IWebDAVResource.Options"/>
-  /// to add additional methods.
+  /// collection contains <c>GET</c>, <c>HEAD</c>, <c>OPTIONS</c>, and <c>TRACE</c>. In addition, <c>PROPFIND</c>, <c>PROPPATCH</c>,
+  /// <c>COPY</c>, and <c>MOVE</c> will be treated as effectively present for all WebDAV-compliant resources, as required by RFC 4918
+  /// sections 9.1, 9.2, 9.8, and 9.9. Similarly, <c>LOCK</c> and <c>UNLOCK</c> will advertised automatically if
+  /// <see cref="SupportsLocking"/> is true. Generally, this default and automatic behavior is sufficient for read-only resources.
+  /// Writable resources should implement <see cref="IWebDAVResource.Options"/> to add additional methods.
   /// </summary>
   public AllowedMethodCollection AllowedMethods { get; private set; }
 
@@ -147,11 +147,13 @@ public class OptionsRequest : SimpleRequest
       {
         // get the set of support HTTP methods
         IEnumerable<string> methods = AllowedMethods;
-        if(IsDAVCompliant) // if the resource or service is DAV-compliant, report PROPFIND and PROPPATCH as well, which are required
-        {                  // by RFC 4918 (sections 9.1 and 9.2) to be supported by ALL DAV-compliant resources
+        if(IsDAVCompliant) // if the resource or service is DAV-compliant, report PROPFIND, PROPPATCH, COPY, and MOVE as well, as required
+        {                  // by RFC 4918 (sections 9.1, 9.2, 9.8, and 9.9)
           HashSet<string> set = new HashSet<string>(methods);
           set.Add(HttpMethods.PropFind);
           set.Add(HttpMethods.PropPatch);
+          set.Add(HttpMethods.Copy);
+          set.Add(HttpMethods.Move);
           if(SupportsLocking) // if the resource or service claims to support locking, then it should support LOCK and UNLOCK
           {
             set.Add(HttpMethods.Lock);

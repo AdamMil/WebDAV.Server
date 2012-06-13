@@ -20,24 +20,8 @@ public class DeleteRequest : WebDAVRequest
     FailedMembers = new FailedMemberCollection();
   }
 
-  #region FailedMemberCollection
-  /// <summary>A collection of <see cref="ResourceStatus"/> objects representing internal collection members that could not be deleted.</summary>
-  public sealed class FailedMemberCollection : CollectionBase<ResourceStatus>
-  {
-    internal FailedMemberCollection() { }
-
-    /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the absolute path to the resource and the status of the
-    /// resource.
-    /// </summary>
-    public void Add(string absolutePath, ConditionCode status)
-    {
-      Add(new ResourceStatus(absolutePath, status));
-    }
-  }
-  #endregion
-
-  /// <summary>Gets a collection of <see cref="ResourceStatus"/> objects that should be filled with the members of the collection that
-  /// could not be deleted, if the resource is a collection resource.
+  /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing the members of the collection
+  /// that could not be deleted, if the resource is a collection resource.
   /// </summary>
   public FailedMemberCollection FailedMembers { get; private set; }
 
@@ -52,28 +36,13 @@ public class DeleteRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
-  /// <remarks>The default implementation writes a multi-status response if <see cref="FailedMembers"/> is not empty, and outputs a
+  /// <remarks>This implementation writes a multi-status response if <see cref="FailedMembers"/> is not empty, and outputs a
   /// response based on <see cref="WebDAVRequest.Status"/> otherwise.
   /// </remarks>
   protected internal override void WriteResponse()
   {
-    if(FailedMembers.Count == 0)
-    {
-      Context.WriteStatusResponse(Status ?? ConditionCodes.NoContent);
-    }
-    else
-    {
-      using(MultiStatusResponse response = Context.OpenMultiStatusResponse(null))
-      {
-        foreach(ResourceStatus member in FailedMembers)
-        {
-          response.Writer.WriteStartElement(Names.response.Name);
-          response.Writer.WriteElementString(Names.href.Name, member.AbsolutePath);
-          response.WriteStatus(member.Status);
-          response.Writer.WriteEndElement();
-        }
-      }
-    }
+    if(FailedMembers.Count == 0) Context.WriteStatusResponse(Status ?? ConditionCodes.NoContent);
+    else Context.WriteFailedMembers(FailedMembers);
   }
 }
 
