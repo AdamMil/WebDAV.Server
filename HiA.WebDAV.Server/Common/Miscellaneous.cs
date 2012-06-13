@@ -163,9 +163,19 @@ public static class DAVUtility
   /// <summary>Computes an entity tag by hashing the given entity body. The entity body stream is not rewound before or after computing
   /// the entity tag.
   /// </summary>
-  public static EntityTag ComputeDefaultEntityTag(Stream entityBody)
+  public static EntityTag ComputeEntityTag(Stream entityBody)
+  {
+    return ComputeEntityTag(entityBody, false);
+  }
+
+  /// <summary>Computes an entity tag by hashing the given entity body.</summary>
+  /// <param name="entityBody">The stream whose contents will be hashed to create an <see cref="EntityTag"/>.</param>
+  /// <param name="rewindStream">If true, <paramref name="entityBody"/> will be rewound before hashing it.</param>
+  public static EntityTag ComputeEntityTag(Stream entityBody, bool rewindStream)
   {
     if(entityBody == null) throw new ArgumentNullException();
+    long position = rewindStream ? entityBody.Position : 0;
+    if(rewindStream) entityBody.Position = 0;
     return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false);
   }
 
@@ -495,9 +505,10 @@ public sealed class EntityTag : IElementValue
 static class HttpHeaders
 {
   public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", ContentEncoding = "Content-Encoding";
-  public const string ContentLength = "Content-Length", ContentRange = "Content-Range";
+  public const string ContentLength = "Content-Length", ContentRange = "Content-Range", Destination = "Destination";
   public const string ETag = "ETag", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
-  public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified", Range = "Range";
+  public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified";
+  public const string Location = "Location", Overwrite = "Overwrite", Range = "Range";
 }
 #endregion
 

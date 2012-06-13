@@ -46,6 +46,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Methods\CopyMove.cs" />
     <Compile Include="Methods\Delete.cs" />
     <Compile Include="Methods\Get.cs" />
     <Compile Include="Methods\MkCol.cs" />

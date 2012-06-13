@@ -158,8 +158,7 @@ public sealed class WebDAVContext
         }
         else
         {
-          throw new WebDAVException(new ConditionCode(HttpStatusCode.UnsupportedMediaType,
-                                                      "Unsupported or multiple content encoding: " + encoding));
+          throw new WebDAVException((int)HttpStatusCode.UnsupportedMediaType, "Unsupported or multiple content encoding: " + encoding));
         }
       }
     }
@@ -241,8 +240,8 @@ public sealed class WebDAVContext
 
       if(encoding == null)
       {
-        throw new WebDAVException(new ConditionCode(HttpStatusCode.NotAcceptable,
-                                                    "No content encoding supported by the server was acceptable to the client."));
+        throw new WebDAVException((int)HttpStatusCode.NotAcceptable,
+                                  "No content encoding supported by the server was acceptable to the client."));
       }
       else if(encoding.OrdinalEquals("gzip"))
       {
@@ -274,6 +273,26 @@ public sealed class WebDAVContext
   {
     // use a DelegateStream to prevent the StreamReader from closing the HTTP request stream
     using(StreamReader reader = new StreamReader(OpenRequestBody(), Request.ContentEncoding)) return reader.ReadToEnd();
+  }
+
+  /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
+  /// be empty.
+  /// </summary>
+  internal void WriteFailedMembers(FailedMemberCollection failedMembers)
+  {
+    if(failedMembers == null) throw new ArgumentNullException();
+    if(failedMembers.Count == 0) throw new ArgumentException("There were no failed members.");
+
+    using(MultiStatusResponse response = OpenMultiStatusResponse(null))
+    {
+      foreach(ResourceStatus member in failedMembers)
+      {
+        response.Writer.WriteStartElement(Names.response.Name);
+        response.Writer.WriteElementString(Names.href.Name, ServiceRoot + member.RelativePath);
+        response.WriteStatus(member.Status);
+        response.Writer.WriteEndElement();
+      }
+    }
   }
 
   #region Accept

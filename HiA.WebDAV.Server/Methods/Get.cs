@@ -422,8 +422,7 @@ public class GetOrHeadRequest : WebDAVRequest
         }
         else if(entityBody.CanSeek) // otherwise, if we can make a scan through the entity body...
         {
-          entityBody.Position = 0;
-          entityTag = DAVUtility.ComputeDefaultEntityTag(entityBody); // compute an entity tag from the body
+          entityTag = DAVUtility.ComputeEntityTag(entityBody, true); // compute an entity tag from the body
           entityBody.Position = 0;
         }
       }

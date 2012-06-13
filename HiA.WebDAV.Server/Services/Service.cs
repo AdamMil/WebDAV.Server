@@ -14,6 +14,9 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
   bool IsReusable { get; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateCopyOrMove/node()" />
+  CopyOrMoveRequest CreateCopyOrMove(WebDAVContext context);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateDelete/node()" />
   DeleteRequest CreateDelete(WebDAVContext context);
 
@@ -61,6 +64,13 @@ public abstract class WebDAVService : IWebDAVService
 {
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
   public abstract bool IsReusable { get; }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateCopyOrMove/node()" />
+  /// <remarks>The default implementation returns a new <see cref="CopyOrMoveRequest"/>.</remarks>
+  public virtual CopyOrMoveRequest CreateCopyOrMove(WebDAVContext context)
+  {
+    return new CopyOrMoveRequest(context);
+  }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateDelete/node()" />
   /// <remarks>The default implementation returns a new <see cref="DeleteRequest"/>.</remarks>
