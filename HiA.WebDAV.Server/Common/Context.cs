@@ -158,7 +158,7 @@ public sealed class WebDAVContext
         }
         else
         {
-          throw new WebDAVException((int)HttpStatusCode.UnsupportedMediaType, "Unsupported or multiple content encoding: " + encoding));
+          throw new WebDAVException((int)HttpStatusCode.UnsupportedMediaType, "Unsupported or multiple content encoding: " + encoding);
         }
       }
     }
@@ -241,7 +241,7 @@ public sealed class WebDAVContext
       if(encoding == null)
       {
         throw new WebDAVException((int)HttpStatusCode.NotAcceptable,
-                                  "No content encoding supported by the server was acceptable to the client."));
+                                  "No content encoding supported by the server was acceptable to the client.");
       }
       else if(encoding.OrdinalEquals("gzip"))
       {
