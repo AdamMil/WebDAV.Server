@@ -18,7 +18,7 @@ using HiA.WebDAV.Server.Configuration;
 namespace HiA.WebDAV.Server
 {
 
-/// <summary>Implements an <see cref="HttpModule"/> that provides WebDAV services.</summary>
+/// <summary>Implements an <see cref="IHttpModule"/> that provides WebDAV services.</summary>
 public sealed class WebDAVModule : IHttpModule
 {
   /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline if the module has not been disabled in the application
@@ -286,7 +286,7 @@ public sealed class WebDAVModule : IHttpModule
     }
   }
 
-  /// <summary>Disposes resources related to the <see cref="HttpModule"/>. Note that this method is distinct from
+  /// <summary>Disposes resources related to the <see cref="IHttpModule"/>. Note that this method is distinct from
   /// <see cref="IDisposable.Dispose"/>.
   /// </summary>
   void IHttpModule.Dispose()
