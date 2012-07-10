@@ -94,7 +94,7 @@ public class CopyOrMoveRequest : WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   /// <remarks>This implementation writes a multi-status response if <see cref="FailedMembers"/> is not empty, and outputs a
-  /// response based on <see cref="WebDAVRequest.Status"/> otherwise, using 204 No Content if <see cref="Status"/> is null.
+  /// response based on <see cref="WebDAVRequest.Status"/> otherwise, using 204 No Content if <see cref="WebDAVRequest.Status"/> is null.
   /// </remarks>
   protected internal override void WriteResponse()
   {
