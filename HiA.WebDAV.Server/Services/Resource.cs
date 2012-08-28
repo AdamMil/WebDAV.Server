@@ -31,6 +31,9 @@ public interface IWebDAVResource : ISupportAuthorization
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
   void Options(OptionsRequest request);
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Post/node()" />
+  void Post(PostRequest request);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   void PropFind(PropFindRequest request);
 
@@ -84,6 +87,14 @@ public abstract class WebDAVResource : IWebDAVResource
   /// </remarks>
   public virtual void Options(OptionsRequest request)
   {
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Post/node()" />
+  /// <remarks>The default implementation replies with 405 Method Not Allowed.</remarks>
+  public virtual void Post(PostRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = ConditionCodes.MethodNotAllowed;
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />

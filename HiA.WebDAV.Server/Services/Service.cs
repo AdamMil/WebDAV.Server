@@ -29,6 +29,9 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateOptions/node()" />
   OptionsRequest CreateOptions(WebDAVContext context);
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreatePost/node()" />
+  PostRequest CreatePost(WebDAVContext context);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreatePropFind/node()" />
   PropFindRequest CreatePropFind(WebDAVContext context);
 
@@ -98,6 +101,13 @@ public abstract class WebDAVService : IWebDAVService
   public virtual OptionsRequest CreateOptions(WebDAVContext context)
   {
     return new OptionsRequest(context);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreatePost/node()" />
+  /// <remarks>The default implementation returns a new <see cref="PostRequest"/>.</remarks>
+  public virtual PostRequest CreatePost(WebDAVContext context)
+  {
+    return new PostRequest(context);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreatePropFind/node()" />
