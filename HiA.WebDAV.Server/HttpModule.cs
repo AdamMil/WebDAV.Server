@@ -440,6 +440,10 @@ public sealed class WebDAVModule : IHttpModule
       {
         ProcessMethod(context, service.CreateDelete(context), context.RequestResource.Delete);
       }
+      else if(method.OrdinalEquals(HttpMethods.Post))
+      {
+        ProcessMethod(context, service.CreatePost(context), context.RequestResource.Post);
+      }
       else if(method.OrdinalEquals(HttpMethods.MkCol))
       {
         // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section 9.3.1.

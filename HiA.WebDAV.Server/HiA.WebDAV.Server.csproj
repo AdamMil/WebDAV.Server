@@ -51,6 +51,7 @@
     <Compile Include="Methods\Get.cs" />
     <Compile Include="Methods\MkCol.cs" />
     <Compile Include="Methods\Options.cs" />
+    <Compile Include="Methods\Post.cs" />
     <Compile Include="Methods\PropPatch.cs" />
     <Compile Include="Methods\Put.cs" />
     <Compile Include="Services\Authorization.cs" />

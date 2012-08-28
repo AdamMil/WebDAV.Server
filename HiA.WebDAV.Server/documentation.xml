@@ -62,6 +62,9 @@
         Executes an <see cref="OptionsRequest"/>. See the <see cref="OptionsRequest"/> documentation for details on how to service it.
       </summary>
     </Options>
+    <Post>
+      <summary>Executes a <see cref="PostRequest"/>. See the <see cref="PostRequest"/> documentation for details on how to service it.</summary>
+    </Post>
     <PropFind>
       <summary>
         Executes a <see cref="PropFindRequest"/>. All DAV-compliant resources must support the <c>PROPFIND</c> method (i.e. they cannot
@@ -99,9 +102,12 @@
     <CreateMkCol>
       <summary>Creates a new <see cref="MkColRequest"/> object (or an object of a derived type) to serve a <c>MKCOL</c> request.</summary>
     </CreateMkCol>
-    <CreatePropFind>
+    <CreateOptions>
       <summary>Creates a new <see cref="OptionsRequest"/> object (or an object of a derived type) to serve an <c>OPTIONS</c> request.</summary>
-    </CreatePropFind>
+    </CreateOptions>
+    <CreatePost>
+      <summary>Creates a new <see cref="PostRequest"/> object (or an object of a derived type) to serve a <c>POST</c> request.</summary>
+    </CreatePost>
     <CreatePropFind>
       <summary>Creates a new <see cref="PropFindRequest"/> object (or an object of a derived type) to serve a <c>PROPFIND</c> request.</summary>
     </CreatePropFind>
