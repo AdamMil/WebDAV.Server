@@ -183,7 +183,7 @@ public class PropPatchRequest : WebDAVRequest
       {
         PropertyPatch patch = new PropertyPatch(false);
         XmlElement props = child.GetChild(Names.prop); // the element containing individual property elements
-        string lang = props.GetInheritedAttributeValue("xml:lang"); // get the default language for properties in the set
+        string lang = props.GetInheritedAttributeValue(Names.xmlLang); // get the default language for properties in the set
         foreach(XmlElement prop in props.EnumerateElements())
         {
           // if a type was specified, parse the value as an instance of that type

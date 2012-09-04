@@ -11,8 +11,6 @@ namespace HiA.WebDAV.Server
 /// </remarks>
 public interface IWebDAVResource : ISupportAuthorization
 {
-  // TODO: we no longer really use the CanonicalPath within the core system (having switched to using the RequestPath instead). if we don't
-  // find a new use for it (e.g. adding it to a Location header), we should remove the property from the interface
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   string CanonicalPath { get; }
 

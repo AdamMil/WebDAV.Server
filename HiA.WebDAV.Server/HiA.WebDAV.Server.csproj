@@ -46,9 +46,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common\LockManager.cs" />
     <Compile Include="Methods\CopyMove.cs" />
     <Compile Include="Methods\Delete.cs" />
     <Compile Include="Methods\Get.cs" />
+    <Compile Include="Methods\Lock.cs" />
     <Compile Include="Methods\MkCol.cs" />
     <Compile Include="Methods\Options.cs" />
     <Compile Include="Methods\Post.cs" />

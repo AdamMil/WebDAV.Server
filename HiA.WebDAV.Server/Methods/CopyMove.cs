@@ -58,7 +58,7 @@ public class CopyOrMoveRequest : WebDAVRequest
   /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing the members of the collection
   /// that could not be copied or moved, if the source resource is a collection resource.
   /// </summary>
-  public FailedMemberCollection FailedMembers { get; private set; }
+  public FailedResourceCollection FailedMembers { get; private set; }
 
   /// <summary>Gets whether the request is a <c>COPY</c> request.</summary>
   /// <remarks><c>COPY</c> requests must be processed in accordance with RFC 4918 section 9.8.</remarks>

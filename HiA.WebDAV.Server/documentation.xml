@@ -5,7 +5,62 @@
       <summary>Determines whether this <see cref="ConditionCode"/> is equivalent to the given condition code.</summary>
     </Equals>
   </ConditionCode>
-  
+
+  <ILockManager>
+    <AddLock>
+      <summary>Adds a new resource lock if no conflicting lock exists.</summary>
+      <param name="resource">The <see cref="IWebDAVResource"/> to lock.</param>
+      <param name="type">The type of lock to add.</param>
+      <param name="recursive">
+        True if the lock should apply recursively to all descendant resources as well, or false if it should only
+        apply to <paramref name="resource"/>.
+      </param>
+      <param name="timeoutSeconds">
+        The requested timeout before the lock expires, in seconds, or zero if the lock should not expire, or null to use the default
+        lock timeout. The lock manager may override the timeout specified.
+      </param>
+      <param name="ownerData">
+        An <see cref="XmlElement"/> containing the <c>DAV:owner</c> element supplied by the client with the lock request, or null if no
+        <c>owner</c> element was supplied.
+      </param>
+      <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
+      <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
+    </AddLock>
+    <GetLock>
+      <summary>Returns the <see cref="ActiveLock"/> with the specified lock token and path, or null if no matching lock exists.</summary>
+      <param name="lockToken">The lock token of the lock to retrieve.</param>
+      <param name="relativeLockPath">If specified, the lock must also match the given lock path. If null, only the lock token must match.
+      This should be the canonical path to a resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.
+      </param>
+    </GetLock>
+    <GetLocks>
+      <summary>Returns the locks at, above, and/or below a resource in the URL hierarchy.</summary>
+      <param name="resource">The <see cref="IWebDAVResource"/> whose locks will be returned.</param>
+      <param name="includeInheritedLocks">If true, locks inherited from ancestor resources will be returned.</param>
+      <param name="includeDescendantLocks">If true, locks directly applied to descendant resources will be returned.</param>
+      <returns>
+        Returns a list of the locks directly applied to the given resource. In addition, if <paramref name="includeInheritedLocks"/>
+        is true, locks inherited by the resource will be included in the list, and if <paramref name="includeDescendantLocks"/> is true,
+        locks directly applied to descendant resources will be included in the list.
+      </returns>
+    </GetLocks>
+    <RefreshLock>
+      <summary>Refreshes the given lock timeout. Returns true if the lock timeout was refreshed and false if it was not.</summary>
+      <param name="activeLock">The lock whose timeout should be refreshed.</param>
+      <param name="timeoutSeconds">
+        The requested timeout before the lock expires, in seconds, or zero if the lock should not expire, or
+        null to use the previous timeout value. The lock manager may override the timeout value specified.
+      </param>
+      <remarks>
+        The lock manager is not required to refresh any lock. False may be returned if the lock manager declines to refresh the
+        lock, or if the lock does not exist in the lock manager.
+      </remarks>
+    </RefreshLock>
+    <RemoveLock>
+      <summary>Removes the given lock. Returns true if the lock was removed and false if the lock did not exist in the lock manager.</summary>
+    </RemoveLock>
+  </ILockManager>
+
   <ISupportAuthorization>
     <ShouldDenyAccess>
       <summary>Determines whether the user making a request should be denied access to resource named in the request.</summary>
@@ -156,6 +211,41 @@
       </summary>
     </ResolveResource>
   </IWebDAVService>
+
+  <LockManager>
+    <Dispose>
+      <summary>Called to dispose the lock manager.</summary>
+      <param name="finalizing">True if the method was called from the finalizer and false if not.</param>
+      <remarks>This method should be overriden by derived lock managers to flush lock data to persistent storage.</remarks>
+    </Dispose>
+    <OnLockAdded>
+      <summary>Called after a lock has been added to the lock manager.</summary>
+      <param name="newLock">The new lock.</param>
+      <remarks>
+        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
+        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+      </remarks>
+    </OnLockAdded>
+    <OnLockRemoved>
+      <summary>Called after a lock has been removed from the lock manager.</summary>
+      <param name="lockObject">The lock that was removed.</param>
+      <remarks>
+        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
+        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously. This method may be
+        called any time an expired lock is discovered and removed, including during calls to methods such as
+        <see cref="LockManager.GetAllLocks"/>. The implementation of <see cref="OnLockRemoved"/> must therefore be reentrant if it calls
+        any lock manager methods that access locks.
+      </remarks>
+    </OnLockRemoved>
+    <OnLockUpdated>
+      <summary>Called after a lock has been updated by the lock manager, usually to refresh it.</summary>
+      <param name="lockObject">The lock that was updated.</param>
+      <remarks>
+        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
+        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+      </remarks>
+    </OnLockUpdated>
+  </LockManager>
 
   <WebDAVContext>
     <OpenRequestBody>

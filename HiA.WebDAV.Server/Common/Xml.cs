@@ -89,15 +89,24 @@ public static class Names
   internal static readonly string XmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
 
   /* WebDAV Element Names */
+  internal static readonly XmlQualifiedName activelock = new XmlQualifiedName("activelock", DAV);
   /// <summary>The <c>DAV:allprop</c> element, used within <c>PROPFIND</c> requests to indicate that all elements are desired.</summary>
   internal static readonly XmlQualifiedName allprop = new XmlQualifiedName("allprop", DAV);
   /// <summary>The <c>DAV:collection</c> element, used within <see cref="resourcetype"/> to identify a collection resource.</summary>
   internal static readonly XmlQualifiedName collection = new XmlQualifiedName("collection", DAV);
+  internal static readonly XmlQualifiedName depth = new XmlQualifiedName("depth", DAV);
   /// <summary>The <c>DAV:error</c> element, used to return additional information about errors.</summary>
   public static readonly XmlQualifiedName error = new XmlQualifiedName("error", DAV);
   internal static readonly XmlQualifiedName href = new XmlQualifiedName("href", DAV);
+  internal static readonly XmlQualifiedName exclusive = new XmlQualifiedName("exclusive", DAV);
   internal static readonly XmlQualifiedName include = new XmlQualifiedName("include", DAV);
+  internal static readonly XmlQualifiedName lockentry = new XmlQualifiedName("lockentry", DAV);
+  internal static readonly XmlQualifiedName lockroot = new XmlQualifiedName("lockroot", DAV);
+  internal static readonly XmlQualifiedName lockscope = new XmlQualifiedName("lockscope", DAV);
+  internal static readonly XmlQualifiedName locktoken = new XmlQualifiedName("locktoken", DAV);
+  internal static readonly XmlQualifiedName locktype = new XmlQualifiedName("locktype", DAV);
   internal static readonly XmlQualifiedName multistatus = new XmlQualifiedName("multistatus", DAV);
+  internal static readonly XmlQualifiedName owner = new XmlQualifiedName("owner", DAV);
   internal static readonly XmlQualifiedName prop = new XmlQualifiedName("prop", DAV);
   internal static readonly XmlQualifiedName propertyupdate = new XmlQualifiedName("propertyupdate", DAV);
   internal static readonly XmlQualifiedName propfind = new XmlQualifiedName("propfind", DAV);
@@ -107,7 +116,10 @@ public static class Names
   internal static readonly XmlQualifiedName response = new XmlQualifiedName("response", DAV);
   internal static readonly XmlQualifiedName responsedescription = new XmlQualifiedName("responsedescription", DAV);
   internal static readonly XmlQualifiedName set = new XmlQualifiedName("set", DAV);
+  internal static readonly XmlQualifiedName shared = new XmlQualifiedName("shared", DAV);
   internal static readonly XmlQualifiedName status = new XmlQualifiedName("status", DAV);
+  internal static readonly XmlQualifiedName timeout = new XmlQualifiedName("timeout", DAV);
+  internal static readonly XmlQualifiedName write = new XmlQualifiedName("write", DAV);
 
   /* WebDAV Property Names */
   /// <summary>The <c>DAV:creationdate</c> property, which is a <see cref="DateTime"/> or <see cref="DateTimeOffset"/> property that

@@ -18,36 +18,14 @@ namespace HiA.WebDAV.Server
 /// </summary>
 public interface IElementValue
 {
-  /// <summary>Returns the XML namespaces used by the property value, or null if the value does not use any namespaces.</summary>
+  /// <summary>Returns the XML namespaces used by the property value, or null if the value does not use any namespaces. It is not necessary
+  /// to include the <c>DAV:</c> namespace.
+  /// </summary>
   IEnumerable<string> GetNamespaces();
   /// <summary>Writes the value into XML. Any namespaces used by the value will already have been defined in the enclosing context, so no
   /// new <c>xmlns</c> attributes should be added.
   /// </summary>
-  void WriteValue(XmlWriter writer);
-}
-#endregion
-
-// TODO: implement ActiveLock
-#region ActiveLock
-/// <summary>Describes an active lock on a resource. This object is used with the <c>DAV:lockdiscovery</c>.</summary>
-public class ActiveLock
-{
-  public ActiveLock()
-  {
-    throw new NotImplementedException();
-  }
-}
-#endregion
-
-// TODO: implement LockType
-#region LockType
-/// <summary>Represents a type of lock that can be used with a resource. This object is used with the <c>DAV:supportedlock</c> property.</summary>
-public class LockType
-{
-  public LockType()
-  {
-    throw new NotImplementedException();
-  }
+  void WriteValue(XmlWriter writer, WebDAVContext context);
 }
 #endregion
 
@@ -79,7 +57,7 @@ public class ResourceType : IElementValue
   /// no new <c>xmlns</c> attributes should be added.
   /// </summary>
   /// <remarks>The default implementation writes an empty element named <see cref="Name"/>.</remarks>
-  public virtual void WriteValue(XmlWriter writer)
+  public virtual void WriteValue(XmlWriter writer, WebDAVContext context)
   {
     writer.WriteEmptyElement(Name);
   }
@@ -284,11 +262,11 @@ public class PropFindRequest : WebDAVRequest
                 System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
                 if(elementValue != null) // if the value implements IElementValue...
                 {
-                  elementValue.WriteValue(writer); // let IElementValue do the writing
+                  elementValue.WriteValue(writer, Context); // let IElementValue do the writing
                 }
                 else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
                 {
-                  foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer); // write them all out
+                  foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
                 }
                 else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
                 {

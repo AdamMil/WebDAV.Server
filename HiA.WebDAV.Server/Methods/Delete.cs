@@ -17,13 +17,13 @@ public class DeleteRequest : WebDAVRequest
   public DeleteRequest(WebDAVContext context) : base(context)
   {
     if(Depth == Depth.Unspecified) Depth = Depth.SelfAndDescendants; // see ParseRequest() for details
-    FailedMembers = new FailedMemberCollection();
+    FailedMembers = new FailedResourceCollection();
   }
 
   /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing the members of the collection
   /// that could not be deleted, if the resource is a collection resource.
   /// </summary>
-  public FailedMemberCollection FailedMembers { get; private set; }
+  public FailedResourceCollection FailedMembers { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
