@@ -22,7 +22,7 @@ static class Exceptions
 }
 #endregion
 
-#pragma warning disable 1591 // ignore errors about missing doc comments, since the comments on exceptions are obvious and repetitive
+#pragma warning disable 1591 // ignore errors about missing doc comments, since most comments on exceptions are obvious and repetitive
 
 #region WebDAVException
 /// <summary>The base class of all exceptions specific to WebDAV requests.</summary>
@@ -56,6 +56,7 @@ public class WebDAVException : HttpException
 #endregion
 
 #region ContractViolationException
+/// <summary>Indicates that an <see cref="IWebDAVService"/> or <see cref="IWebDAVResource"/> is not correctly implemented.</summary>
 [Serializable]
 public class ContractViolationException : WebDAVException
 {
@@ -64,6 +65,26 @@ public class ContractViolationException : WebDAVException
   public ContractViolationException(string message, Exception innerException)
     : base((int)HttpStatusCode.InternalServerError, message, innerException) { }
   protected ContractViolationException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+}
+#endregion
+
+#region LockConflictException
+/// <summary>Indicates that an operation could not be completed because of a lock on a resource.</summary>
+[Serializable]
+public class LockConflictException : WebDAVException
+{
+  public LockConflictException() : this("There is a conflict with an existing lock.", null) { }
+  public LockConflictException(string message) : this(message, null) { }
+  public LockConflictException(string message, Exception innerException)
+    : base((int)HttpStatusCode.InternalServerError, message, innerException) { }
+  public LockConflictException(ActiveLock conflictingLock) : this(GetMessage(conflictingLock)) { }
+  protected LockConflictException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+
+  static string GetMessage(ActiveLock conflictingLock)
+  {
+    if(conflictingLock == null) throw new ArgumentNullException();
+    return "There is a lock conflict with " + conflictingLock.ToString();
+  }
 }
 #endregion
 

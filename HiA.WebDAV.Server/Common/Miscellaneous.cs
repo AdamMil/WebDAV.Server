@@ -480,7 +480,7 @@ public sealed class EntityTag : IElementValue
     return value;
   }
 
-  /// <summary>Determines whether two entity tags have identical tag strings. (The weakness flasg don't have to match.) This is the weak
+  /// <summary>Determines whether two entity tags have identical tag strings. (The weakness flags don't have to match.) This is the weak
   /// comparison function defined by RFC 2616 section 13.3.3.
   /// </summary>
   public bool WeaklyEquals(EntityTag match)
@@ -493,7 +493,7 @@ public sealed class EntityTag : IElementValue
     return null;
   }
 
-  void IElementValue.WriteValue(XmlWriter writer)
+  void IElementValue.WriteValue(XmlWriter writer, WebDAVContext context)
   {
     writer.WriteString(ToHeaderString());
   }
@@ -505,10 +505,10 @@ public sealed class EntityTag : IElementValue
 static class HttpHeaders
 {
   public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", ContentEncoding = "Content-Encoding";
-  public const string ContentLength = "Content-Length", ContentRange = "Content-Range", Destination = "Destination";
-  public const string ETag = "ETag", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
+  public const string ContentLength = "Content-Length", ContentRange = "Content-Range", Destination = "Destination", ETag = "ETag";
+  public const string If = "If", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
   public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified";
-  public const string Location = "Location", Overwrite = "Overwrite", Range = "Range";
+  public const string Location = "Location", Overwrite = "Overwrite", Range = "Range", Timeout = "Timeout";
 }
 #endregion
 

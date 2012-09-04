@@ -4,7 +4,6 @@ using System.Text.RegularExpressions;
 using System.Xml;
 
 // TODO: add processing examples and documentation
-// TODO: add support for conditional requests (e.g. If-Match, etc. headers)
 
 namespace HiA.WebDAV.Server
 {
@@ -59,11 +58,13 @@ public sealed class EntityMetadata
 }
 #endregion
 
-#region FailedMemberCollection
-/// <summary>A collection of <see cref="ResourceStatus"/> objects representing internal collection members that could not be deleted.</summary>
-public sealed class FailedMemberCollection : CollectionBase<ResourceStatus>
+#region FailedResourceCollection
+/// <summary>A collection of <see cref="ResourceStatus"/> objects representing resources that could not be successfully processed or that
+/// prevented successful processing of the request resource.
+/// </summary>
+public sealed class FailedResourceCollection : CollectionBase<ResourceStatus>
 {
-  internal FailedMemberCollection() { }
+  internal FailedResourceCollection() { }
 
   /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the path to the resource (relative to
   /// <see cref="WebDAVContext.ServiceRoot"/>) and the status of the resource.
@@ -166,6 +167,9 @@ public abstract class WebDAVRequest
 
     value = context.Request.Headers[HttpHeaders.IfUnmodifiedSince];
     if(value != null) ifUnmodifiedSince = ParseHttpDate(value);
+
+    value = context.Request.Headers[HttpHeaders.If];
+    if(value != null) ifClauses = ParseIf(value);
   }
 
   /// <summary>Gets the <see cref="WebDAVContext"/> in which the request is being executed.</summary>
@@ -183,7 +187,7 @@ public abstract class WebDAVRequest
   /// </summary>
   public bool ShouldCheckPreconditions
   {
-    get { return ifMatch != null || ifNoneMatch != null || ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue; }
+    get { return ifClauses != null || ifMatch != null || ifNoneMatch != null || ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue; }
   }
 
   /// <summary>Gets or sets the <see cref="ConditionCode"/> representing the overall result of the request. If the status is null, the
@@ -257,6 +261,28 @@ public abstract class WebDAVRequest
     return null;
   }
 
+  /// <summary>Returns a <see cref="HashSet{T}"/> containing the lock tokens submitted along with the request. The collection will always
+  /// be empty if <see cref="ShouldCheckPreconditions"/> is false.
+  /// </summary>
+  public HashSet<string> GetSubmittedLockTokens()
+  {
+    HashSet<string> lockTokens = new HashSet<string>();
+    if(ifClauses != null)
+    {
+      foreach(TaggedIfLists taggedList in ifClauses)
+      {
+        foreach(IfList list in taggedList.Lists)
+        {
+          foreach(IfCondition condition in list.Conditions)
+          {
+            if(condition.LockToken != null) lockTokens.Add(condition.LockToken);
+          }
+        }
+      }
+    }
+    return lockTokens;
+  }
+
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   /// <remarks>The default implementation does nothing.</remarks>
   protected internal virtual void ParseRequest() { }
@@ -264,12 +290,63 @@ public abstract class WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal abstract void WriteResponse();
 
+  #region IfCondition
+  sealed class IfCondition
+  {
+    internal IfCondition(EntityTag entityTag, bool negated)
+    {
+      if(entityTag == null) throw new ArgumentNullException();
+      EntityTag = entityTag;
+      Negated   = negated;
+    }
+
+    internal IfCondition(string lockToken, bool negated)
+    {
+      if(string.IsNullOrEmpty(lockToken)) throw new ArgumentException();
+      Negated = negated;
+    }
+
+    public EntityTag EntityTag { get; private set; }
+    public string LockToken { get; private set; }
+    public bool Negated { get; private set; }
+  }
+  #endregion
+
+  #region IfList
+  sealed class IfList
+  {
+    internal IfList(IfCondition[] conditions)
+    {
+      if(conditions == null || conditions.Length == 0) throw new ArgumentException();
+      Conditions = conditions;
+    }
+
+    public IfCondition[] Conditions { get; private set; }
+  }
+  #endregion
+
+  #region TaggedIfLists
+  sealed class TaggedIfLists
+  {
+    internal TaggedIfLists(string resourceTag, IfList[] lists)
+    {
+      if(lists == null) throw new ArgumentNullException();
+      if(resourceTag != null && resourceTag.Length == 0 || lists.Length == 0) throw new ArgumentException();
+      ResourceTag = resourceTag;
+      Lists       = lists;
+    }
+
+    public string ResourceTag { get; private set; }
+    public IfList[] Lists { get; private set; }
+  }
+  #endregion
+
   bool IsGetOrHead()
   {
-    string method = Context.Request.HttpMethod;
-    return method.OrdinalEquals("GET") || method.OrdinalEquals("HEAD");
+    return Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Get) || Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Head);
   }
 
+  TaggedIfLists[] ifClauses;
   EntityTag[] ifMatch, ifNoneMatch;
   DateTime? ifModifiedSince, ifUnmodifiedSince;
 
@@ -291,6 +368,111 @@ public abstract class WebDAVRequest
     return false;
   }
 
+  static EntityTag ParseEntityTag(string value, ref int index, int end)
+  {
+    int i = index;
+    bool isWeak = false;
+    char c = value[i++];
+    if(c == 'W') // if the entity tag starts with W, that represents a weak tag
+    {
+      if(end - i < 2 || value[i++] != '/') return null; // W must be followed by a slash
+      c = value[i++]; // grab the first one, which should be a quotation mark
+      isWeak = true;
+    }
+    if(c != '"' || i == end) return null; // a quoted string must follow, so expect more characters
+
+    // find the end of the entity tag and add it to the list
+    int start = i;
+    while(true)
+    {
+      c = value[i++];
+      if(c == '\\') i++;
+      else if(c == '"') break;
+      else if(i == end) return null;
+    }
+
+    index = i;
+    try { return new EntityTag(DAVUtility.UnquoteDecode(value, start, i-start-1), isWeak); }
+    catch(FormatException) { return null; }
+  }
+
+  /// <summary>Parses the value of a WebDAV <c>If</c> header, as defined in RFC 4918 section 10.4.</summary>
+  static TaggedIfLists[] ParseIf(string value)
+  {
+    List<TaggedIfLists> taggedLists = new List<TaggedIfLists>();
+    List<IfList> lists = new List<IfList>();
+    List<IfCondition> conditions = new List<IfCondition>();
+    int index = 0;
+
+    while(true)
+    {
+      index = SkipWhitespace(value, index);
+      if(index == value.Length) break;
+
+      string tag = null;
+      if(value[index] == '<')
+      {
+        tag = ParseTag(value, ref index);
+        if(tag == null) return null;
+      }
+
+      lists.Clear();
+      index = SkipWhitespace(value, index);
+      if(index == value.Length || value[index] != '(') return null;
+      do
+      {
+        index = SkipWhitespace(value, index+1);
+        if(index == value.Length) return null;
+        conditions.Clear();
+
+        while(true)
+        {
+          bool negated = value.StartsWith("Not ");
+          if(negated)
+          {
+            index = SkipWhitespace(value, index+4);
+            if(index == value.Length) return null;
+          }
+
+          if(value[index] == '<')
+          {
+            string lockToken = ParseTag(value, ref index);
+            if(lockToken == null) return null;
+            conditions.Add(new IfCondition(lockToken, negated));
+          }
+          else if(value[index] == '[')
+          {
+            if(++index == value.Length) return null;
+            EntityTag entityTag = ParseEntityTag(value, ref index, value.Length);
+            if(entityTag == null) return null;
+            conditions.Add(new IfCondition(entityTag, negated));
+            if(index == value.Length || value[index++] != ']') return null;
+          }
+          else if(value[index] == ')')
+          {
+            index++;
+            break;
+          }
+          else
+          {
+            return null;
+          }
+
+          index = SkipWhitespace(value, index);
+        }
+
+        if(conditions.Count == 0) return null;
+
+        lists.Add(new IfList(conditions.ToArray()));
+        index = SkipWhitespace(value, index);
+      } while(index < value.Length && value[index] == '(');
+
+      taggedLists.Add(new TaggedIfLists(tag, lists.ToArray()));
+    }
+
+    return taggedLists.Count == 0 ? null : taggedLists.ToArray();
+  }
+
   /// <summary>Parses the value of an HTTP <c>If-Match</c> or <c>If-None-Match</c> header, which contains a comma-separated list of
   /// entity tags.
   /// </summary>
@@ -307,28 +489,8 @@ public abstract class WebDAVRequest
     List<EntityTag> tags = new List<EntityTag>();
     for(int i = start, end = start + length; i < end; ) // for each entity tag
     {
-      bool isWeak = false;
-      char c = value[i++];
-      if(c == 'W') // if the entity tag starts with W, that represents a weak tag
-      {
-        if(end - i < 2 || value[i++] != '/') return null; // W must be followed by a slash
-        c = value[i++]; // grab the first one, which should be a quotation mark
-        isWeak = true;
-      }
-      if(c != '"' || i == end) return null; // a quoted string must follow, so expect more characters
-
-      // find the end of the entity tag and add it to the list
-      start = i;
-      while(true)
-      {
-        c = value[i++];
-        if(c == '\\') i++;
-        else if(c == '"') break;
-        else if(i == end) return null;
-      }
-
-      try { tags.Add(new EntityTag(DAVUtility.UnquoteDecode(value, start, i-start-1), isWeak)); }
-      catch(FormatException) { return null; }
+      EntityTag tag = ParseEntityTag(value, ref i, end);
+      if(tag == null) return null;
 
       // now skip over a comma if there is one
       while(i < end && char.IsWhiteSpace(value[i])) i++;
@@ -345,6 +507,22 @@ public abstract class WebDAVRequest
   {
     DateTime date;
     return DAVUtility.TryParseHttpDate(value, out date) ? (DateTime?)date : null;
+  }
+
+  static string ParseTag(string value, ref int index)
+  {
+    int end = ++index;
+    while(end < value.Length && value[end] != '>') end++;
+    if(end == value.Length || end == index) return null;
+    string tag = value.Substring(index, end-index);
+    index = end + 1;
+    return tag;
+  }
+
+  static int SkipWhitespace(string value, int index)
+  {
+    while(index < value.Length && char.IsWhiteSpace(value[index])) index++;
+    return index;
   }
 
   static readonly Regex matchRe = new Regex(@"^\s*(?:(?:W/)?""(?:\\.|[^""])*""(?:\s*,\s*(?:W/)?""(?:\\.|[^""\\])*"")*\s*)?$",

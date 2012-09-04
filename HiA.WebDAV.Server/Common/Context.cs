@@ -278,7 +278,7 @@ public sealed class WebDAVContext
   /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
   /// be empty.
   /// </summary>
-  internal void WriteFailedMembers(FailedMemberCollection failedMembers)
+  internal void WriteFailedMembers(FailedResourceCollection failedMembers)
   {
     if(failedMembers == null) throw new ArgumentNullException();
     if(failedMembers.Count == 0) throw new ArgumentException("There were no failed members.");
