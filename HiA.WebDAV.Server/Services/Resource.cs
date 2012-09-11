@@ -20,11 +20,17 @@ public interface IWebDAVResource : ISupportAuthorization
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
   void Delete(DeleteRequest request);
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
+  EntityMetadata GetEntityMetadata(bool includeEntityTag);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
   void GetOrHead(GetOrHeadRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/HandleGenericRequest/node()" />
   bool HandleGenericRequest(WebDAVContext context);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
+  void Lock(LockRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
   void Options(OptionsRequest request);
@@ -40,6 +46,9 @@ public interface IWebDAVResource : ISupportAuthorization
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
   void Put(PutRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
+  void Unlock(UnlockRequest request);
 }
 #endregion
 
@@ -69,6 +78,9 @@ public abstract class WebDAVResource : IWebDAVResource
     request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support deletion.");
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
+  public abstract EntityMetadata GetEntityMetadata(bool includeEntityTag);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
   public abstract void GetOrHead(GetOrHeadRequest request);
 
@@ -77,6 +89,14 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual bool HandleGenericRequest(WebDAVContext context)
   {
     return false;
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
+  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource cannot be locked.</remarks>
+  public virtual void Lock(LockRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource cannot be locked.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -113,20 +133,30 @@ public abstract class WebDAVResource : IWebDAVResource
     }
   }
 
-  /// <include file="documentation.xml" path="/DAV/ISupportAuthorization/ShouldDenyAccess/node()" />
-  /// <remarks>The default implementation always grants access to the resource.</remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, out bool denyExistence)
-  {
-    denyExistence = false;
-    return false;
-  }
-
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
   /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource not support setting its content.</remarks>
   public virtual void Put(PutRequest request)
   {
     if(request == null) throw new ArgumentNullException();
     request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support setting its content.");
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
+  /// <remarks>The default implementation responds with 409 Conflict, indicating that the resource is not locked (because it doesn't
+  /// support locking).
+  /// </remarks>
+  public virtual void Unlock(UnlockRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode((int)HttpStatusCode.Conflict, "The resource is not locked (because it does not support locking).");
+  }
+
+  /// <include file="documentation.xml" path="/DAV/ISupportAuthorization/ShouldDenyAccess/node()" />
+  /// <remarks>The default implementation always grants access to the resource.</remarks>
+  public virtual bool ShouldDenyAccess(WebDAVContext context, out bool denyExistence)
+  {
+    denyExistence = false;
+    return false;
   }
 }
 #endregion

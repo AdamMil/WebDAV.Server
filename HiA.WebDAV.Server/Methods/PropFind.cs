@@ -124,6 +124,12 @@ public class PropFindRequest : WebDAVRequest
   public PropFindResourceCollection Resources { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
+  /// <param name="properties">A dictionary containing all of the properties for the request resource. Live properties that are expensive
+  /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
+  /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
+  /// be null). In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates which will provide
+  /// the values when executed. This allows you to add delegates that compute expensive properties only when needed.
+  /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
     if(properties == null) throw new ArgumentNullException();
@@ -131,6 +137,11 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
+  /// <param name="properties">A dictionary containing all of the properties for the request resource. Live properties that are expensive
+  /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
+  /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
+  /// be null).
+  /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
     if(properties == null) throw new ArgumentNullException();
@@ -138,6 +149,13 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
+  /// <param name="getProperties">Given a value representing a resource, returns a dictionary containing all of the resource's properties.
+  /// Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
+  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
+  /// case, the property values are ignored and can be null). In addition to property values, the dictionary can also contain
+  /// <c>Func&lt;object&gt;</c> delegates which will provide the values when executed. This allows you to add delegates that compute
+  /// expensive properties only when needed.
+  /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
                                         Func<T, IDictionary<XmlQualifiedName, object>> getProperties, Func<T, IEnumerable<T>> getChildren)
   {
@@ -146,6 +164,11 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
+  /// <param name="getProperties">Given a value representing a resource, returns a dictionary containing all of the resource's properties.
+  /// Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
+  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
+  /// case, the property values are ignored and can be null).
+  /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
                                         Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties,
                                         Func<T, IEnumerable<T>> getChildren)
@@ -172,7 +195,7 @@ public class PropFindRequest : WebDAVRequest
       // parse the DAV::propfind element
       xml.DocumentElement.AssertName(Names.propfind);
       bool allProp = false, include = false, prop = false, propName = false;
-      foreach(XmlElement child in xml.DocumentElement.EnumerateElements()) // examine the children of the root
+      foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements()) // examine the children of the root
       {
         // the DAV::allprop and DAV::propname elements are simple flags
         if(!child.SetFlagOnce(Names.allprop, ref allProp) && !child.SetFlagOnce(Names.propname, ref propName))
@@ -185,7 +208,7 @@ public class PropFindRequest : WebDAVRequest
               throw Exceptions.BadRequest("The include element must follow the allprop element.");
             }
             // for each child in the list, add it to the list of requested properties
-            foreach(XmlQualifiedName qname in child.EnumerateElements().Select(XmlNodeExtensions.GetQualifiedName)) Properties.Add(qname);
+            foreach(XmlQualifiedName qname in child.EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName)) Properties.Add(qname);
           }
         }
       }
@@ -361,7 +384,7 @@ public class PropFindRequest : WebDAVRequest
       foreach(XmlQualifiedName name in Properties) // add the values of properties that the client explicitly requested
       {
         object value;
-        if(properties.TryGetValue(name, out value)) resource.SetValue(name, value);
+        if(properties.TryGetValue(name, out value)) resource.SetValue(name, GetPropertyValue(value));
         else resource.SetError(name, ConditionCodes.NotFound);
       }
 
@@ -369,7 +392,7 @@ public class PropFindRequest : WebDAVRequest
       {
         foreach(KeyValuePair<XmlQualifiedName, object> pair in properties)
         {
-          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, pair.Value); // add them if we haven't done so already
+          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, GetPropertyValue(pair.Value)); // add them if we haven't done so
         }
       }
     }
@@ -426,7 +449,7 @@ public class PropFindRequest : WebDAVRequest
       IEnumerable<T> children = getChildren(resource);
       if(children != null)
       {
-        if(davPath.Length != 0 && davPath[davPath.Length-1] != '/') davPath += "/";
+        davPath = DAVUtility.WithTrailingSlash(davPath);
         foreach(T child in children) ProcessStandardRequest(child, getCanonicalPath, getProperties, getChildren, davPath, depth+1);
       }
     }
@@ -450,10 +473,20 @@ public class PropFindRequest : WebDAVRequest
       IEnumerable<T> children = getChildren(resource);
       if(children != null)
       {
-        if(davPath.Length != 0 && davPath[davPath.Length-1] != '/') davPath += "/";
+        davPath = DAVUtility.WithTrailingSlash(davPath);
         foreach(T child in children) ProcessStandardRequest(child, getMemberName, getProperties, getChildren, davPath, depth+1);
       }
     }
+  }
+
+  static object GetPropertyValue(object value)
+  {
+    if(value != null)
+    {
+      Func<object> getter = value as Func<object>;
+      if(getter != null) value = getter();
+    }
+    return value;
   }
 
   // use a System.Collections.Hashtable because it has a special implementation that allows lock-free reads

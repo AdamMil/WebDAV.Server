@@ -101,6 +101,7 @@ public static class Names
   internal static readonly XmlQualifiedName exclusive = new XmlQualifiedName("exclusive", DAV);
   internal static readonly XmlQualifiedName include = new XmlQualifiedName("include", DAV);
   internal static readonly XmlQualifiedName lockentry = new XmlQualifiedName("lockentry", DAV);
+  internal static readonly XmlQualifiedName lockinfo = new XmlQualifiedName("lockinfo", DAV);
   internal static readonly XmlQualifiedName lockroot = new XmlQualifiedName("lockroot", DAV);
   internal static readonly XmlQualifiedName lockscope = new XmlQualifiedName("lockscope", DAV);
   internal static readonly XmlQualifiedName locktoken = new XmlQualifiedName("locktoken", DAV);
@@ -291,7 +292,7 @@ static class XmlExtensions
     }
   }
 
-  public static IEnumerable<XmlElement> EnumerateElements(this XmlNode node)
+  public static IEnumerable<XmlElement> EnumerateChildElements(this XmlNode node)
   {
     if(node == null) throw new ArgumentNullException();
     foreach(XmlNode child in node.ChildNodes)

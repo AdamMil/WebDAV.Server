@@ -1,10 +1,4 @@
-﻿using System;
-using System.Globalization;
-using System.Linq;
-using System.Xml;
-using System.Collections.Generic;
-
-// TODO: add processing examples and documentation
+﻿// TODO: add processing examples and documentation
 
 namespace HiA.WebDAV.Server
 {
@@ -24,6 +18,13 @@ public class DeleteRequest : WebDAVRequest
   /// that could not be deleted, if the resource is a collection resource.
   /// </summary>
   public FailedResourceCollection FailedMembers { get; private set; }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
+  /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and on descendant resources.</remarks>
+  protected override ConditionCode CheckSubmittedLockTokens()
+  {
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, true);
+  }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()

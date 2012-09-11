@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -27,7 +28,17 @@ public enum Depth
 /// <summary>Contains information about an entity and/or entity body.</summary>
 public sealed class EntityMetadata
 {
-  /// <summary>Gets or sets the RFC 2616 entity tag of the entity body. This can be set to null if the entity tag cannot be computed.</summary>
+  /// <summary>Initializes a new <see cref="EntityMetadata"/> representing an existing resource.</summary>
+  public EntityMetadata()
+  {
+    Exists = true;
+  }
+
+  /// <summary>Gets or sets the RFC 2616 entity tag of the entity body. In general, you should use
+  /// <see cref="DAVUtility.ComputeEntityTag(System.IO.Stream)"/> to compute this, because all built-in entity tag computations are done
+  /// using that method. If you want to use a different method, you will need to take care to calculate the entity tag yourself everywhere
+  /// that the system would normally do it for you. This can be set to null if the entity tag cannot be computed.
+  /// </summary>
   public EntityTag EntityTag { get; set; }
 
   /// <summary>Gets or sets whether the entity actually exists. The default is true. This might be set to false when, for instance,
@@ -54,6 +65,15 @@ public sealed class EntityMetadata
   /// <summary>Gets or sets the RFC 2616 <c>media-type</c> of the entity body. This can be set to null if the media type is unknown.</summary>
   public string MediaType { get; set; }
 
+  /// <summary>Returns a copy of this <see cref="EntityMetadata"/> object.</summary>
+  public EntityMetadata Clone()
+  {
+    return new EntityMetadata()
+    {
+      EntityTag = EntityTag, Exists = Exists, LastModifiedTime = LastModifiedTime, Length = _length, MediaType = MediaType
+    };
+  }
+
   long? _length;
 }
 #endregion
@@ -66,12 +86,12 @@ public sealed class FailedResourceCollection : CollectionBase<ResourceStatus>
 {
   internal FailedResourceCollection() { }
 
-  /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the path to the resource (relative to
-  /// <see cref="WebDAVContext.ServiceRoot"/>) and the status of the resource.
+  /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the absolute path to the resource and the status of the
+  /// resource.
   /// </summary>
-  public void Add(string relativePath, ConditionCode status)
+  public void Add(string absolutePath, ConditionCode status)
   {
-    Add(new ResourceStatus(relativePath, status));
+    Add(new ResourceStatus(absolutePath, status));
   }
 }
 #endregion
@@ -119,18 +139,16 @@ public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedNa
 /// </summary>
 public sealed class ResourceStatus
 {
-  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the path to the resource (relative to
-  /// <see cref="WebDAVContext.ServiceRoot"/>) and the status of the resource.
-  /// </summary>
-  public ResourceStatus(string relativePath, ConditionCode status)
+  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the absolute path to the resource and the status of the resource.</summary>
+  public ResourceStatus(string absolutePath, ConditionCode status)
   {
-    if(relativePath == null || status == null) throw new ArgumentNullException();
-    RelativePath = relativePath;
+    if(absolutePath == null || status == null) throw new ArgumentNullException();
+    AbsolutePath = absolutePath;
     Status       = status;
   }
 
-  /// <summary>Gets the path to the resource, relative to <see cref="WebDAVContext.ServiceRoot"/>.</summary>
-  public string RelativePath { get; private set; }
+  /// <summary>Gets the absolute path to the resource.</summary>
+  public string AbsolutePath { get; private set; }
 
   /// <summary>Gets the status of the resource.</summary>
   public ConditionCode Status { get; private set; }
@@ -181,11 +199,17 @@ public abstract class WebDAVRequest
   /// <summary>Gets the HTTP method name sent by the client.</summary>
   public string MethodName { get; private set; }
 
-  /// <summary>Gets whether the client has submitted any condition headers (e.g. <c>If-Match</c>, <c>If-Modified-Since</c>, etc). If true,
-  /// you must call the <see cref="CheckPreconditions"/> method to see if the preconditions are satisfied before executing the method. If
-  /// false, you needn't call the <see cref="CheckPreconditions"/> method, as it is guaranteed to return null.
+  /// <summary>Gets whether the client has submitted any precondition headers (e.g. <c>If</c>, <c>If-Match</c>, <c>If-Modified-Since</c>,
+  /// etc). If true, or if processing the request might conflict with any resource locks, you must call the
+  /// <see cref="CheckPreconditions"/> method to ensure that the preconditions are satisfied before proceeding with the request. It is
+  /// okay (and inexpensive) to call <see cref="CheckPreconditions"/> even if this is false, so in general you do not need to check this
+  /// property.
   /// </summary>
-  public bool ShouldCheckPreconditions
+  /// <remarks>The main usage of this property is to avoid computing expensive <see cref="EntityMetadata"/> (especially the
+  /// <see cref="EntityTag"/>) in cases when it won't be needed. In particular, if this property is false, then the
+  /// <see cref="EntityMetadata"/> object passed to <see cref="CheckPreconditions"/> will not require an <see cref="EntityTag"/>.
+  /// </remarks>
+  public bool ClientSubmittedPreconditions
   {
     get { return ifClauses != null || ifMatch != null || ifNoneMatch != null || ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue; }
   }
@@ -196,14 +220,13 @@ public abstract class WebDAVRequest
   /// </summary>
   public ConditionCode Status { get; set; }
 
-  /// <summary>Determines whether a request should be processed given the precondition (i.e. <c>If-Match</c>, <c>If-None-Match</c>,
-  /// <c>If-Modified-Since</c>, and <c>If-Unmodified-Since</c>) headers submitted by the client.
+  /// <summary>Determines whether a request should be processed given the precondition (i.e. <c>If</c>, <c>If-Match</c>,
+  /// <c>If-None-Match</c>, <c>If-Modified-Since</c>, and <c>If-Unmodified-Since</c>) headers submitted by the client. This method also
+  /// checks resource locks by calling <see cref="CheckSubmittedLockTokens()"/>.
   /// </summary>
-  /// <param name="entityTag">The current entity tag of the resource requested by the client. If no entity exists, this should be null.</param>
-  /// <param name="lastModifiedTime">The time that the resource requested by the client was last modified. If no entity exists or the last
-  /// modification time is unknown, this should be null.
+  /// <param name="requestMetadata">The <see cref="EntityMetadata"/> for the request resource. If null, the metadata will be retrieved by
+  /// calling <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if it is available.
   /// </param>
-  /// <param name="entityExists">True if the entity requested by the client exists and false if not.</param>
   /// <returns>Returns null if the request should proceed normally. Otherwise, the status code that should be returned to the client is
   /// returned. This might be an error code (e.g. 412 Precondition Failed) or a redirection code (e.g. 304 Not Modified).
   /// </returns>
@@ -213,57 +236,160 @@ public abstract class WebDAVRequest
   /// the <c>GET</c> request would otherwise have been responded to with anything but 200 OK. (For instance, if a particular <c>GET</c>
   /// request would normally be responded to with 206 Partial Content and this method returns 304 Not Modified, the request should be
   /// processed normally and return 206 Partial Content. However if this method returns any other status or if the <c>GET</c> request would
-  /// normally be responded to with 200 OK, the status returned from this method should be returned to the client instead.)
-  /// <note type="caution">This method does not check the <c>If-Range</c> header. In responding to a <c>GET</c> request, you should check
-  /// the <c>If-Range</c> header or use </note>
+  /// normally be responded to with 200 OK, the status returned from this method should be returned to the client instead of processing the
+  /// request.)
+  /// <note type="caution">This method does not check the <c>If-Range</c> header, because it works differently from the other <c>If-</c>
+  /// headers. When responding to a <c>GET</c> request, you should check the <c>If-Range</c> header using
+  /// <see cref="GetOrHeadRequest.IfRange"/> or use <see cref="GetOrHeadRequest.WriteStandardResponse(System.IO.Stream,EntityMetadata)"/>,
+  /// which checks it for you.)
+  /// </note>
   /// </remarks>
-  public ConditionCode CheckPreconditions(EntityTag entityTag, DateTime? lastModifiedTime, bool entityExists)
+  public ConditionCode CheckPreconditions(EntityMetadata requestMetadata)
   {
     // RFC 2616 leaves the behavior undefined when If-* headers are mixed together, so we will implement it by requiring the request to
     // pass all conditions and trying conditions that cause errors before those that cause redirections
 
-    // as per RFC 2616 sections 14.24 and 14.26, if the entity exists, then the precondition fails if 1) If-None-Match = *, 2) If-Match
-    // doesn't match the entity tag, or 3) If-None-Match does match the entity tag and the method is not GET or HEAD. otherwise, if the
-    // entity doesn't exist, the precondition fails if If-Match was provided. if the entity exists and If-None-Match matches it and the
-    // method is GET or HEAD, 304 Not Modified should be returned instead. that is handled later
-    if(entityExists ? ifMatch != null && entityTag != null && !Matches(ifMatch, entityTag) ||
-                      Matches(ifNoneMatch, entityTag) && !IsGetOrHead()
-                    : ifMatch != null)
+    if(ifMatch != null || ifNoneMatch != null)
     {
-      return ConditionCodes.PreconditionFailed;
+      // load the request metadata with the entity tag if we need it
+      if(requestMetadata == null || requestMetadata.EntityTag == null)
+      {
+        if(Context.RequestResource != null) requestMetadata = Context.RequestResource.GetEntityMetadata(true);
+        if(requestMetadata == null) requestMetadata = new EntityMetadata() { Exists = false };
+      }
+
+      // as per RFC 2616 sections 14.24 and 14.26, if the entity exists, then the precondition fails if 1) If-None-Match = *, 2) If-Match
+      // doesn't match the entity tag, or 3) If-None-Match does match the entity tag and the method is not GET or HEAD. otherwise, if the
+      // entity doesn't exist, the precondition fails if If-Match was provided. if the entity exists and If-None-Match matches it and the
+      // method is GET or HEAD, 304 Not Modified should be returned instead. that is handled later
+      if(requestMetadata.Exists ? ifMatch != null && requestMetadata.EntityTag != null && !Matches(ifMatch, requestMetadata.EntityTag) ||
+                                  Matches(ifNoneMatch, requestMetadata.EntityTag) && !IsGetOrHead()
+                                : ifMatch != null)
+      {
+        return ConditionCodes.PreconditionFailed;
+      }
     }
 
     DateTime utcTime = default(DateTime);
-    if((ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue) && lastModifiedTime.HasValue)
+    if(ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue)
     {
-      utcTime = DAVUtility.GetHttpDate(lastModifiedTime.Value); // convert it to a date value suitable for comparing with HTTP dates
-      // as per RFC 2616 section 14.28, the precondition fails if the last modified date is after the If-Unmodified-Since date
-      if(ifUnmodifiedSince.HasValue && utcTime > ifUnmodifiedSince) return ConditionCodes.PreconditionFailed;
+      if(requestMetadata == null)
+      {
+        if(Context.RequestResource != null) requestMetadata = Context.RequestResource.GetEntityMetadata(false);
+        if(requestMetadata == null) requestMetadata = new EntityMetadata() { Exists = false };
+      }
+
+      if(requestMetadata.LastModifiedTime.HasValue)
+      {
+        // convert the modification time to a value suitable for comparing with HTTP dates
+        utcTime = DAVUtility.GetHttpDate(requestMetadata.LastModifiedTime.Value);
+        // as per RFC 2616 section 14.28, the precondition fails if the last modified date is after the If-Unmodified-Since date
+        if(ifUnmodifiedSince.HasValue && utcTime > ifUnmodifiedSince) return ConditionCodes.PreconditionFailed;
+      }
     }
 
-    // RFC 2616 section 14.26 says that if the entity exists and matches the If-None-Match header, and the request is GET or HEAD, then
-    // 304 Not Modified should be returned
-    if(entityExists && Matches(ifNoneMatch, entityTag) && IsGetOrHead())
+    // RFC 4918 section 10.4.3 specifies the processing for the If header
+    if(ifClauses != null)
     {
-      // section 14.26 also says that if we respond with 304 Not Modified, then we should also the matching ETag value
-      if(entityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
+      bool anyListSucceeded = false;
+      foreach(TaggedIfLists clause in ifClauses)
       {
-        Context.Response.Headers[HttpHeaders.ETag] = entityTag.ToHeaderString();
+        EntityMetadata metadata = null;
+        ILockManager lockManager = null;
+        if(clause.ResourceTag == null || clause.ResourceTag.OrdinalEquals(Context.ServiceRoot + Context.RequestPath) ||
+           clause.ResourceTag[0] != '/' && clause.ResourceTagUri.Equals(Context.Request.Url))
+        {
+          bool checksEntityTag = clause.ChecksEntityTag();
+          if((requestMetadata == null || checksEntityTag && requestMetadata.EntityTag == null) && Context.RequestResource != null)
+          {
+            requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
+          }
+
+          metadata    = requestMetadata;
+          lockManager = Context.LockManager;
+        }
+        else
+        {
+          IWebDAVService service;
+          IWebDAVResource resource;
+          if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource))
+          {
+            metadata    = resource.GetEntityMetadata(clause.ChecksEntityTag());
+            lockManager = service.LockManager ?? Context.DefaultLockManager;
+          }
+        }
+
+        foreach(IfList list in clause.Lists)
+        {
+          bool allConditionsSucceeded = true;
+          foreach(IfCondition condition in list.Conditions)
+          {
+            bool match = false;
+            if(metadata != null)
+            {
+              if(condition.EntityTag != null)
+              {
+                match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
+              }
+              else if(lockManager != null)
+              {
+                string absolutePath = clause.ResourceTag == null ? null :
+                                      clause.ResourceTag[0] == '/' ? clause.ResourceTag : clause.ResourceTagUri.AbsolutePath;
+                match = lockManager.GetLock(condition.LockToken, absolutePath) != null;
+              }
+            }
+
+            if(!match ^ condition.Negated)
+            {
+              allConditionsSucceeded = false;
+              break;
+            }
+          }
+
+          if(allConditionsSucceeded)
+          {
+            anyListSucceeded = true;
+            break;
+          }
+        }
+
+        if(anyListSucceeded) break;
       }
-      return ConditionCodes.NotModified;
+
+      if(!anyListSucceeded) return ConditionCodes.PreconditionFailed;
+    }
+
+    // now check that the required lock tokens have been submitted in the If header
+    ConditionCode lockStatus = CheckSubmittedLockTokens();
+    if(lockStatus != null) return lockStatus;
+
+    if(ifNoneMatch != null)
+    {
+      // RFC 2616 section 14.26 says that if the entity exists and matches the If-None-Match header, and the request is GET or HEAD, then
+      // 304 Not Modified should be returned
+      if(requestMetadata.Exists && Matches(ifNoneMatch, requestMetadata.EntityTag) && IsGetOrHead())
+      {
+        // section 14.26 also says that if we respond with 304 Not Modified, then we should also the matching ETag value
+        if(requestMetadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
+        {
+          Context.Response.Headers[HttpHeaders.ETag] = requestMetadata.EntityTag.ToHeaderString();
+        }
+        return ConditionCodes.NotModified;
+      }
     }
 
     // as per RFC 2616 section 14.25, a 304 Not Modified response should be returned if 1) a GET request would normally be
     // responded to with a 200 OK status (something we can't check here), and 2) the last modified time is not greater than
     // If-Modified-Since
-    if(ifModifiedSince.HasValue && lastModifiedTime.HasValue && utcTime <= ifModifiedSince) return ConditionCodes.NotModified;
+    if(ifModifiedSince.HasValue && requestMetadata.LastModifiedTime.HasValue && utcTime <= ifModifiedSince)
+    {
+      return ConditionCodes.NotModified;
+    }
 
     return null;
   }
 
-  /// <summary>Returns a <see cref="HashSet{T}"/> containing the lock tokens submitted along with the request. The collection will always
-  /// be empty if <see cref="ShouldCheckPreconditions"/> is false.
-  /// </summary>
+  /// <summary>Returns a <see cref="HashSet{T}"/> containing the lock tokens submitted along with the request.</summary>
   public HashSet<string> GetSubmittedLockTokens()
   {
     HashSet<string> lockTokens = new HashSet<string>();
@@ -281,6 +407,126 @@ public abstract class WebDAVRequest
       }
     }
     return lockTokens;
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
+  /// <remarks>The default implementation always returns null.
+  /// <note type="inheritinfo">Derived classes should typically implement this method by calling
+  /// see cref="CheckSubmittedLockTokens(LockType,bool)"/> or one of its overrides.
+  /// </note>
+  /// </remarks>
+  protected virtual ConditionCode CheckSubmittedLockTokens()
+  {
+    return null;
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants)
+  {
+    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, null, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
+  /// <param name="absolutePath">The absolute path to the resource whose locks will be examined. The resource must be within the request
+  /// service (i.e. controlled by <see cref="WebDAVContext.Service"/>). If null, the request resource will be used.
+  /// </param>
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants, string absolutePath)
+  {
+    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, absolutePath, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
+  /// <param name="absolutePath">The absolute path to the resource whose locks will be examined. If null, the request resource will be
+  /// used and <paramref name="service"/> must also be null.
+  /// </param>
+  /// <param name="service">The <see cref="IWebDAVService"/> containing the resource whose locks will be examined. If null, the request
+  /// service will be used. If not null, <paramref name="absolutePath"/> cannot be null either.
+  /// </param>
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants,
+                                                   string absolutePath, IWebDAVService service)
+  {
+    if(lockType == null) throw new ArgumentNullException();
+
+    if(absolutePath == null)
+    {
+      if(service != null) throw new ArgumentException("If 'absolutePath' is null, 'service' must also be null.");
+      absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
+    }
+
+    ILockManager lockManager = (service ?? Context.Service).LockManager ?? Context.DefaultLockManager;
+    if(lockManager != null)
+    {
+      HashSet<string> submittedTokens = GetSubmittedLockTokens();
+      Predicate<ActiveLock> filter = L => lockType.ConflictsWith(L.LockType);
+      bool isBuiltInType = lockType.GetType() == typeof(LockType); // can we make assumptions about the LockType implementation?
+
+      if(checkParent) // if we have to check the parent collection for a lock...
+      {
+        string parentPath = DAVUtility.GetParentPath(absolutePath);
+        if(parentPath != null) // if the resource has a parent...
+        {
+          IList<ActiveLock> locks = lockManager.GetLocks(parentPath, true, false, filter);
+          if(locks.Count != 0) // and the parent is locked...
+          {
+            ActiveLock lockObject = GetSubmittedLock(locks, submittedTokens); // see if a relevant token was submitted
+            if(lockObject == null) return new LockTokenSubmittedConditionCode(parentPath); // none was submitted, so that's an error
+            if(lockObject.Recursive)
+            {
+              // if it's recursive and we know the implementation, we can avoid checking anything else because the built-in LockType class
+              // will only match other locks of exactly the same type, so submitting the parent lock covers all possible descendant locks.
+              // otherwise, we still need to look at descendant locks, but we can skip the ones that aren't covered by (i.e. don't conflict
+              // with) the recursive parent lock
+              if(isBuiltInType) return null;
+              else filter = Combine(filter, L => !lockObject.LockType.ConflictsWith(L.LockType));
+            }
+          }
+        }
+      }
+
+      // now check locks directly on the resource
+      IList<ActiveLock> directLocks = lockManager.GetLocks(absolutePath, !checkParent, false, filter);
+      if(directLocks.Count != 0)
+      {
+        ActiveLock lockObject = GetSubmittedLock(directLocks, submittedTokens); // see if a relevant token was submitted
+        if(lockObject == null) return new LockTokenSubmittedConditionCode(absolutePath); // none was submitted, so that's an error
+        if(lockObject.Recursive && checkDescendants)
+        {
+          if(isBuiltInType) return null; // see above for a description of this code
+          else filter = Combine(filter, L => !lockObject.LockType.ConflictsWith(L.LockType));
+        }
+      }
+
+      // now look at locks that are descendants of the resource
+      if(checkDescendants)
+      {
+        IList<ActiveLock> locks = lockManager.GetLocks(absolutePath, false, true, filter);
+        List<ActiveLock> descendantLocks;
+        if(directLocks.Count == 0)
+        {
+          descendantLocks = GetList(locks);
+        }
+        else
+        {
+          descendantLocks = new List<ActiveLock>(locks.Count);
+          foreach(ActiveLock lockObject in locks)
+          {
+            if(lockObject.LockPath.Length > absolutePath.Length) descendantLocks.Add(lockObject);
+          }
+        }
+
+        if(descendantLocks.Count != 0)
+        {
+          descendantLocks.Sort((a, b) => string.Compare(a.LockPath, b.LockPath, StringComparison.Ordinal));
+          for(int i=0; i<descendantLocks.Count; )
+          {
+            ConditionCode status = CheckDescendantLocks(descendantLocks, ref i, submittedTokens, isBuiltInType ? null : filter);
+            if(status != null) return status;
+          }
+        }
+      }
+    }
+
+    return null;
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -303,7 +549,8 @@ public abstract class WebDAVRequest
     internal IfCondition(string lockToken, bool negated)
     {
       if(string.IsNullOrEmpty(lockToken)) throw new ArgumentException();
-      Negated = negated;
+      LockToken = lockToken;
+      Negated   = negated;
     }
 
     public EntityTag EntityTag { get; private set; }
@@ -328,16 +575,30 @@ public abstract class WebDAVRequest
   #region TaggedIfLists
   sealed class TaggedIfLists
   {
-    internal TaggedIfLists(string resourceTag, IfList[] lists)
+    internal TaggedIfLists(string resourceTag, Uri resourceTagUri, IfList[] lists)
     {
       if(lists == null) throw new ArgumentNullException();
       if(resourceTag != null && resourceTag.Length == 0 || lists.Length == 0) throw new ArgumentException();
-      ResourceTag = resourceTag;
-      Lists       = lists;
+      ResourceTag    = resourceTag;
+      ResourceTagUri = resourceTagUri;
+      Lists          = lists;
     }
 
     public string ResourceTag { get; private set; }
+    public Uri ResourceTagUri { get; private set; }
     public IfList[] Lists { get; private set; }
+
+    public bool ChecksEntityTag()
+    {
+      foreach(IfList ifList in Lists)
+      {
+        foreach(IfCondition condition in ifList.Conditions)
+        {
+          if(condition.EntityTag != null) return true;
+        }
+      }
+      return false;
+    }
   }
   #endregion
 
@@ -350,6 +611,102 @@ public abstract class WebDAVRequest
   EntityTag[] ifMatch, ifNoneMatch;
   DateTime? ifModifiedSince, ifUnmodifiedSince;
 
+  /// <summary>Checks the lock at the given index along with some or all of its descendants, and advances the index to the next unchecked
+  /// lock.
+  /// </summary>
+  static ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens,
+                                            Predicate<ActiveLock> filter)
+  {
+    // find the first lock that passes the filter
+    int start = index;
+    if(filter != null)
+    {
+      while(start < locks.Count && !filter(locks[start])) start++;
+      if(start == locks.Count) // if none pass, then we're done
+      {
+        index = locks.Count;
+        return null;
+      }
+    }
+
+    // find all locks with the same (base) path
+    int end = start+1, baseCount = 1;
+    ActiveLock baseLock = locks[start];
+    string basePath = baseLock.LockPath;
+    while(end < locks.Count && basePath.OrdinalEquals(locks[end].LockPath))
+    {
+      if(filter == null || filter(locks[end])) baseCount++;
+      end++;
+    }
+    index = end;
+
+    if(baseCount == 1) // if there's only one of them, check it directly
+    {
+      if(!submittedTokens.Contains(baseLock.LockToken)) baseLock = null;
+    }
+    else // otherwise, there are multiple locks with the same path, and we only require one of them to match
+    {
+      ActiveLock[] baseLocks = new ActiveLock[baseCount];
+      baseLocks[0] = baseLock;
+      for(int i=start+1,j=1; i<end; i++)
+      {
+        if(filter == null || filter(locks[i])) baseLocks[j++] = locks[i];
+      }
+      baseLock = GetSubmittedLock(baseLocks, submittedTokens);
+    }
+
+    if(baseLock == null) return new LockTokenSubmittedConditionCode(basePath); // if the base lock wasn't submitted, return an error
+
+    basePath = DAVUtility.WithTrailingSlash(basePath);
+    if(baseLock.Recursive) // if the submitted lock was recursive...
+    {
+      if(filter == null) // if there was no filter, we can simply skip over all descendants
+      {
+        while(end < locks.Count && locks[end].LockPath.StartsWith(basePath, StringComparison.Ordinal)) end++;
+        index = end;
+        return null;
+      }
+      else // otherwise, we may not be able to skip all descendants, but we can make the filter more restrictive
+      {
+        filter = Combine(filter, L => !baseLock.LockType.ConflictsWith(L.LockType));
+      }
+    }
+
+    // in any case, now look at the descendants
+    while(index < locks.Count && locks[index].LockPath.StartsWith(basePath, StringComparison.Ordinal))
+    {
+      ConditionCode status = CheckDescendantLocks(locks, ref index, submittedTokens, filter);
+      if(status != null) return status;
+    }
+
+    return null;
+  }
+
+  /// <summary>Combines two <see cref="Predicate{T}"/> of <see cref="ActiveLock"/> into a single predicate representing their conjunction.</summary>
+  static Predicate<ActiveLock> Combine(Predicate<ActiveLock> a, Predicate<ActiveLock> b)
+  {
+    return L => a(L) && b(L);
+  }
+
+  static List<ActiveLock> GetList(IList<ActiveLock> ilist)
+  {
+    return ilist as List<ActiveLock> ?? new List<ActiveLock>(ilist);
+  }
+
+  static ActiveLock GetSubmittedLock(IEnumerable<ActiveLock> locks, HashSet<string> submittedTokens)
+  {
+    ActiveLock matchingLock = null;
+    foreach(ActiveLock lockObject in locks)
+    {
+      if(submittedTokens.Contains(lockObject.LockToken))
+      {
+        matchingLock = lockObject;
+        if(matchingLock.Recursive) break; // we prefer recursive locks over non-recursive locks, so keep searching if it's not recursive
+      }
+    }
+    return matchingLock;
+  }
+
   /// <summary>Determines whether the given entity tag matches the tags specified by the match array from the <c>If-Match</c> or
   /// <c>If-None-Match</c> headers.
   /// </summary>
@@ -361,7 +718,7 @@ public abstract class WebDAVRequest
       foreach(EntityTag match in matches)
       {
         // RFC 2616 section 14.24 requires the strong match and 14.26 requires it for all requests except GET and HEAD. so we'll just do
-        // it all the time even though we could technically use a weak match for GET/HEAD requests when checking If-None-Match
+        // it all the time even though we could choose to use a weak match for GET/HEAD requests when checking If-None-Match
         if(entityTag.StronglyEquals(match)) return true;
       }
     }
@@ -412,7 +769,7 @@ public abstract class WebDAVRequest
       string tag = null;
       if(value[index] == '<')
       {
-        tag = ParseTag(value, ref index);
+        tag = ParseResourceTag(value, ref index);
         if(tag == null) return null;
       }
 
@@ -436,7 +793,7 @@ public abstract class WebDAVRequest
 
           if(value[index] == '<')
           {
-            string lockToken = ParseTag(value, ref index);
+            string lockToken = ParseResourceTag(value, ref index);
             if(lockToken == null) return null;
             conditions.Add(new IfCondition(lockToken, negated));
           }
@@ -467,7 +824,9 @@ public abstract class WebDAVRequest
         index = SkipWhitespace(value, index);
       } while(index < value.Length && value[index] == '(');
 
-      taggedLists.Add(new TaggedIfLists(tag, lists.ToArray()));
+      Uri tagUri = null;
+      if(tag != null && !DAVUtility.TryParseSimpleRef(tag, out tagUri)) return null;
+      taggedLists.Add(new TaggedIfLists(tag, tagUri, lists.ToArray()));
     }
 
     return taggedLists.Count == 0 ? null : taggedLists.ToArray();
@@ -509,7 +868,7 @@ public abstract class WebDAVRequest
     return DAVUtility.TryParseHttpDate(value, out date) ? (DateTime?)date : null;
   }
 
-  static string ParseTag(string value, ref int index)
+  static string ParseResourceTag(string value, ref int index)
   {
     int end = ++index;
     while(end < value.Length && value[end] != '>') end++;

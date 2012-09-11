@@ -106,8 +106,8 @@ public class ConditionCode
   /// <inheritdoc/>
   public override string ToString()
   {
-    return StringUtility.Combine(" ", StatusCode.ToInvariantString(), DAVUtility.GetStatusCodeMessage(StatusCode), ErrorElement.ToString(),
-                                 Message);
+    return StringUtility.Combine(" ", StatusCode.ToInvariantString(), DAVUtility.GetStatusCodeMessage(StatusCode),
+                                 ErrorElement == null ? null : ErrorElement.ToString(), Message);
   }
 
   /// <summary>If <see cref="ErrorElement"/> is not null, this method may be called to write a description of the error. The context will
@@ -148,19 +148,17 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   /// <param name="httpStatusCode">The HTTP status code related to the error condition.</param>
   /// <param name="errorElement">The name of the WebDAV precondition error element. This parameter is required.</param>
   /// <param name="message">An additional message to send to the client.</param>
-  /// <param name="absoluteResourceUrls">An array of absolute URLs to the locked resources related to the error. The URLs do not need to
-  /// include the service authority (e.g. host name), but they must be absolute paths, not relative to the service root.
-  /// </param>
-  public LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, Uri[] absoluteResourceUrls)
+  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
+  public LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, string[] absoluteResourcePaths)
     : base(httpStatusCode, errorElement, message)
   {
-    if(absoluteResourceUrls == null || errorElement == null) throw new ArgumentNullException();
-    foreach(Uri uri in absoluteResourceUrls)
+    if(absoluteResourcePaths == null || errorElement == null) throw new ArgumentNullException();
+    foreach(string path in absoluteResourcePaths)
     {
-      if(uri == null) throw new ArgumentException("The list of locked resource paths contained a null value.");
-      if(!uri.IsAbsoluteUri) throw new ArgumentException("All Uris must be absolute.");
+      if(path == null) throw new ArgumentException("The list of locked resource paths contained a null value.");
+      if(path.Length == 0 || path[0] != '/') throw new ArgumentException("All paths must be absolute.");
     }
-    this.resourceUrls = (Uri[])absoluteResourceUrls.Clone(); // clone the array to prevent later modifications
+    this.resourcePaths = (string[])absoluteResourcePaths.Clone(); // clone the array to prevent later modifications
   }
 
   /// <include file="documentation.xml" path="/DAV/ConditionCode/Equals/node()" />
@@ -170,11 +168,11 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
     else if(!base.Equals(other)) return false;
 
     LockConditionCodeWithUrls code = (LockConditionCodeWithUrls)other; // base.Equals() checked that the types are the same
-    if(resourceUrls.Length == code.resourceUrls.Length)
+    if(resourcePaths.Length == code.resourcePaths.Length)
     {
-      for(int i=0; i<resourceUrls.Length; i++)
+      for(int i=0; i<resourcePaths.Length; i++)
       {
-        if(resourceUrls[i] != code.resourceUrls[i]) return false;
+        if(!resourcePaths[i].OrdinalEquals(code.resourcePaths[i])) return false;
       }
       return true;
     }
@@ -188,11 +186,11 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   protected override void WriteErrorElement(XmlWriter writer)
   {
     writer.WriteStartElement(ErrorElement);
-    foreach(Uri uri in resourceUrls) writer.WriteElementString(Names.href, uri.ToString());
+    foreach(string path in resourcePaths) writer.WriteElementString(Names.href, path);
     writer.WriteEndElement();
   }
 
-  readonly Uri[] resourceUrls;
+  readonly string[] resourcePaths;
 }
 #endregion
 
@@ -203,15 +201,14 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
 public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 {
   /// <summary>Initializes a new <see cref="LockTokenSubmittedConditionCode"/>.</summary>
-  /// <param name="absoluteResourceUrls">An array of absolute URLs to the locked resources related to the error. The URLs do not need to
-  /// include the service authority (e.g. host name), but they must be absolute paths, not relative to the service root. There must be at
-  /// least one <see cref="Uri"/> in the array.
+  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error. There must be at
+  /// least one path in the array.
   /// </param>
-  public LockTokenSubmittedConditionCode(params Uri[] absoluteResourceUrls)
+  public LockTokenSubmittedConditionCode(params string[] absoluteResourcePaths)
     : base(423, new XmlQualifiedName("lock-token-submitted", Names.DAV),
-           "A lock token was not submitted for one or more locked resources.", absoluteResourceUrls)
+           "A lock token was not submitted for one or more locked resources.", absoluteResourcePaths)
   {
-    if(absoluteResourceUrls.Length == 0) throw new ArgumentException("The list of locked resource URLs was empty.");
+    if(absoluteResourcePaths.Length == 0) throw new ArgumentException("The list of locked resource paths was empty.");
   }
 }
 #endregion
@@ -223,18 +220,14 @@ public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
 {
   /// <summary>Initializes a new <see cref="NoConflictingLockConditionCode"/>.</summary>
-  /// <param name="absoluteResourceUrls">An array of absolute URLs to the locked resources related to the error. The URLs do not need to
-  /// include the service authority (e.g. host name), but they must be absolute paths, not relative to the service root.
-  /// </param>
-  public NoConflictingLockConditionCode(params Uri[] absoluteResourceUrls) : this(423, absoluteResourceUrls) { }
+  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
+  public NoConflictingLockConditionCode(params string[] absoluteResourcePaths) : this(423, absoluteResourcePaths) { }
   /// <summary>Initializes a new <see cref="NoConflictingLockConditionCode"/> with a particular HTTP status code.</summary>
   /// <param name="httpStatusCode">The HTTP status code related to the error condition.</param>
-  /// <param name="absoluteResourceUrls">An array of absolute URLs to the locked resources related to the error. The URLs do not need to
-  /// include the service authority (e.g. host name), but they must be absolute paths, not relative to the service root.
-  /// </param>
-  public NoConflictingLockConditionCode(int httpStatusCode, params Uri[] absoluteResourceUrls)
+  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
+  public NoConflictingLockConditionCode(int httpStatusCode, params string[] absoluteResourcePaths)
     : base(httpStatusCode, new XmlQualifiedName("no-conflicting-lock", Names.DAV), "The requested lock conflicts with an existing lock.",
-           absoluteResourceUrls) { }
+           absoluteResourcePaths) { }
 }
 #endregion
 
@@ -269,15 +262,22 @@ public static class ConditionCodes
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 507 Insufficient Storage status code.</summary>
   public static readonly ConditionCode InsufficientStorage = new ConditionCode(507);
 
-  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 423 Locked status code. It is generally better to use the more specific
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 423 Locked status code. You may want to use the more specific
   /// <see cref="LockTokenSubmittedConditionCode"/> and <see cref="NoConflictingLockConditionCode"/> condition codes.
   /// </summary>
   public static readonly ConditionCode Locked = new ConditionCode(423);
 
-  /// <summary>The DAV:lock-token-matches-request-uri precondition, used when the request URL does not lie within the scope of the lock
-  /// token submitted in the <c>Lock-Token</c> header.
+  /// <summary>The DAV:lock-token-matches-request-uri precondition, based on the HTTP 409 Conflict status code, used when the request URL
+  /// does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
   /// </summary>
-  public static readonly ConditionCode LockTokenMatchesRequestUri =
+  public static readonly ConditionCode LockTokenMatchesRequestUri409 =
+    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", Names.DAV),
+      "The request URI does not fall within the scope of the lock token.");
+
+  /// <summary>The DAV:lock-token-matches-request-uri precondition, based on the HTTP 412 Precondition Failed status code, used when the
+  /// request URL does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
+  /// </summary>
+  public static readonly ConditionCode LockTokenMatchesRequestUri412 =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", Names.DAV),
       "The request URI does not fall within the scope of the lock token.");
 

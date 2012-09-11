@@ -2,6 +2,11 @@
 using System.Collections.Generic;
 using System.Xml;
 
+// TODO: implement some DOS protection (e.g. providing options to limit the number of shared locks, etc.)
+// TODO: add some helper methods somewhere to encapsulate common lock-related actions like getting the locks on a resource (e.g. the
+// request.Context.LockManager.GetLocks(request.Context.ServiceRoot + CanonicalPath, true, false, null) bit)
+// TODO: make LockManager use a ReaderWriterLockSlim
+
 namespace HiA.WebDAV.Server
 {
 
@@ -10,12 +15,8 @@ namespace HiA.WebDAV.Server
 public class ActiveLock : IElementValue
 {
   /// <summary>Initializes a new <see cref="ActiveLock"/> object.</summary>
-  /// <param name="canonicalPath">The canonical path to the resource to which this <see cref="ActiveLock"/> object pertains, relative to
-  /// the <see cref="WebDAVContext.ServiceRoot"/>.
-  /// .</param>
-  /// <param name="canonicalLockPath">The canonical path to the resource to which the lock is directly applied, relative to the
-  /// <see cref="WebDAVContext.ServiceRoot"/>.
-  /// </param>
+  /// <param name="absolutePath">The absolute, canonical path to the resource to which this <see cref="ActiveLock"/> object pertains..</param>
+  /// <param name="absoluteLockPath">The absolute, canonical path to the resource to which the lock is directly applied.</param>
   /// <param name="lockToken">A URI string uniquely identifying the lock. The string should be unique among all locks on all resources
   /// on all servers in the world. (A good practice is to use the urn:uuid URI scheme defined in RFC 4122.)
   /// </param>
@@ -28,35 +29,37 @@ public class ActiveLock : IElementValue
   /// does not expire.
   /// </param>
   /// <param name="ownerData">Arbitrary data about the owner of the lock submitted by the client.</param>
-  /// <exception cref="ArgumentException">Thrown if <paramref name="lockToken"/> is empty, or if <paramref name="canonicalPath"/> doesn't
-  /// equal <paramref name="canonicalLockPath"/> but <paramref name="recursive"/> is false.
+  /// <exception cref="ArgumentException">Thrown if <paramref name="lockToken"/> is empty, or if <paramref name="absolutePath"/> doesn't
+  /// equal <paramref name="absoluteLockPath"/> but <paramref name="recursive"/> is false, or if <paramref name="ownerData"/> is not a
+  /// <c>DAV:owner</c> element.
   /// </exception>
-  public ActiveLock(string canonicalPath, string canonicalLockPath, string lockToken, LockType lockType, bool recursive,
+  public ActiveLock(string absolutePath, string absoluteLockPath, string lockToken, LockType lockType, bool recursive,
                     DateTime creationTime, uint timeoutSeconds, XmlElement ownerData)
   {
-    if(canonicalPath == null || canonicalLockPath == null || lockToken == null || lockType == null) throw new ArgumentNullException();
+    if(absolutePath == null || absoluteLockPath == null || lockToken == null || lockType == null) throw new ArgumentNullException();
     if(string.IsNullOrEmpty(lockToken)) throw new ArgumentException("A lock token is required.");
 
-    Direct = canonicalPath.OrdinalEquals(canonicalLockPath);
+    absolutePath     = DAVUtility.RemoveTrailingSlash(absolutePath);
+    absoluteLockPath = DAVUtility.RemoveTrailingSlash(absoluteLockPath);
+    LockManager.ValidateAbsolutePath(absolutePath);
+    LockManager.ValidateAbsolutePath(absoluteLockPath);
+
+    Direct = absolutePath.OrdinalEquals(absoluteLockPath);
     if(!Direct && !recursive)
     {
       throw new ArgumentException("A non-recursive cannot be inherited. (The path and lock path must be identical.)");
     }
 
-    LockPath  = canonicalLockPath;
+    LockPath  = absoluteLockPath;
     LockToken = lockToken;
     LockType  = lockType;
-    Path      = canonicalPath;
+    Path      = absolutePath;
     Recursive = recursive;
 
     if(ownerData != null)
     {
-      XmlDocument emptyDoc = new XmlDocument();
-      _owner = (XmlElement)emptyDoc.ImportNode(ownerData, true);
-      // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang being inherited)
-      string xmlLang = ownerData.GetInheritedAttributeValue(Names.xmlLang);
-      if(!string.IsNullOrEmpty(xmlLang)) _owner.SetAttribute(Names.xmlLang, xmlLang);
-      emptyDoc.AppendChild(_owner);
+      if(!ownerData.HasName(Names.owner)) throw new ArgumentException("The owner data must be a DAV:owner element.");
+      _owner = ownerData.Extract();
     }
 
     CreationTime = creationTime.Kind == DateTimeKind.Local ?
@@ -77,7 +80,9 @@ public class ActiveLock : IElementValue
   /// <summary>Gets the time when the lock is scheduled to time out, in UTC, or null if the lock should not time out.</summary>
   public DateTime? ExpirationTime { get; private set; }
 
-  /// <summary>Gets the canonical path to the resource to which the lock is directly applied.</summary>
+  /// <summary>Gets the absolute path to the resource to which the lock is directly applied. The path is canonical except that it does not
+  /// have a trailing slash. It is safe to pass this path to <see cref="ILockManager"/> methods.
+  /// </summary>
   public string LockPath { get; private set; }
 
   /// <summary>Gets a URI string that uniquely identifies this lock.</summary>
@@ -86,7 +91,9 @@ public class ActiveLock : IElementValue
   /// <summary>Gets the type and scope of the lock.</summary>
   public LockType LockType { get; private set; }
 
-  /// <summary>Gets the canonical path to the resource to which this <see cref="ActiveLock"/> object pertains.</summary>
+  /// <summary>Gets the absolute path to the resource to which this <see cref="ActiveLock"/> object pertains. The path is canonical except
+  /// that it does not have a trailing slash. It is safe to pass this path to <see cref="ILockManager"/> methods.
+  /// </summary>
   public string Path { get; private set; }
 
   /// <summary>Gets whether the lock is recursive.</summary>
@@ -103,6 +110,16 @@ public class ActiveLock : IElementValue
   public XmlElement GetOwnerData()
   {
     return _owner == null ? null : (XmlElement)_owner.Clone();
+  }
+
+  /// <summary>Gets whether the given absolute path is within the scope of the lock.</summary>
+  public bool IsInScope(string absolutePath)
+  {
+    if(absolutePath == null) throw new ArgumentNullException();
+    absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+    LockManager.ValidateAbsolutePath(absolutePath);
+    return LockPath.OrdinalEquals(absolutePath) ||
+           Recursive && absolutePath.StartsWith(LockPath, StringComparison.Ordinal) && absolutePath[LockPath.Length] == '/';
   }
 
   /// <inheritdoc/>
@@ -139,26 +156,40 @@ public class ActiveLock : IElementValue
     writer.WriteEmptyElement(LockType.Type);
     writer.WriteEndElement(); // locktype
     writer.WriteElementString(Names.depth, Recursive ? "infinity" : "0");
-    if(_owner != null)
-    {
-      throw new NotImplementedException(); // TODO: support owner nodes
-    }
+    if(_owner != null) writer.WriteNode(_owner.CreateNavigator(), false);
     if(ExpirationTime.HasValue)
     {
       double dsecs = (ExpirationTime.Value - DateTime.UtcNow).TotalSeconds;
       uint secs = dsecs < 0 ? 0 : dsecs > uint.MaxValue ? uint.MaxValue : (uint)dsecs;
       writer.WriteElementString(Names.timeout, "Second-" + secs.ToInvariantString());
     }
+    else
+    {
+      writer.WriteElementString(Names.timeout, "Infinite");
+    }
     writer.WriteStartElement(Names.locktoken);
     writer.WriteElementString(Names.href, LockToken);
     writer.WriteEndElement(); // locktoken
     writer.WriteStartElement(Names.lockroot);
-    writer.WriteElementString(Names.href, context.ServiceRoot + LockPath);
+    writer.WriteElementString(Names.href, LockPath);
     writer.WriteEndElement(); // lockroot
   }
   #endregion
 
   XmlElement _owner;
+}
+#endregion
+
+#region LockRemoval
+/// <summary>Determines how locks are removed when calling <see cref="ILockManager.RemoveLocks"/>.</summary>
+public enum LockRemoval
+{
+  /// <summary>The locks directly applied to the given lock path are removed, but no locks on descendant resources are removed.</summary>
+  Nonrecursive,
+  /// <summary>The locks applied to the given lock path are removed along with all descendant locks.</summary>
+  Recursive,
+  /// <summary>The locks applied to the given lock path are removed only if there are no descendant locks.</summary>
+  RequireEmpty
 }
 #endregion
 
@@ -208,6 +239,26 @@ public class LockType : IElementValue
   }
 
   /// <inheritdoc/>
+  public override bool Equals(object obj)
+  {
+    return Equals(obj as LockType);
+  }
+
+  /// <summary>Determines whether this <see cref="LockType"/> matches the given <see cref="LockType"/>.</summary>
+  public bool Equals(LockType other)
+  {
+    return other != null && Exclusive == other.Exclusive && Type == other.Type;
+  }
+
+  /// <inheritdoc/>
+  public override int GetHashCode()
+  {
+    int hash = Type.GetHashCode();
+    if(Exclusive) hash ^= 1;
+    return hash;
+  }
+
+  /// <inheritdoc/>
   public override string ToString()
   {
     return Type.ToString() + (Exclusive ? " (exclusive)" : " (shared)");
@@ -218,6 +269,12 @@ public class LockType : IElementValue
 
   /// <summary>A standard shared <c>DAV:write</c> lock, as defined in RFC 4918 section 7.</summary>
   public static readonly LockType SharedWrite = new LockType(Names.write, false);
+
+  /// <summary>An <see cref="IEnumerable{T}"/> of <see cref="LockType"/> containing <see cref="ExclusiveWrite"/> and
+  /// <see cref="SharedWrite"/>, useful for specifying the value of the <c>DAV:supportedlock</c> property.
+  /// </summary>
+  public static readonly IEnumerable<LockType> WriteLocks =
+    new ReadOnlyListWrapper<LockType>(new LockType[] { ExclusiveWrite, SharedWrite });
 
   #region IElementValue Members
   IEnumerable<string> IElementValue.GetNamespaces()
@@ -245,15 +302,19 @@ public class LockType : IElementValue
 public interface ILockManager : IDisposable
 {
   /// <include file="documentation.xml" path="/DAV/ILockManager/AddLock/node()" />
-  ActiveLock AddLock(IWebDAVResource resource, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData);
+  ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData);
+  /// <include file="documentation.xml" path="/DAV/ILockManager/GetConflictingLocks/node()" />
+  IList<ActiveLock> GetConflictingLocks(string absolutePath, LockType type, bool recursive);
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetLock/node()" />
-  ActiveLock GetLock(string lockToken, string relativeLockPath);
+  ActiveLock GetLock(string lockToken, string absolutePath);
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetLocks/node()" />
-  IList<ActiveLock> GetLocks(IWebDAVResource resource, bool includeInheritedLocks, bool includeDescendantLocks);
+  IList<ActiveLock> GetLocks(string absolutePath, bool includeInheritedLocks, bool includeDescendantLocks, Predicate<ActiveLock> filter);
   /// <include file="documentation.xml" path="/DAV/ILockManager/RefreshLock/node()" />
   bool RefreshLock(ActiveLock activeLock, uint? timeoutSeconds);
   /// <include file="documentation.xml" path="/DAV/ILockManager/RemoveLock/node()" />
   bool RemoveLock(ActiveLock activeLock);
+  /// <include file="documentation.xml" path="/DAV/ILockManager/RemoveLocks/node()" />
+  bool RemoveLocks(string absolutePath, LockRemoval removal);
 }
 #endregion
 
@@ -292,22 +353,23 @@ public abstract class LockManager : ILockManager
   public uint DefaultTimeout { get; set; }
 
   /// <include file="documentation.xml" path="/DAV/ILockManager/AddLock/node()" />
-  public ActiveLock AddLock(IWebDAVResource resource, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData)
+  public ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData)
   {
-    if(resource == null || type == null) throw new ArgumentNullException();
+    ValidateAbsolutePath(absolutePath);
+    if(type == null) throw new ArgumentNullException();
     AssertNotDisposed();
     lock(this)
     {
-      foreach(ActiveLock activeLock in GetLocks(resource, true, recursive))
+      foreach(ActiveLock activeLock in GetLocks(absolutePath, true, recursive, null))
       {
         if(activeLock.LockType.ConflictsWith(type)) throw new LockConflictException(activeLock);
       }
 
-      string lockPath = TrimTrailingSlash(resource.CanonicalPath);
-      ActiveLock newLock =
-        new ActiveLock(lockPath, lockPath, MakeLockToken(), type, recursive, DateTime.UtcNow, timeoutSeconds ?? DefaultTimeout, ownerData);
+      absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+      ActiveLock newLock = new ActiveLock(absolutePath, absolutePath, MakeLockToken(), type, recursive, DateTime.UtcNow,
+                                          timeoutSeconds ?? DefaultTimeout, ownerData);
       locksByToken.Add(newLock.LockToken, newLock);
-      locksByUrl.Add(resource.CanonicalPath, newLock);
+      locksByUrl.Add(absolutePath, newLock);
       OnLockAdded(newLock);
       return newLock;
     }
@@ -321,6 +383,23 @@ public abstract class LockManager : ILockManager
     disposed = true;
   }
 
+  /// <include file="documentation.xml" path="/DAV/ILockManager/GetConflictingLocks/node()" />
+  public IList<ActiveLock> GetConflictingLocks(string absolutePath, LockType type, bool recursive)
+  {
+    ValidateAbsolutePath(absolutePath);
+    if(type == null) throw new ArgumentNullException();
+    AssertNotDisposed();
+    List<ActiveLock> conflictingLocks = new List<ActiveLock>();
+    lock(this)
+    {
+      foreach(ActiveLock activeLock in GetLocks(absolutePath, true, recursive, null))
+      {
+        if(activeLock.LockType.ConflictsWith(type)) conflictingLocks.Add(activeLock);
+      }
+    }
+    return conflictingLocks;
+  }
+
   /// <summary>Returns the lock having the given lock token, or null if no such lock exists in the lock manager.</summary>
   public ActiveLock GetLock(string lockToken)
   {
@@ -328,27 +407,27 @@ public abstract class LockManager : ILockManager
   }
 
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetLock/node()" />
-  public ActiveLock GetLock(string lockToken, string relativeLockPath)
+  public ActiveLock GetLock(string lockToken, string absolutePath)
   {
     AssertNotDisposed();
     ActiveLock activeLock;
     lock(this) activeLock = GetLockByToken(lockToken);
-    return activeLock == null || relativeLockPath == null || activeLock.LockPath.OrdinalEquals(TrimTrailingSlash(relativeLockPath)) ?
-      activeLock : null;
+    return activeLock == null || absolutePath == null || activeLock.IsInScope(absolutePath) ? activeLock : null;
   }
 
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetLocks/node()" />
-  public IList<ActiveLock> GetLocks(IWebDAVResource resource, bool includeInheritedLocks, bool includeDescendantLocks)
+  public IList<ActiveLock> GetLocks(string absolutePath, bool includeInheritedLocks, bool includeDescendantLocks,
+                                    Predicate<ActiveLock> filter)
   {
-    if(resource == null) throw new ArgumentNullException();
+    ValidateAbsolutePath(absolutePath);
     AssertNotDisposed();
     List<ActiveLock> activeLocks = new List<ActiveLock>();
-    string path = TrimTrailingSlash(resource.CanonicalPath);
+    string path = DAVUtility.RemoveTrailingSlash(absolutePath);
     lock(this)
     {
       List<ActiveLock> deadLocks = null;
       DateTime now = DateTime.UtcNow;
-      bool ancestor = false;
+      bool isAncestor = false;
       while(true)
       {
         List<ActiveLock> locks;
@@ -358,7 +437,7 @@ public abstract class LockManager : ILockManager
           {
             if(lockObject.Timeout == 0 || lockObject.ExpirationTime.Value > now)
             {
-              if(!ancestor || lockObject.Recursive) activeLocks.Add(lockObject);
+              if((!isAncestor || lockObject.Recursive) && (filter == null || filter(lockObject))) activeLocks.Add(lockObject);
             }
             else
             {
@@ -370,17 +449,17 @@ public abstract class LockManager : ILockManager
 
         if(!includeInheritedLocks) break;
         int lastSlash = path.LastIndexOf('/');
-        if(lastSlash == -1) break;
-        path = path.Substring(0, lastSlash-1);
-        ancestor = true;
+        if(lastSlash == 0) break;
+        path = path.Substring(0, lastSlash);
+        isAncestor = true;
       }
 
       if(includeDescendantLocks)
       {
-        path = WithTrailingSlash(resource.CanonicalPath);
+        path = DAVUtility.WithTrailingSlash(absolutePath);
         foreach(KeyValuePair<string,List<ActiveLock>> pair in locksByUrl)
         {
-          if(pair.Key.StartsWith(path, StringComparison.Ordinal)) AddLocks(pair.Value, activeLocks, ref deadLocks, now);
+          if(pair.Key.StartsWith(path, StringComparison.Ordinal)) AddLocks(pair.Value, activeLocks, ref deadLocks, now, filter);
         }
       }
 
@@ -431,6 +510,26 @@ public abstract class LockManager : ILockManager
     return false;
   }
 
+  /// <include file="documentation.xml" path="/DAV/ILockManager/RemoveLocks/node()" />
+  public bool RemoveLocks(string absolutePath, LockRemoval removal)
+  {
+    lock(this)
+    {
+      absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+      IList<ActiveLock> deadLocks = GetLocks(absolutePath, false, removal != LockRemoval.Nonrecursive, null);
+      if(removal == LockRemoval.RequireEmpty)
+      {
+        foreach(ActiveLock lockObject in deadLocks)
+        {
+          if(lockObject.LockPath.Length > absolutePath.Length) return false;
+        }
+      }
+
+      RemoveDeadLocks(deadLocks);
+      return true;
+    }
+  }
+
   /// <include file="documentation.xml" path="/DAV/LockManager/Dispose/node()" />
   protected abstract void Dispose(bool finalizing);
 
@@ -443,7 +542,7 @@ public abstract class LockManager : ILockManager
     lock(this)
     {
       List<ActiveLock> activeLocks = new List<ActiveLock>(locksByToken.Count), deadLocks = null;
-      AddLocks(locksByToken.Values, activeLocks, ref deadLocks, DateTime.UtcNow);
+      AddLocks(locksByToken.Values, activeLocks, ref deadLocks, DateTime.UtcNow, null);
       RemoveDeadLocks(deadLocks);
       return activeLocks;
     }
@@ -472,6 +571,12 @@ public abstract class LockManager : ILockManager
   /// <include file="documentation.xml" path="/DAV/LockManager/OnLockUpdated/node()" />
   protected abstract void OnLockUpdated(ActiveLock lockObject);
 
+  internal static void ValidateAbsolutePath(string absolutePath)
+  {
+    if(absolutePath == null) throw new ArgumentNullException();
+    if(absolutePath.Length == 0 || absolutePath[0] != '/') throw new ArgumentException("The given path is not absolute.");
+  }
+
   /// <summary>Throws an exception if the lock manager has been disposed.</summary>
   void AssertNotDisposed()
   {
@@ -493,7 +598,7 @@ public abstract class LockManager : ILockManager
     return activeLock;
   }
 
-  void RemoveDeadLocks(List<ActiveLock> deadLocks)
+  void RemoveDeadLocks(IList<ActiveLock> deadLocks)
   {
     if(deadLocks != null)
     {
@@ -515,13 +620,14 @@ public abstract class LockManager : ILockManager
   readonly MultiValuedDictionary<string, ActiveLock> locksByUrl = new MultiValuedDictionary<string, ActiveLock>();
   bool disposed;
 
-  static void AddLocks(IEnumerable<ActiveLock> locks, List<ActiveLock> activeLocks, ref List<ActiveLock> deadLocks, DateTime now)
+  static void AddLocks(IEnumerable<ActiveLock> locks, List<ActiveLock> activeLocks, ref List<ActiveLock> deadLocks, DateTime now,
+                       Predicate<ActiveLock> filter)
   {
     foreach(ActiveLock lockObject in locks)
     {
       if(lockObject.Timeout == 0 || lockObject.ExpirationTime.Value > now)
       {
-        activeLocks.AddRange(lockObject);
+        if(filter == null || filter(lockObject)) activeLocks.Add(lockObject);
       }
       else
       {
@@ -534,16 +640,6 @@ public abstract class LockManager : ILockManager
   static string MakeLockToken()
   {
     return "urn:uuid:" + Guid.NewGuid().ToString("D");
-  }
-
-  static string TrimTrailingSlash(string path)
-  {
-    return path.Length != 0 && path[path.Length-1] == '/' ? path.Substring(0, path.Length-1) : path;
-  }
-
-  static string WithTrailingSlash(string path)
-  {
-    return path.Length != 0 && path[path.Length-1] == '/' ? path : path + "/";
   }
 }
 #endregion

@@ -162,6 +162,13 @@ public class PropPatchRequest : WebDAVRequest
   /// <summary>Gets a collection containing the property patches that should be applied, in the order in which they must be applied.</summary>
   public PropertyPatchCollection Patches { get; private set; }
 
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
+  /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources.</remarks>
+  protected override ConditionCode CheckSubmittedLockTokens()
+  {
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, false, false);
+  }
+
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
@@ -177,14 +184,14 @@ public class PropPatchRequest : WebDAVRequest
 
     // parse all of the property patches
     bool hasBadValue = false; // whether we encountered a property with an unparsable value
-    foreach(XmlElement child in xml.DocumentElement.EnumerateElements())
+    foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements())
     {
       if(child.HasName(Names.set)) // if the patch should set new or existing properties...
       {
         PropertyPatch patch = new PropertyPatch(false);
         XmlElement props = child.GetChild(Names.prop); // the element containing individual property elements
         string lang = props.GetInheritedAttributeValue(Names.xmlLang); // get the default language for properties in the set
-        foreach(XmlElement prop in props.EnumerateElements())
+        foreach(XmlElement prop in props.EnumerateChildElements())
         {
           // if a type was specified, parse the value as an instance of that type
           string typeName = prop.GetAttribute(Names.xsiType);
@@ -227,7 +234,7 @@ public class PropPatchRequest : WebDAVRequest
       else if(child.HasName(Names.remove)) // if the patch should remove properties...
       {
         PropertyPatch patch = new PropertyPatch(true);
-        patch.Remove.AddRange(child.GetChild(Names.prop).EnumerateElements().Select(XmlNodeExtensions.GetQualifiedName));
+        patch.Remove.AddRange(child.GetChild(Names.prop).EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName));
         Patches.Add(patch);
       }
     }

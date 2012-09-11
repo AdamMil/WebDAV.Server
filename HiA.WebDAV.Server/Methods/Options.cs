@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
+// TODO: consider making lock support default to true if Context.LockManager != null
 // TODO: add processing examples and documentation
 
 namespace HiA.WebDAV.Server
@@ -99,6 +100,7 @@ public class OptionsRequest : SimpleRequest
   public bool IsDAVCompliant { get; set; }
 
   /// <summary>Gets whether the <c>OPTIONS</c> request should pertain to the entire service, as opposed to just the request URI.</summary>
+  /// <remarks>This corresponds to a client sending an <c>OPTIONS *</c> request.</remarks>
   public bool IsServerQuery { get; private set; }
 
   /// <summary>Gets a collection that can be filled with additional WebDAV extensions supported by the resource or service.</summary>
@@ -131,13 +133,14 @@ public class OptionsRequest : SimpleRequest
   /// <remarks>The default implementation </remarks>
   protected internal override void WriteResponse()
   {
-    // report support for encoded bodies and partial transfers (but only if the request is in the service's scope)
+    // report support for encoded bodies and partial transfers (but only if the request is in the WebDAV service's scope)
     if(!OutOfScope)
     {
       Context.Response.Headers[HttpHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
       Context.Response.Headers[HttpHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 2616 section 14.5
     }
 
+    bool useEmptyResponseHack = false;
     if(IsDAVCompliant || AllowedMethods.Count != 0)
     {
       StringBuilder sb = new StringBuilder();
@@ -154,7 +157,7 @@ public class OptionsRequest : SimpleRequest
           set.Add(HttpMethods.PropPatch);
           set.Add(HttpMethods.Copy);
           set.Add(HttpMethods.Move);
-          if(SupportsLocking) // if the resource or service claims to support locking, then it should support LOCK and UNLOCK
+          if(SupportsLocking) // if the resource or service claims to support locking, then it must support LOCK and UNLOCK
           {
             set.Add(HttpMethods.Lock);
             set.Add(HttpMethods.Unlock);
@@ -168,7 +171,7 @@ public class OptionsRequest : SimpleRequest
           if(sb.Length != 0) sb.Append(", ");
           sb.Append(method);
         }
-        Context.Response.AppendHeader("Allow", sb.ToString());
+        Context.Response.Headers[HttpHeaders.Allow] = sb.ToString();
       }
 
       // get the level of DAV compliance and write the DAV header. we'll do this even if the request is out of scope. (in fact, writing
@@ -183,20 +186,33 @@ public class OptionsRequest : SimpleRequest
         {
           foreach(string extension in SupportedExtensions) sb.Append(", ").Append(extension);
         }
-        Context.Response.AppendHeader("DAV", sb.ToString());
+        Context.Response.Headers[HttpHeaders.DAV] = sb.ToString();
 
         // the Microsoft Web Folder client prefers to use the Frontend protocol so much that it may refuse to use WebDAV unless we
-        // add a special header
+        // add a special header. it also fails to process 204 No Content responses correctly, so we'll use 200 OK instead
         if(Context.Request.UserAgent != null && Context.Request.UserAgent.StartsWith("Microsoft ", StringComparison.Ordinal))
         {
           Context.Response.Headers["MS-Author-Via"] = "DAV";
+          Status = ConditionCodes.OK;
+          useEmptyResponseHack = true;
         }
       }
     }
 
     // now that we've added the headers we want, call the base class to write the response. we don't do that for out-of-scope requests,
-    // though, because 
-    if(!OutOfScope) base.WriteResponse();
+    // though, because we want to allow the service with authority over the request URL to have the final say in what gets written
+    if(!OutOfScope)
+    {
+      if(useEmptyResponseHack && Status != null && Status.IsSuccessful)
+      {
+        Context.Response.StatusCode        = Status.StatusCode;
+        Context.Response.StatusDescription = DAVUtility.GetStatusCodeMessage(Status.StatusCode);
+      }
+      else
+      {
+        base.WriteResponse();
+      }
+    }
   }
 
   /// <summary>Called to indicate that the <c>OPTIONS</c> request is out of the service's scope. (It is still being served because the

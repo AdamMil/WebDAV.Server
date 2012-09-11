@@ -4,6 +4,8 @@
 // service to allow files to be copied to/from the filesystem service. the logic would be implemented in the FlairPoint service regardless
 // of whether it was the source or destination
 
+// TODO: implement CheckSubmittedLockTokens()
+
 // TODO: add processing examples and documentation
 
 namespace HiA.WebDAV.Server
@@ -27,19 +29,23 @@ public class CopyOrMoveRequest : WebDAVRequest
     value = context.Request.Headers[HttpHeaders.Destination];
     if(string.IsNullOrEmpty(value)) throw Exceptions.BadRequest("The Destination header was missing.");
     Uri destination;
-    if(!Uri.TryCreate(value, UriKind.Absolute, out destination))
+    if(!DAVUtility.TryParseSimpleRef(value, out destination))
     {
-      throw Exceptions.BadRequest("The Destination header was not a valid absolute URI.");
+      throw Exceptions.BadRequest("The Destination header was not a valid absolute URI or absolute path.");
     }
     Destination = destination;
 
-    // resolve the destination URL to see which service it's under (if any), and if it's under the same service then save the relative path
-    string serviceRoot, relativePath;
-    if(WebDAVModule.ResolveLocation(context.Request, destination, out serviceRoot, out relativePath) &&
-       serviceRoot.OrdinalEquals(context.ServiceRoot))
+    // resolve the destination URL to see which service it's under (if any), and see if we can resolve it to a specific resource there
+    IWebDAVService destService;
+    IWebDAVResource destResource;
+    string destServiceRoot, destPath;
+    if(WebDAVModule.ResolveUri(context, destination, false, out destService, out destResource, out destServiceRoot, out destPath))
     {
-      DestinationPath = relativePath;
+      DestinationResource = destResource;
     }
+    // destService and destServiceRoot may be set even if ResolveLocation returns false
+    if(destService != null) DestinationService = destServiceRoot.OrdinalEquals(Context.ServiceRoot) ? Context.Service : destService;
+    DestinationPath = destPath;
   }
 
   /// <summary>Gets the absolute URI submitted by the client in the <c>Destination</c> header. The URI may point to a location outside the
@@ -48,12 +54,21 @@ public class CopyOrMoveRequest : WebDAVRequest
   /// </summary>
   public Uri Destination { get; private set; }
 
-  /// <summary>Gets the destination path, relative to <see cref="WebDAVContext.ServiceRoot"/>, if the <see cref="Destination"/> points to a
-  /// location within the same WebDAV service that contains the source resource. If the <see cref="Destination"/> points to a location
-  /// outside the source WebDAV service, this property will be null and you will have to examine the absolute <see cref="Destination"/> URI
-  /// if you support out-of-service copies.
+  /// <summary>Gets the destination path, relative to the root of the <see cref="DestinationService"/>, if the <see cref="Destination"/>
+  /// could be resolved to a service within the WebDAV server.
   /// </summary>
   public string DestinationPath { get; private set; }
+
+  /// <summary>Gets the destination resource, if the <see cref="DestinationPath"/> could be resolved to a specific resource within the
+  /// <see cref="DestinationService"/>.
+  /// </summary>
+  public IWebDAVResource DestinationResource { get; private set; }
+
+  /// <summary>Gets the destination service, if the <see cref="Destination"/> could be resolved to a specific service within the
+  /// WebDAV server. If equal to <see cref="WebDAVContext.Service"/>, the copy or move is within the same service. Otherwise, it's a
+  /// cross-service operation. If null, the <see cref="Destination"/> does not correspond to any WebDAV service within the server.
+  /// </summary>
+  public IWebDAVService DestinationService { get; private set; }
 
   /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing the members of the collection
   /// that could not be copied or moved, if the source resource is a collection resource.

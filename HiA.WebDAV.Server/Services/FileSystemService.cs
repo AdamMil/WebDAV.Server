@@ -11,6 +11,11 @@ using HiA.WebDAV.Server.Configuration;
 // TODO: document usage, web.config example, etc.
 // TODO: authorization against the request URI and/or handling of access exceptions in resolving/loading the request resource
 // TODO: see if we can switch to use PropFindRequest.ProcessStandardRequest
+// TODO: improve GetEntityMetadata() for dynamic resources
+// TODO: simplify PropFind() 
+// TODO: more cleanup and refactoring...
+// TODO: some type of permissions model that allows us to separate GET access from LOCK access, for instance. or perhaps we should tie
+//       LOCK access to write access...
 
 namespace HiA.WebDAV.Server
 {
@@ -84,6 +89,28 @@ public class FileSystemService : WebDAVService
   /// </summary>
   public string RootPath { get; private set; }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Lock/node()" />
+  public override void CreateAndLock(LockRequest request)
+  {
+    if(IsReadOnly || request.Context.LockManager == null)
+    {
+      base.CreateAndLock(request); // call the default implementation, which denies the request
+    }
+    else
+    {
+      CreateNewFile(request, s => request.ProcessStandardRequest(request.Context.ServiceRoot + request.Context.RequestPath, null, false));
+      if(request.Status == null || request.Status.IsSuccessful)
+      {
+        request.Status = ConditionCodes.Created; // then return 201 Created
+      }
+      else if(request.NewLock != null) // if an error occurred but we already created the lock...
+      {
+        request.Context.LockManager.RemoveLock(request.NewLock); // remove the lock
+        request.NewLock = null;
+      }
+    }
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/MakeCollection/node()" />
   public override void MakeCollection(MkColRequest request)
   {
@@ -98,7 +125,7 @@ public class FileSystemService : WebDAVService
     else // the request might be valid...
     {
       // it's unlikely that the client will submit any preconditions with a MKCOL request, but check them just in case
-      ConditionCode precondition = request.CheckPreconditions(null, null, false);
+      ConditionCode precondition = request.CheckPreconditions(null);
       if(precondition != null) // if the client specified that the entity must exist...
       {
         request.Status = precondition; // give an error
@@ -107,7 +134,7 @@ public class FileSystemService : WebDAVService
       {
         try
         {
-          string path = request.Context.RequestPath.TrimEnd('/');
+          string path = DAVUtility.RemoveTrailingSlash(request.Context.RequestPath);
           if(string.IsNullOrEmpty(path)) // if the user is requesting to create the root directory...
           {
             // RootPath should be null and nonexistent. otherwise, ResolveResource would have returned something
@@ -133,16 +160,20 @@ public class FileSystemService : WebDAVService
     }
   }
 
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Options/node()" />
   public override void Options(OptionsRequest request)
   {
     if(request == null) throw new ArgumentNullException();
 
-    // if we allow writes and the OPTIONS request refers to a specific unmapped file...
-    if(!IsReadOnly && !request.IsServerQuery && request.Context.RequestPath.EndsWith("/", StringComparison.Ordinal))
+    if(!IsReadOnly)
     {
-      request.AllowedMethods.Add(HttpMethods.Put);   // then we support the PUT verb to create a new file there
+      if(request.IsServerQuery ||
+         request.Context.RequestPath.Length != 0 && request.Context.RequestPath[request.Context.RequestPath.Length-1] != '/')
+      {
+        request.AllowedMethods.Add(HttpMethods.Put);
+      }
       request.AllowedMethods.Add(HttpMethods.MkCol); // and the MKCOL verb to create a new directory there
+      request.SupportsLocking = request.Context.LockManager != null;
     }
   }
 
@@ -155,67 +186,15 @@ public class FileSystemService : WebDAVService
     }
     else
     {
-      // check preconditions in case the client expects the resource to exist
-      ConditionCode precondition = request.CheckPreconditions(null, null, false);
-      if(precondition != null)
-      {
-        request.Status = precondition;
-      }
-      else
-      {
-        try
-        {
-          string path = request.Context.RequestPath;
-          int lastSlash = path.LastIndexOf('/');
-          string fileName = HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1));
-          if(string.IsNullOrEmpty(fileName))
-          {
-            request.Status = new ConditionCode(HttpStatusCode.BadRequest, "The file name was missing.");
-          }
-          else
-          {
-            string parent = lastSlash == -1 ? "" : path.Substring(0, lastSlash);
-            IWebDAVResource resource = ResolveResource(parent);
-            DirectoryResource directory = resource as DirectoryResource;
-            if(resource == null) // if the parent doesn't exist...
-            {
-              request.Status = ConditionCodes.Conflict; // nonexistent parents cause a 409 Conflict response as per RFC 4918 sec. 9.7
-            }
-            else if(directory == null) // if the parent is not a directory...
-            {
-              request.Status = ConditionCodes.Forbidden; // non-directory parents don't support creating children
-            }
-            else // the parent is a directory
-            {
-              path = Path.Combine(directory.Info.FullName, fileName);
-              using(FileStream stream = File.Open(path, FileMode.CreateNew, FileAccess.ReadWrite))
-              {
-                request.ProcessStandardRequest(stream, new EntityMetadata() { Exists = false });
-                if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
-                {
-                  // write the ETag and Last-Modified headers
-                  request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
-                  stream.Close(); // close the file to ensure the last modified time gets updated
-                  request.Context.Response.Headers[HttpHeaders.LastModified] =
-                    new FileInfo(path).LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
-                }
-              }
-            }
-          }
-        }
-        catch(Exception ex)
-        {
-          request.Status = FileSystemResource.GetStatusFromException(request, ex);
-        }
-      }
+      CreateNewFile(request, stream => request.ProcessStandardRequest(stream, null));
     }
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
-  public override IWebDAVResource ResolveResource(WebDAVContext context)
+  public override IWebDAVResource ResolveResource(WebDAVContext context, string resourcePath)
   {
     if(context == null) throw new ArgumentNullException();
-    return ResolveResource(context.RequestPath);
+    return ResolveResource(resourcePath);
   }
 
   readonly StringComparison comparison;
@@ -234,35 +213,100 @@ public class FileSystemService : WebDAVService
     return name;
   }
 
-  IWebDAVResource ResolveResource(string requestPath)
+  void CreateNewFile(WebDAVRequest request, Action<Stream> processRequest)
+  {
+    // check preconditions in case the client expects the resource to exist
+    ConditionCode precondition = request.CheckPreconditions(null);
+    if(precondition != null)
+    {
+      request.Status = precondition;
+    }
+    else
+    {
+      try
+      {
+        string path = request.Context.RequestPath;
+        int lastSlash = path.LastIndexOf('/');
+        string fileName = HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1));
+        if(fileName.Length == 0)
+        {
+          request.Status = new ConditionCode(HttpStatusCode.BadRequest, "The file name was missing.");
+        }
+        else
+        {
+          string parent = lastSlash == -1 ? "" : path.Substring(0, lastSlash);
+          IWebDAVResource resource = ResolveResource(parent);
+          DirectoryResource directory = resource as DirectoryResource;
+          if(resource == null) // if the parent doesn't exist...
+          {
+            request.Status = ConditionCodes.Conflict; // nonexistent parents cause a 409 Conflict response as per RFC 4918 sec. 9.7
+          }
+          else if(directory == null) // if the parent is not a directory...
+          {
+            request.Status = ConditionCodes.Forbidden; // non-directory parents don't support creating children
+          }
+          else // the parent is a directory
+          {
+            path = Path.Combine(directory.Info.FullName, fileName);
+            bool success;
+            using(FileStream stream = File.Open(path, FileMode.CreateNew, FileAccess.ReadWrite))
+            {
+              processRequest(stream);
+              success = request.Status == null || request.Status.IsSuccessful;
+              if(success) // if the request was successfully executed...
+              {
+                // write the ETag and Last-Modified headers
+                request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
+                stream.Close(); // close the file to ensure the last modified time gets updated
+                request.Context.Response.Headers[HttpHeaders.LastModified] =
+                    new FileInfo(path).LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
+              }
+            }
+
+            if(!success)
+            {
+              try { File.Delete(path); }
+              catch { }
+            }
+          }
+        }
+      }
+      catch(Exception ex)
+      {
+        request.Status = FileSystemResource.GetStatusFromException(request, ex);
+      }
+    }
+  }
+
+  IWebDAVResource ResolveResource(string resourcePath)
   {
     // disallow .. in the request path
-    if(requestPath.StartsWith("../", StringComparison.Ordinal) || requestPath.EndsWith("/..", StringComparison.Ordinal) ||
-       requestPath.Contains("/../", StringComparison.Ordinal))
+    if(resourcePath.StartsWith("../", StringComparison.Ordinal) || resourcePath.EndsWith("/..", StringComparison.Ordinal) ||
+       resourcePath.Contains("/../", StringComparison.Ordinal))
     {
       throw Exceptions.BadRequest("It is illegal to use .. to access a parent directory in the request URL.");
     }
 
     if(RootPath != null) // if we're serving a place on the filesystem...
     {
-      return ResolveResource(RootPath, requestPath, ""); // then resolve the request normally
+      return ResolveResource(RootPath, resourcePath, ""); // then resolve the request normally
     }
     else // otherwise, we have a virtual root that encompasses the system's drives, so we'll need to resolve it specially
     {
       // resolve the first component to a drive name. if there is no first component, then they're referencing the root itself
-      if(string.IsNullOrEmpty(requestPath)) return new FileSystemRootResource();
+      if(string.IsNullOrEmpty(resourcePath)) return new FileSystemRootResource();
 
-      int slash = requestPath.IndexOf('/');
-      string driveName = slash == -1 ? requestPath : requestPath.Substring(0, slash);
-      requestPath = slash == -1 ? null : requestPath.Substring(slash+1);
+      int slash = resourcePath.IndexOf('/');
+      string driveName = slash == -1 ? resourcePath : resourcePath.Substring(0, slash);
+      resourcePath = slash == -1 ? null : resourcePath.Substring(slash+1);
 
       DriveInfo drive = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && string.Equals(driveName, GetDriveName(d), comparison));
       if(drive == null) return null; // if there's no such drive, then we couldn't find the resource
 
       string canonicalDrivePath = DAVUtility.CanonicalPathEncode(GetDriveName(drive)) + "/";
       // if the root of the drive was requested, then we've got all the information needed to resolve the resource
-      if(string.IsNullOrEmpty(requestPath)) return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly);
-      else return ResolveResource(drive.RootDirectory.FullName, requestPath, canonicalDrivePath); // otherwise, resolve it normally
+      if(string.IsNullOrEmpty(resourcePath)) return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly);
+      else return ResolveResource(drive.RootDirectory.FullName, resourcePath, canonicalDrivePath); // otherwise, resolve it normally
     }
   }
 
@@ -340,15 +384,20 @@ public abstract class FileSystemResource : WebDAVResource
     request.Status = ConditionCodes.NotImplemented; // TODO: implement property setting
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
+  public override void Unlock(UnlockRequest request)
+  {
+    if(IsReadOnly || request.Context.LockManager == null) base.Unlock(request); // use the base implementation if we don't support locking
+    else request.ProcessStandardRequest();
+  }
+
   /// <summary>Gets whether the resource is read-only. If true, the resource must deny all requests to change it.</summary>
   protected bool IsReadOnly { get; private set; }
 
-  readonly string _canonicalPath;
-
   /// <summary>Adds a <see cref="PropFindResource"/> representing a directory to the response.</summary>
-  internal static void AddPropFindDirectory(PropFindRequest request, IEnumerable<XmlQualifiedName> dirProps,
-                                            IEnumerable<XmlQualifiedName> fileProps, string davPath, DirectoryInfo directory,
-                                            string displayName, int level)
+  internal void AddPropFindDirectory(PropFindRequest request, IEnumerable<XmlQualifiedName> dirProps,
+                                     IEnumerable<XmlQualifiedName> fileProps, string davPath, DirectoryInfo directory,
+                                     string displayName, int level)
   {
     // add the resource for the directory itself
     PropFindResource directoryResource = new PropFindResource(davPath);
@@ -362,7 +411,7 @@ public abstract class FileSystemResource : WebDAVResource
       {
         if(property == Names.resourcetype) directoryResource.SetValue(property, ResourceType.Collection);
         else if(displayName != null && property == Names.displayname) directoryResource.SetValue(property, displayName);
-        else SetEntryProperties(directoryResource, property, directory);
+        else SetEntryProperties(request.Context, directoryResource, property, directory);
       }
     }
     request.Resources.Add(directoryResource);
@@ -397,7 +446,7 @@ public abstract class FileSystemResource : WebDAVResource
   }
 
   /// <summary>Adds a <see cref="PropFindResource"/> representing a file to the response.</summary>
-  internal static void AddPropFindFile(PropFindRequest request, IEnumerable<XmlQualifiedName> fileProps, string davPath, FileInfo file)
+  internal void AddPropFindFile(PropFindRequest request, IEnumerable<XmlQualifiedName> fileProps, string davPath, FileInfo file)
   {
     PropFindResource fileResource = new PropFindResource(davPath);
     if((request.Flags & PropFindFlags.NamesOnly) != 0)
@@ -410,7 +459,7 @@ public abstract class FileSystemResource : WebDAVResource
       {
         if(property == Names.resourcetype) fileResource.SetValue(property, null);
         else if(property == Names.getcontentlength) fileResource.SetValue(property, (ulong)file.Length, null, null);
-        else SetEntryProperties(fileResource, property, file);
+        else SetEntryProperties(request.Context, fileResource, property, file);
       }
     }
     request.Resources.Add(fileResource);
@@ -422,14 +471,37 @@ public abstract class FileSystemResource : WebDAVResource
            ex is FileNotFoundException || ex is DirectoryNotFoundException ? ConditionCodes.NotFound :
            new ConditionCode(HttpStatusCode.InternalServerError, request.Context.Settings.ShowSensitiveErrors ? ex.Message : null);
   }
-
-  static void SetEntryProperties(PropFindResource resource, XmlQualifiedName property, FileSystemInfo entry)
+  
+  void SetEntryProperties(WebDAVContext context, PropFindResource resource, XmlQualifiedName property, FileSystemInfo entry)
   {
-    if(property == Names.displayname) resource.SetValue(property, entry.Name, null, null);
-    else if(property == Names.creationdate) resource.SetValue(property, new DateTimeOffset(entry.CreationTime));
-    else if(property == Names.getlastmodified) resource.SetValue(property, new DateTimeOffset(entry.LastWriteTime));
-    else resource.SetError(property, ConditionCodes.NotFound);
+    bool supportLocks = !IsReadOnly && context.LockManager != null;
+    if(property == Names.displayname)
+    {
+      resource.SetValue(property, entry.Name, null, null);
+    }
+    else if(property == Names.creationdate)
+    {
+      resource.SetValue(property, new DateTimeOffset(entry.CreationTime));
+    }
+    else if(property == Names.getlastmodified)
+    {
+      resource.SetValue(property, new DateTimeOffset(entry.LastWriteTime));
+    }
+    else if(supportLocks && property == Names.lockdiscovery)
+    {
+      resource.SetValue(property, context.LockManager.GetLocks(context.ServiceRoot + resource.RelativePath, true, false, null));
+    }
+    else if(supportLocks && property == Names.supportedlock)
+    {
+      resource.SetValue(property, LockType.WriteLocks);
+    }
+    else
+    {
+      resource.SetError(property, ConditionCodes.NotFound);
+    }
   }
+
+  readonly string _canonicalPath;
 }
 #endregion
 
@@ -458,15 +530,28 @@ public class DirectoryResource : FileSystemResource
   public override void Delete(DeleteRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    if(IsReadOnly) base.Delete(request); // call the default implementation, which denies the request
-    else Delete(request, CanonicalPath, Info, true);
+    if(IsReadOnly)
+    {
+      base.Delete(request); // call the default implementation, which denies the request
+    }
+    else
+    {
+      ConditionCode status = request.CheckPreconditions(null);
+      if(status == null) Delete(request, CanonicalPath, Info, true);
+      else request.Status = status;
+    }
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
+  public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
+  {
+    return new EntityMetadata() { MediaType = "text/html" };
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
   public override void GetOrHead(GetOrHeadRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Context.Response.AddHeader("Last-Modified", Info.LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture));
     // write a basic index.html-like response containing the items in the directory
     FileSystemInfo[] entries = Info.GetFileSystemInfos();
     GetOrHeadRequest.IndexItem[] items = new GetOrHeadRequest.IndexItem[entries.Length];
@@ -474,11 +559,21 @@ public class DirectoryResource : FileSystemResource
     request.WriteSimpleIndexHtml(items);
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
+  public override void Lock(LockRequest request)
+  {
+    request.ProcessStandardRequest(true);
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
   public override void Options(OptionsRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    if(!IsReadOnly) request.AllowedMethods.Add(HttpMethods.Delete); // writable directories can be deleted
+    if(!IsReadOnly)
+    {
+      request.AllowedMethods.Add(HttpMethods.Delete); // writable directories can be deleted
+      request.SupportsLocking = request.Context.LockManager != null;
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
@@ -496,6 +591,11 @@ public class DirectoryResource : FileSystemResource
       properties.Add(Names.resourcetype);
       properties.Add(Names.creationdate);
       properties.Add(Names.getlastmodified);
+      if(!IsReadOnly && request.Context.LockManager != null)
+      {
+        if(namesOnly) properties.Add(Names.lockdiscovery);
+        properties.Add(Names.supportedlock);
+      }
 
       fileProperties = new HashSet<XmlQualifiedName>(properties);
       fileProperties.Add(Names.getcontentlength); // files also have the DAV:getcontentlength property
@@ -518,6 +618,7 @@ public class DirectoryResource : FileSystemResource
   {
     try
     {
+      ILockManager lockManager = request.Context.LockManager;
       bool childFailed = false; // keep track of whether any child failed to be deleted
       foreach(FileSystemInfo info in dirInfo.GetFileSystemInfos()) // for each file and subdirectory...
       {
@@ -527,19 +628,25 @@ public class DirectoryResource : FileSystemResource
         }
         else // otherwise, it's a file
         {
+          string fileUrl = request.Context.ServiceRoot + directoryUrl + DAVUtility.CanonicalPathEncode(info.Name);
           try
           {
             info.Delete();
           }
           catch(Exception ex) // if the file couldn't be deleted, add an error message about it
           {
-            request.FailedMembers.Add(directoryUrl + DAVUtility.CanonicalPathEncode(info.Name), GetStatusFromException(request, ex));
+            request.FailedMembers.Add(fileUrl, GetStatusFromException(request, ex));
             childFailed = true; // and remember that a child failed
           }
+          if(lockManager != null) lockManager.RemoveLocks(fileUrl, LockRemoval.Nonrecursive);
         }
       }
 
-      if(!childFailed) dirInfo.Delete(true); // if all children were successfully deleted, delete the current directory
+      if(!childFailed)
+      {
+        dirInfo.Delete(true); // if all children were successfully deleted, delete the current directory
+        if(lockManager != null) lockManager.RemoveLocks(request.Context.ServiceRoot + directoryUrl, LockRemoval.RequireEmpty);
+      }
       return !childFailed;
     }
     catch(Exception ex) // if the current directory couldn't be deleted (potentially because we couldn't read it in the first place)...
@@ -550,7 +657,7 @@ public class DirectoryResource : FileSystemResource
       // would prefer to add the root directory to the FailedMembers collection in that case. the WebDAV specification (RFC 4918 section
       // 9.6.1) isn't very clear, but it seems to say that we shouldn't do that
       if(isRequestResource) request.Status = GetStatusFromException(request, ex);
-      else request.FailedMembers.Add(directoryUrl, GetStatusFromException(request, ex));
+      else request.FailedMembers.Add(request.Context.ServiceRoot + directoryUrl, GetStatusFromException(request, ex));
       return false;
     }
   }
@@ -580,19 +687,55 @@ public class FileResource : FileSystemResource
   public override void Delete(DeleteRequest request)
   {
     if(request == null) throw new ArgumentNullException();
+
     if(IsReadOnly)
     {
       request.Status = ConditionCodes.Forbidden;
     }
     else
     {
-      // if the user doesn't have access to delete the file, respond with 403 Forbidden
-      // TODO: it would be better to respond with 401 Unauthorized instead, because authorization might change whether the method succeeds.
-      // we would need to add a WWW-Authorization header in that case, but perhaps we can do that... also, this same consideration applies
-      // to other cases where UnauthorizedAccessException is transmuted into 403 Forbidden, such as DirectoryResource.Delete()
-      try { Info.Delete(); }
-      catch(UnauthorizedAccessException) { request.Status = ConditionCodes.Forbidden; }
+      ConditionCode status = request.CheckPreconditions(null);
+      if(status != null)
+      {
+        request.Status = status;
+      }
+      else
+      {
+        // if the user doesn't have access to delete the file, respond with 403 Forbidden
+        // TODO: it would be better to respond with 401 Unauthorized instead, because authorization might change whether the method
+        // succeeds. we would need to add a WWW-Authorization header in that case, but perhaps we can do that... also, this same
+        // consideration applies to other cases where UnauthorizedAccessException is transmuted into 403 Forbidden, such as
+        // DirectoryResource.Delete()
+        try { Info.Delete(); }
+        catch(UnauthorizedAccessException) { request.Status = ConditionCodes.Forbidden; }
+
+        if(request.Context.LockManager != null)
+        {
+          request.Context.LockManager.RemoveLocks(request.Context.ServiceRoot + CanonicalPath, LockRemoval.Nonrecursive);
+        }
+      }
     }
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
+  public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
+  {
+    if(metadata == null)
+    {
+      metadata = new EntityMetadata() { Exists = Info.Exists };
+      if(metadata.Exists)
+      {
+        metadata.LastModifiedTime = Info.LastWriteTimeUtc;
+        metadata.Length           = Info.Length;
+        metadata.MediaType        = MimeTypes.GuessMimeType(Info.Name);
+      }
+    }
+    if(includeEntityTag && metadata.EntityTag == null)
+    {
+      try { using(FileStream stream = Info.OpenRead()) metadata.EntityTag = DAVUtility.ComputeEntityTag(stream); }
+      catch(FileNotFoundException) { metadata = new EntityMetadata() { Exists = false }; }
+    }
+    return metadata.Clone(); // clone the metadata to prevent callers from mutating cached data
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
@@ -601,19 +744,19 @@ public class FileResource : FileSystemResource
     if(request == null) throw new ArgumentNullException();
     try
     {
-      using(FileStream stream = Info.OpenRead())
-      {
-        EntityMetadata metadata = new EntityMetadata();
-        metadata.LastModifiedTime = Info.LastWriteTimeUtc;
-        metadata.MediaType        = MimeTypes.GuessMimeType(Info.Name);
-        request.WriteStandardResponse(stream, metadata);
-      }
+      using(FileStream stream = Info.OpenRead()) request.WriteStandardResponse(stream, GetEntityMetadata(false));
     }
     catch(Exception ex)
     {
       // set the error status if we didn't start writing any file content yet
       if(request.Context.Response.BufferOutput) request.Status = GetStatusFromException(request, ex);
     }
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
+  public override void Lock(LockRequest request)
+  {
+    request.ProcessStandardRequest(false);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -624,6 +767,7 @@ public class FileResource : FileSystemResource
     {
       request.AllowedMethods.Add(HttpMethods.Delete); // TODO: support locking
       request.AllowedMethods.Add(HttpMethods.Put);
+      request.SupportsLocking = request.Context.LockManager != null;
     }
   }
 
@@ -641,6 +785,11 @@ public class FileResource : FileSystemResource
       properties.Add(Names.creationdate);
       properties.Add(Names.getlastmodified);
       properties.Add(Names.getcontentlength);
+      if(!IsReadOnly && request.Context.LockManager != null)
+      {
+        if(namesOnly) properties.Add(Names.lockdiscovery);
+        properties.Add(Names.supportedlock);
+      }
     }
 
     try { AddPropFindFile(request, properties, CanonicalPath, Info); }
@@ -659,15 +808,9 @@ public class FileResource : FileSystemResource
     {
       try
       {
-        EntityMetadata metadata = new EntityMetadata() { Exists = Info.Exists };
-        if(metadata.Exists)
-        {
-          metadata.LastModifiedTime = Info.LastWriteTimeUtc;
-          metadata.Length           = Info.Length;
-        }
         using(FileStream stream = Info.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite))
         {
-          request.ProcessStandardRequest(stream, metadata);
+          request.ProcessStandardRequest(stream, GetEntityMetadata(false));
           if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
           {
             // write the ETag and Last-Modified headers
@@ -684,6 +827,8 @@ public class FileResource : FileSystemResource
       }
     }
   }
+
+  EntityMetadata metadata;
 }
 #endregion
 
@@ -703,6 +848,12 @@ public class FileSystemRootResource : FileSystemResource
   /// </param>
   public FileSystemRootResource(string canonicalPath) : base(canonicalPath, true) { }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
+  public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
+  {
+    return new EntityMetadata() { MediaType = "text/html" };
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetOrHead/node()" />
   public override void GetOrHead(GetOrHeadRequest request)
   {
@@ -711,10 +862,16 @@ public class FileSystemRootResource : FileSystemResource
                                           .Select(d => new GetOrHeadRequest.IndexItem(FileSystemService.GetDriveName(d), true)).ToArray());
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
+  public override void Lock(LockRequest request)
+  {
+    request.ProcessStandardRequest(true);
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   public override void Options(OptionsRequest request)
   {
-    // TODO: support locking
+    request.SupportsLocking = !IsReadOnly && request.Context.LockManager != null;
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
@@ -722,12 +879,17 @@ public class FileSystemRootResource : FileSystemResource
   {
     if(request == null) throw new ArgumentNullException();
 
-    bool namesOnly = (request.Flags & PropFindFlags.NamesOnly) != 0;
+    bool namesOnly = (request.Flags & PropFindFlags.NamesOnly) != 0, supportLocks = !IsReadOnly && request.Context.LockManager != null;
     HashSet<XmlQualifiedName> properties = namesOnly ? new HashSet<XmlQualifiedName>() : new HashSet<XmlQualifiedName>(request.Properties);
     if((request.Flags & PropFindFlags.IncludeAll) != 0)
     {
       properties.Add(Names.displayname); // the root resource doesn't actually exist, so it only supports a couple properties
       properties.Add(Names.resourcetype);
+      if(supportLocks) // if we support locking, add the lock-related properties
+      {
+        if(namesOnly) properties.Add(Names.lockdiscovery);
+        properties.Add(Names.supportedlock);
+      }
     }
 
     // add the properties for the root resource to the response
@@ -740,9 +902,26 @@ public class FileSystemRootResource : FileSystemResource
     {
       foreach(XmlQualifiedName property in properties)
       {
-        if(property == Names.displayname) rootResource.SetValue(property, "Root", null, null);
-        else if(property == Names.resourcetype) rootResource.SetValue(property, ResourceType.Collection, null, null);
-        else rootResource.SetError(property, ConditionCodes.NotFound);
+        if(property == Names.displayname)
+        {
+          rootResource.SetValue(property, "Root", null, null);
+        }
+        else if(property == Names.resourcetype)
+        {
+          rootResource.SetValue(property, ResourceType.Collection, null, null);
+        }
+        else if(supportLocks && property == Names.lockdiscovery)
+        {
+          rootResource.SetValue(Names.lockdiscovery, request.Context.LockManager.GetLocks(request.Context.ServiceRoot, true, false, null));
+        }
+        else if(supportLocks && property == Names.supportedlock)
+        {
+          rootResource.SetValue(Names.supportedlock, LockType.WriteLocks);
+        }
+        else
+        {
+          rootResource.SetError(property, ConditionCodes.NotFound);
+        }
       }
     }
     request.Resources.Add(rootResource);
