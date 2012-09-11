@@ -15,13 +15,17 @@ namespace HiA.WebDAV.Server
 /// <summary>Contains information about the current WebDAV request.</summary>
 public sealed class WebDAVContext
 {
-  internal WebDAVContext(string serviceRootPath, string requestPath, HttpApplication app, Configuration config)
+  internal WebDAVContext(IWebDAVService service, string serviceRootPath, string requestPath, HttpApplication app,
+                         ILockManager defaultLockManager, Configuration config)
   {
-    ServiceRoot = serviceRootPath;
-    RequestPath = requestPath;
-    Request     = app.Request;
-    Response    = app.Response;
-    Settings    = config;
+    Service            = service;
+    ServiceRoot        = serviceRootPath;
+    RequestPath        = requestPath;
+    Application        = app;
+    Request            = app.Request;
+    Response           = app.Response;
+    DefaultLockManager = defaultLockManager;
+    Settings           = config;
   }
 
   #region Configuration
@@ -37,6 +41,19 @@ public sealed class WebDAVContext
     public bool ShowSensitiveErrors { get; private set; }
   }
   #endregion
+
+  /// <summary>Gets the default <see cref="ILockManager"/>, used when an <see cref="IWebDAVService"/> doesn't specify its own lock manager.
+  /// If null, no default lock manager was configured.
+  /// </summary>
+  public ILockManager DefaultLockManager { get; private set; }
+
+  /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request. This is effectively the same as trying
+  /// <see cref="IWebDAVService.LockManager"/> on <see cref="Service"/> and then trying <see cref="DefaultLockManager"/>.
+  /// </summary>
+  public ILockManager LockManager
+  {
+    get { return Service.LockManager ?? DefaultLockManager; }
+  }
 
   /// <summary>Gets the <see cref="HttpRequest"/> associated with the WebDAV request.</summary>
   public HttpRequest Request { get; private set; }
@@ -56,7 +73,10 @@ public sealed class WebDAVContext
   /// </summary>
   public HttpResponse Response { get; private set; } // TODO: give example of some of those helper methods (after we create them!)
 
-  /// <summary>Gets the absolute path to the root of the WebDAV service, including the trailing slash.</summary>
+  /// <summary>Gets the <see cref="IWebDAVService"/> responsible for serving this request.</summary>
+  public IWebDAVService Service { get; private set; }
+
+  /// <summary>Gets the absolute path to the root of the <see cref="Service"/>, including the trailing slash.</summary>
   public string ServiceRoot { get; private set; }
 
   /// <summary>Gets additional configuration settings for the WebDAV service in the current context.</summary>
@@ -115,12 +135,7 @@ public sealed class WebDAVContext
     // begin outputting a multistatus (HTTP 207) response as defined in RFC 4918
     Response.StatusCode        = 207;
     Response.StatusDescription = DAVUtility.GetStatusCodeMessage(207); // 207 is an extension, so set the description manually
-    Response.ContentEncoding   = System.Text.Encoding.UTF8;
-    Response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
-
-    // TODO: we remove Indent and IndentChars unless we can easily preserve whitespace in property values
-    XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = true, Indent = true, IndentChars = "\t" };
-    return new MultiStatusResponse(XmlWriter.Create(OpenResponseBody(), settings), namespaces);
+    return new MultiStatusResponse(OpenResponseXml(null), namespaces);
   }
 
   /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
@@ -260,6 +275,27 @@ public sealed class WebDAVContext
     return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
   }
 
+  /// <summary>Returns an <see cref="XmlWriter"/> object that writes an XML response body to the client.</summary>
+  /// <param name="status">A <see cref="ConditionCode"/> used to set the HTTP status. If null, the status is assumed to have been set
+  /// already.
+  /// </param>
+  /// <remarks>The <see cref="XmlWriter"/> object returned must be disposed to complete the response. The best practice is to use
+  /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response does not terminate the web request.
+  /// </remarks>
+  public XmlWriter OpenResponseXml(ConditionCode status)
+  {
+    if(status != null)
+    {
+      Response.StatusCode        = status.StatusCode;
+      Response.StatusDescription = DAVUtility.GetStatusCodeMessage(status.StatusCode);
+    }
+
+    Response.ContentEncoding   = System.Text.Encoding.UTF8;
+    Response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
+    // TODO: remove indentation unless we can easily preserve whitespace in property values
+    return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, Indent = true, IndentChars = "\t" });
+  }
+
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>
   /// <remarks>This method does not terminate the response.</remarks>
   public void WriteStatusResponse(ConditionCode status)
@@ -275,6 +311,8 @@ public sealed class WebDAVContext
     using(StreamReader reader = new StreamReader(OpenRequestBody(), Request.ContentEncoding)) return reader.ReadToEnd();
   }
 
+  internal HttpApplication Application { get; private set; }
+
   /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
   /// be empty.
   /// </summary>
@@ -288,7 +326,7 @@ public sealed class WebDAVContext
       foreach(ResourceStatus member in failedMembers)
       {
         response.Writer.WriteStartElement(Names.response.Name);
-        response.Writer.WriteElementString(Names.href.Name, ServiceRoot + member.RelativePath);
+        response.Writer.WriteElementString(Names.href.Name, member.AbsolutePath);
         response.WriteStatus(member.Status);
         response.Writer.WriteEndElement();
       }

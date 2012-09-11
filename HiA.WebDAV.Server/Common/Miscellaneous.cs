@@ -216,6 +216,36 @@ public static class DAVUtility
     return new string(chars);
   }
 
+  /// <summary>Extracts an <see cref="XmlElement"/> into its own <see cref="XmlDocument"/>.</summary>
+  internal static XmlElement Extract(this XmlElement element)
+  {
+    if(element == null) throw new ArgumentNullException();
+    string xmlLang = element.GetInheritedAttributeValue(Names.xmlLang);
+    XmlDocument emptyDoc = new XmlDocument();
+    element = (XmlElement)emptyDoc.ImportNode(element, true);
+    // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang being inherited)
+    if(!string.IsNullOrEmpty(xmlLang)) element.SetAttribute(Names.xmlLang, xmlLang);
+    emptyDoc.AppendChild(element);
+    return element;
+  }
+
+  /// <summary>Returns the absolute path of an absolute URI or a URI constructed from an absolute path.</summary>
+  internal static string GetAbsolutePath(Uri uri)
+  {
+    if(uri == null) throw new ArgumentNullException();
+    string path;
+    if(uri.IsAbsoluteUri)
+    {
+      path = uri.AbsolutePath;
+    }
+    else
+    {
+      path = uri.ToString();
+      if(path.Length == 0 || path[0] != '/') throw new ArgumentException("The given URI does not have an absolute path.");
+    }
+    return path;
+  }
+
   /// <summary>Converts the given date time to UTC and truncates it to one-second precision as necessary. This produces a
   /// <see cref="DateTime"/> value that can be compared with other <c>HTTP-date</c> values.
   /// </summary>
@@ -227,6 +257,19 @@ public static class DAVUtility
     long subsecondTicks = dateTime.Ticks % TimeSpan.TicksPerSecond;
     if(subsecondTicks != 0) dateTime = dateTime.AddTicks(-subsecondTicks);
     return dateTime;
+  }
+
+  /// <summary>Returns the parent of the given path, or null if the path has no parent. This works with both absolute and relative paths,
+  /// and preserves the presence or absence of a trailing slash (although it will not remove a leading slash in any case).
+  /// </summary>
+  /// <exception cref="ArgumentNullException">Thrown if <paramref name="path"/> is null.</exception>
+  internal static string GetParentPath(string path)
+  {
+    if(path == null) throw new ArgumentNullException();
+    if(path.Length == 0 || path[0] == '/' && path.Length == 1) return null;
+    int end = path.Length-1, slashOffset = path[end] == '/' ? 1 : 0;
+    int lastSlash = path.LastIndexOf('/', end-slashOffset);
+    return lastSlash == -1 ? "" : lastSlash == 0 ? "/" : path.Substring(0, lastSlash+slashOffset);
   }
 
   /// <summary>Encodes an ASCII string as an RFC 2616 <c>quoted-string</c> if it has any characters that need encoding.</summary>
@@ -251,6 +294,29 @@ public static class DAVUtility
   internal static string[] ParseHttpTokenList(string headerString)
   {
     return headerString == null ? null : headerString.Split(',', s => s.Trim(), StringSplitOptions.RemoveEmptyEntries);
+  }
+
+  /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
+  internal static string QuoteString(string ascii)
+  {
+    if(ascii == null) throw new ArgumentNullException();
+    StringBuilder sb = new StringBuilder(ascii.Length + 20);
+    sb.Append('\"');
+    for(int i=0; i<ascii.Length; i++)
+    {
+      char c = ascii[i];
+      if(c < 32 && c != '\t' || c == '"' || c == '\\' || c == 0x7f) sb.Append('\\');
+      sb.Append(c);
+    }
+    sb.Append('"');
+    ascii = sb.ToString();
+    return ascii;
+  }
+
+  internal static string RemoveTrailingSlash(string path)
+  {
+    if(path == null) throw new ArgumentNullException();
+    return path.Length > 1 && path[path.Length-1] == '/' ? path.Substring(0, path.Length-1) : path;
   }
 
   /// <summary>Attempts to parse an <c>HTTP-date</c> value, as defined in RFC 2616 section 3.3.1.</summary>
@@ -286,21 +352,16 @@ public static class DAVUtility
     return true;
   }
 
-  /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
-  internal static string QuoteString(string ascii)
+  /// <summary>Tries to parse a value which may be either an absolute URI or an absolute path.</summary>
+  internal static bool TryParseSimpleRef(string value, out Uri uri)
   {
-    if(ascii == null) throw new ArgumentNullException();
-    StringBuilder sb = new StringBuilder(ascii.Length + 20);
-    sb.Append('\"');
-    for(int i=0; i<ascii.Length; i++)
+    if(Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out uri))
     {
-      char c = ascii[i];
-      if(c < 32 && c != '\t' || c == '"' || c == '\\' || c == 0x7f) sb.Append('\\');
-      sb.Append(c);
+      if(uri.IsAbsoluteUri) return true;
+      string path = uri.ToString();
+      if(path.Length != 0 && path[0] == '/') return true;
     }
-    sb.Append('"');
-    ascii = sb.ToString();
-    return ascii;
+    return false;
   }
 
   /// <summary>Decodes an HTTP <c>quoted-string</c> given the span of text within the quotation marks.</summary>
@@ -328,6 +389,15 @@ public static class DAVUtility
     }
 
     return value.Substring(start, length);
+  }
+
+  /// <summary>Ensures that the given path has a trailing slash if it's not an empty string. Empty strings will be returned as-is, to
+  /// avoid converting relative paths to absolute paths.
+  /// </summary>
+  internal static string WithTrailingSlash(string path)
+  {
+    if(path == null) throw new ArgumentNullException();
+    return path.Length == 0 || path[path.Length-1] == '/' ? path : path + "/";
   }
 
   /// <summary>Sets the response status code to the given status code and writes an message to the page. This method does not terminate
@@ -504,11 +574,12 @@ public sealed class EntityTag : IElementValue
 #region HttpHeaders
 static class HttpHeaders
 {
-  public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", ContentEncoding = "Content-Encoding";
-  public const string ContentLength = "Content-Length", ContentRange = "Content-Range", Destination = "Destination", ETag = "ETag";
+  public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", Allow = "Allow";
+  public const string ContentEncoding = "Content-Encoding", ContentLength = "Content-Length", ContentRange = "Content-Range";
+  public const string DAV = "DAV", Destination = "Destination", ETag = "ETag";
   public const string If = "If", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
   public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified";
-  public const string Location = "Location", Overwrite = "Overwrite", Range = "Range", Timeout = "Timeout";
+  public const string Location = "Location", LockToken = "Lock-Token", Overwrite = "Overwrite", Range = "Range", Timeout = "Timeout";
 }
 #endregion
 

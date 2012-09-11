@@ -10,6 +10,15 @@ public class MkColRequest : SimpleRequest
   /// <summary>Initializes a new <see cref="MkColRequest"/> based on a new WebDAV request.</summary>
   public MkColRequest(WebDAVContext context) : base(context) { }
 
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
+  /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources because a new
+  /// collection is assumed to not contain any mapped member URLs.
+  /// </remarks>
+  protected override ConditionCode CheckSubmittedLockTokens()
+  {
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, false);
+  }
+
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   /// <remarks>This implementation sets the response status based on <see cref="WebDAVRequest.Status"/>, using
   /// <see cref="ConditionCodes.Created"/> if the status is null.

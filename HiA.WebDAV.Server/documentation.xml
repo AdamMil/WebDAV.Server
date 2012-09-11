@@ -9,11 +9,11 @@
   <ILockManager>
     <AddLock>
       <summary>Adds a new resource lock if no conflicting lock exists.</summary>
-      <param name="resource">The <see cref="IWebDAVResource"/> to lock.</param>
+      <param name="absolutePath">The absolute, canonical path to the resource to lock.</param>
       <param name="type">The type of lock to add.</param>
       <param name="recursive">
         True if the lock should apply recursively to all descendant resources as well, or false if it should only
-        apply to <paramref name="resource"/>.
+        apply to the resource named by <paramref name="absolutePath"/>.
       </param>
       <param name="timeoutSeconds">
         The requested timeout before the lock expires, in seconds, or zero if the lock should not expire, or null to use the default
@@ -26,22 +26,33 @@
       <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
       <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
     </AddLock>
+    <GetConflictingLocks>
+      <summary>Returns a collection of existing locks that conflict with the given proposed lock.</summary>
+      <param name="absolutePath">The absolute, canonical path to the resource to propose to lock.</param>
+      <param name="type">The proposed type of lock to add.</param>
+      <param name="recursive">
+        True if the lock would apply recursively to all descendant resources as well, or false if it would only
+        apply to the resource named by <paramref name="absolutePath"/>.
+      </param>
+    </GetConflictingLocks>
     <GetLock>
       <summary>Returns the <see cref="ActiveLock"/> with the specified lock token and path, or null if no matching lock exists.</summary>
       <param name="lockToken">The lock token of the lock to retrieve.</param>
-      <param name="relativeLockPath">If specified, the lock must also match the given lock path. If null, only the lock token must match.
-      This should be the canonical path to a resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.
+      <param name="absolutePath">If specified, the lock must also contain the given path within its scope. If null, only the lock token
+      must match. This should be the absolute, canonical path to a resource.
       </param>
     </GetLock>
     <GetLocks>
       <summary>Returns the locks at, above, and/or below a resource in the URL hierarchy.</summary>
-      <param name="resource">The <see cref="IWebDAVResource"/> whose locks will be returned.</param>
+      <param name="absolutePath">The absolute, canonical path to the resource whose locks will be returned.</param>
       <param name="includeInheritedLocks">If true, locks inherited from ancestor resources will be returned.</param>
       <param name="includeDescendantLocks">If true, locks directly applied to descendant resources will be returned.</param>
+      <param name="filter">If not null, only locks for which the filter predicate returns true will be returned from the method.</param>
       <returns>
         Returns a list of the locks directly applied to the given resource. In addition, if <paramref name="includeInheritedLocks"/>
         is true, locks inherited by the resource will be included in the list, and if <paramref name="includeDescendantLocks"/> is true,
-        locks directly applied to descendant resources will be included in the list.
+        locks directly applied to descendant resources will be included in the list. All locks will be filtered through
+        <paramref name="filter"/> if <paramref name="filter"/> is not null.
       </returns>
     </GetLocks>
     <RefreshLock>
@@ -59,6 +70,17 @@
     <RemoveLock>
       <summary>Removes the given lock. Returns true if the lock was removed and false if the lock did not exist in the lock manager.</summary>
     </RemoveLock>
+    <RemoveLocks>
+      <summary>Removes all locks at (and possibly below) a resource in the URL hierarchy. Returns true if the locks were removed
+        successfully and false if the locks could not be removed.
+      </summary>
+      <param name="absolutePath">The absolute, canonical path to the resource whose locks will be removed.</param>
+      <param name="removal">A <see cref="LockRemoval"/> value that specifies which locks will be removed.</param>
+      <returns>
+        If <paramref name="removal"/> is <see cref="LockRemoval.RequireEmpty"/> and descendant locks exist, no locks are removed and false
+        is returned. Otherwise, all locks are removed and true is returned.
+      </returns>
+    </RemoveLocks>
   </ILockManager>
 
   <ISupportAuthorization>
@@ -81,7 +103,7 @@
   
   <IWebDAVResource>
     <CanonicalPath>
-      <summary>The canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
+      <summary>Gets the canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
       <remarks>
         Since it's relative, the path must not begin with a slash. The path for a collection resource should end with a slash, but not if
         it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
@@ -101,6 +123,19 @@
     <Delete>
       <summary>Executes a <see cref="DeleteRequest"/>. See the <see cref="DeleteRequest"/> documentation for details on how to service it.</summary>
     </Delete>
+    <GetEntityMetadata>
+      <summary>Returns an <see cref="EntityMetadata"/> object describing the resource's entity body.</summary>
+      <param name="includeEntityTag">
+        If true, the resource's <see cref="EntityTag"/> should be included in the metadata if possible. (Failure to include it may cause
+        requests to fail.) If false, the <see cref="EntityTag"/> should only be included if it can be efficiently obtained.
+      </param>
+      <remarks>
+        <note type="caution">
+          Because <see cref="EntityMetadata"/> is a mutable object, implementors are recommended to use <see cref="EntityMetadata.Clone"/>
+          to return a copy of the metadata if the metadata is cached between invocations.
+        </note>
+      </remarks>
+    </GetEntityMetadata>
     <GetOrHead>
       <summary>
         Executes a <see cref="GetOrHeadRequest"/>. See the <see cref="GetOrHeadRequest"/> documentation for details on how to service it.
@@ -112,6 +147,9 @@
         request and false otherwise, in which case the <see cref="IWebDAVService"/> will be allowed to handle the request.
       </summary>
     </HandleGenericRequest>
+    <Lock>
+      <summary>Executes a <see cref="LockRequest"/>. See the <see cref="LockRequest"/> documentation for details on how to service it.</summary>
+    </Lock>
     <Options>
       <summary>
         Executes an <see cref="OptionsRequest"/>. See the <see cref="OptionsRequest"/> documentation for details on how to service it.
@@ -137,9 +175,18 @@
     <Put>
       <summary>Executes a <see cref="PutRequest"/>. See the <see cref="PutRequest"/> documentation for details on how to service it.</summary>
     </Put>
+    <Unlock>
+      <summary>Executes an <see cref="UnlockRequest"/>. See the <see cref="UnlockRequest"/> documentation for details on how to service it.</summary>
+    </Unlock>
   </IWebDAVResource>
 
   <IWebDAVService>
+    <CreateAndLock>
+      <summary>
+        Executes a <see cref="LockRequest"/> against an unmapped URL. See the <see cref="LockRequest"/> documentation for details on
+        how to service it.
+      </summary>
+    </CreateAndLock>
     <CreateCopyOrMove>
       <summary>
         Creates a new <see cref="CopyOrMoveRequest"/> object (or an object of a derived type) to serve a <c>COPY</c> or <c>MOVE</c>
@@ -154,6 +201,9 @@
         Creates a new <see cref="GetOrHeadRequest"/> object (or an object of a derived type) to serve a <c>GET</c> or <c>HEAD</c> request.
       </summary>
     </CreateGetOrHead>
+    <CreateLock>
+      <summary>Creates a new <see cref="LockRequest"/> object (or an object of a derived type) to serve a <c>LOCK</c> request.</summary>
+    </CreateLock>
     <CreateMkCol>
       <summary>Creates a new <see cref="MkColRequest"/> object (or an object of a derived type) to serve a <c>MKCOL</c> request.</summary>
     </CreateMkCol>
@@ -172,6 +222,9 @@
     <CreatePut>
       <summary>Creates a new <see cref="PutRequest"/> object (or an object of a derived type) to serve a <c>PUT</c> request.</summary>
     </CreatePut>
+    <CreateUnlock>
+      <summary>Creates a new <see cref="UnlockRequest"/> object (or an object of a derived type) to serve an <c>UNLOCK</c> request.</summary>
+    </CreateUnlock>
     <HandleGenericRequest>
       <summary>
         Called to handle a request that is not handled by any other another method. The method must return true if it responded to the
@@ -188,7 +241,14 @@
         able to be accessed simultaneously by multiple threads, and should not fail in a way that would affect its operation on later
         requests.
       </summary>
+      <remarks>It is recommended that services be made reusable if possible, as this improves performance.</remarks>
     </IsReusable>
+    <LockManager>
+      <summary>
+        Gets the <see cref="ILockManager"/> used to control locking of the resources exposed by the WebDAV service. If null is
+        returned, the default lock manager for the WebDAV server will be used.
+      </summary>
+    </LockManager>
     <MakeCollection>
       <summary>Executes a <see cref="MkColRequest"/>. See the <see cref="MkColRequest"/> documentation for details on how to service it.</summary>
     </MakeCollection>
@@ -198,6 +258,12 @@
         details on how to service it.
       </summary>
     </Options>
+    <Post>
+      <summary>
+        Executes a <see cref="PostRequest"/> that was not mapped to any URL. See the <see cref="PostRequest"/> documentation for
+        details on how to service it.
+      </summary>
+    </Post>
     <Put>
       <summary>
         Executes a <see cref="PutRequest"/> that was not mapped to any URL. See the <see cref="PutRequest"/> documentation for
@@ -206,9 +272,25 @@
     </Put>
     <ResolveResource>
       <summary>
-        Resolves the request URI to the corresponding <see cref="IWebDAVResource"/> (generally by using
-        <see cref="WebDAVContext.RequestPath"/>) , or returns null if the URI does not map to any resource.
+        Resolves the given resource path to the corresponding <see cref="IWebDAVResource"/>, or returns null if the path does not map to
+        any resource.
       </summary>
+      <param name="context">The <see cref="WebDAVContext"/> for the request. See the remarks for important details.</param>
+      <param name="resourcePath">
+        The relative path to the resource. This path is relative to the root of the current service, but that may not match
+        <see cref="WebDAVContext.ServiceRoot"/>. See the remarks for more details.
+      </param>
+      <remarks>
+        <note type="caution">
+          Although <paramref name="context"/> is the context for the current request, it will not necessarily correspond to the current
+          service. In particular, <see cref="WebDAVContext.RequestPath"/> may not match <paramref name="resourcePath"/> and
+          <see cref="WebDAVContext.ServiceRoot"/> may not be the root of the current service or the base of
+          <paramref name="resourcePath"/>. This will happen when one service attempts to resolve a URL belong to another service, for
+          example when processing a cross-service <c>COPY</c> request or when the client submits a tagged <c>If</c> header specifying a URL
+          belonging to another service. Therefore, the implementation of this method should not rely on request-specific details to perform
+          the resolution. 
+        </note>
+      </remarks>
     </ResolveResource>
   </IWebDAVService>
 
@@ -272,7 +354,68 @@
     </OpenResponseBody>
   </WebDAVContext>
 
+  <WebDAVModule>
+    <ResolveUri>
+      <summary>
+        In the context of the given <paramref name="context"/>, attempts to resolve a URL into an <see cref="IWebDAVService"/> and
+        <see cref="IWebDAVResource"/>. Returns true if the URL could be successfully resolved into an <see cref="IWebDAVResource"/>, and
+        false otherwise. (Note that even if the method returns false, variables besides <paramref name="resource"/> may still be set.)
+      </summary>
+      <param name="context">
+        The <see cref="WebDAVContext"/> representing the request.
+      </param>
+      <param name="uri">
+        A <see cref="Uri"/> to resolve. This can either be an absolute URI (i.e. a URI with a scheme and authority) or a
+        relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
+        authority of the request URI will be used.
+      </param>
+      <param name="performAccessChecks">
+        If true, authorization checks will be performed against the resource. If access is denied, the
+        resource will not be resolved. Note that authorization checks may consider details of the request, such as the HTTP method, when
+        deciding whether to grant or deny access. If you are resolving a resource for purposes other than performing the request HTTP
+        method (for instance, if you only want to validate an <c>If</c> header), it may be better to skip the access checks.
+      </param>
+      <param name="service">
+        A variable that will receive the <see cref="IWebDAVService"/> corresponding to the <paramref name="uri"/>, or
+        null if the <paramref name="uri"/> does not correspond to any defined service location. This variable may be set to a valid service
+        even if the method returns false.
+      </param>
+      <param name="resource">
+        A variable that will receive the <see cref="IWebDAVResource"/> corresponding to the <paramref name="uri"/>.
+      </param>
+    </ResolveUri>
+  </WebDAVModule>
+  
   <WebDAVRequest>
+    <CheckSubmittedLockTokens>
+      <summary>
+        Checks that the client has submitted all required lock tokens. If so, this method returns null. If not, the method returns
+        a <see cref="ConditionCode"/> containing the error that should be returned to the client. Note that you generally do not need to
+        call this method manually, as both <see cref="WebDAVRequest.CheckPreconditions"/> and the <c>ProcessStandardRequest</c> methods of
+        derived classes invoke this method automatically.
+      </summary>
+    </CheckSubmittedLockTokens>
+    <CheckSubmittedLockTokensCore>
+      <summary>
+        Checks that the client has submitted all required lock tokens. If so, this method returns null. If not, the method returns
+        a <see cref="ConditionCode"/> containing the error that should be returned to the client.
+      </summary>
+      <param name="lockType">
+        A <see cref="LockType"/> that would conflict with the locks that you want to check for. Typically, this is
+        an exclusive lock of a type that protects the operation being performed by the request. For instance, a <c>PUT</c> request would
+        usually pass <see cref="LockType.ExclusiveWrite"/> for the lock type because it would conflict with (and therefore match) any other
+        write locks on the resource, while ignoring non-write locks.
+      </param>
+      <param name="checkParent">
+        If true, the parent resource will be checked for a lock as well. You should pass true when the operation will change the
+        parent collection, for instance when adding, renaming, or deleting an item. Pass false when the operation only modifies the
+        content or properties of an existing item.
+      </param>
+      <param name="checkDescendants">
+        If true, locks on descendant items will be checked if there is no lock directly on the resource. You should typically pass true if
+        the operation affects all descendant items of the resource, and pass false otherwise.
+      </param>
+    </CheckSubmittedLockTokensCore>
     <ParseRequest>
       <summary>Parses and validates the request.</summary>
       <exception cref="System.Xml.XmlException">Thrown if the request body XML is invalid.</exception>
@@ -333,12 +476,6 @@
         Implements standard <c>PROPFIND</c> processing for a non-collection resource, given a dictionary containing all of the
         resource's properties.
       </summary>
-      <param name="properties">
-        A dictionary containing all of the properties for the request resource. Live properties that are expensive
-        to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
-        <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-        be null).
-      </param>
     </ProcessStandardRequest>
     <ProcessStandardRequestRec>
       <summary>Implements standard <c>PROPFIND</c> processing for a collection resource.</summary>
@@ -351,12 +488,6 @@
         Given a value representing a resource, returns the canonical name of the path segment that maps to the resource within the
         collection. If the resource is the request resource itself, an empty string should be returned. Otherwise, if the resource is a
         child collection, the member name should end with a trailing slash.
-      </param>
-      <param name="getProperties">
-        Given a value representing a resource, returns a dictionary containing all of the resource's properties.
-        Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
-        <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
-        case, the property values are ignored and can be null).
       </param>
       <param name="getChildren">
         Given a value representing a resource, returns the values representing the resource's children, if any. If

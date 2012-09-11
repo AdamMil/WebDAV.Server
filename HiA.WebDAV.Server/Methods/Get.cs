@@ -280,9 +280,8 @@ public class GetOrHeadRequest : WebDAVRequest
   {
     if(children == null) throw new ArgumentNullException();
 
-    string basePath = Context.RequestPath;
     // make sure the basePath has a trailing slash so we can add items to it (and also to simplify the location of the parent directory)
-    if(basePath.Length != 0 && basePath[basePath.Length-1] != '/') basePath += "/";
+    string basePath = DAVUtility.WithTrailingSlash(Context.RequestPath);
 
     // begin writing the response
     StringBuilder sb = new StringBuilder(4096);
@@ -402,67 +401,67 @@ public class GetOrHeadRequest : WebDAVRequest
     // notify the client that we accept byte ranges in the Range header (see RFC 2616 section 14.5)
     Context.Response.Headers[HttpHeaders.AcceptRanges] = "bytes";
 
-    long entityLength = metadata != null && metadata.Length.HasValue ? metadata.Length.Value : entityBody.CanSeek ? entityBody.Length : -1;
-    ByteRange[] ranges = entityLength == -1 ? null : GetByteRanges(entityLength);
+    metadata = metadata == null ? new EntityMetadata() : metadata.Clone();
+    if(!metadata.Length.HasValue && entityBody.CanSeek) metadata.Length = entityBody.Length;
+
+    ByteRange[] ranges = metadata.Length.HasValue ? GetByteRanges(metadata.Length.Value) : null;
     if(ranges != null && ranges.Length == 0) // if a Ranges header was specified but unsatisfiable...
     {
       // RFC 2616 section 14.16 says that a 416 response should include a Content-Range header giving the entity length (if known)
-      if(entityLength != -1) Context.Request.Headers[HttpHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
+      Context.Request.Headers[HttpHeaders.ContentRange] = new ContentRange(metadata.Length.Value).ToHeaderString();
       Status = ConditionCodes.RequestedRangeNotSatisfiable; // then it's an error
     }
     else
     {
       // if no entity tag was provided and the stream is seekable, compute the entity tag using the default method
-      EntityTag entityTag = metadata != null ? metadata.EntityTag : null;
-      if(entityTag == null) // if no entity tag was provided...
+      if(metadata.EntityTag == null)
       {
         if(!string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag])) // if an entity tag was set in the headers...
         {
-          entityTag = new EntityTag(Context.Response.Headers[HttpHeaders.ETag]); // use that
+          metadata.EntityTag = new EntityTag(Context.Response.Headers[HttpHeaders.ETag]); // use that
         }
         else if(entityBody.CanSeek) // otherwise, if we can make a scan through the entity body...
         {
-          entityTag = DAVUtility.ComputeEntityTag(entityBody, true); // compute an entity tag from the body
+          metadata.EntityTag = DAVUtility.ComputeEntityTag(entityBody, true); // compute an entity tag from the body
           entityBody.Position = 0;
         }
       }
 
       // if no last modified time was provided, try to take it from the header if set
-      DateTime? lastModifiedTime = metadata != null ? metadata.LastModifiedTime : null;
-      if(!lastModifiedTime.HasValue && !string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.LastModified]))
+      if(!metadata.LastModifiedTime.HasValue && !string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.LastModified]))
       {
         DateTime time;
-        if(DAVUtility.TryParseHttpDate(Context.Response.Headers[HttpHeaders.LastModified], out time)) lastModifiedTime = time;
+        if(DAVUtility.TryParseHttpDate(Context.Response.Headers[HttpHeaders.LastModified], out time)) metadata.LastModifiedTime = time;
       }
 
-      ConditionCode precondition = CheckPreconditions(entityTag, lastModifiedTime, metadata == null || metadata.Exists);
+      ConditionCode precondition = CheckPreconditions(metadata);
       if(precondition != null && precondition.StatusCode != (int)HttpStatusCode.NotModified)
       {
         Status = precondition;
       }
       else
       {
-        if(entityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
+        if(metadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
         {
-          Context.Response.Headers[HttpHeaders.ETag] = entityTag.ToHeaderString();
+          Context.Response.Headers[HttpHeaders.ETag] = metadata.EntityTag.ToHeaderString();
         }
-        if(lastModifiedTime.HasValue)
+        if(metadata.LastModifiedTime.HasValue)
         {
-          lastModifiedTime = DAVUtility.GetHttpDate(lastModifiedTime.Value);
+          DateTime lastModifiedTime = DAVUtility.GetHttpDate(metadata.LastModifiedTime.Value);
           if(string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.LastModified]))
           {
-            Context.Response.Headers[HttpHeaders.LastModified] = lastModifiedTime.Value.ToString("R", CultureInfo.InvariantCulture);
+            Context.Response.Headers[HttpHeaders.LastModified] = lastModifiedTime.ToString("R", CultureInfo.InvariantCulture);
           }
         }
 
         // if the If-Range header was sent but doesn't match the current entity body...
-        if(IfRange != null && (IfRange is EntityTag ? entityTag == null || !entityTag.Equals(IfRange)
-                                                    : lastModifiedTime.HasValue && lastModifiedTime.Value > (DateTime)IfRange))
+        if(IfRange != null &&
+           (IfRange is EntityTag ? metadata.EntityTag == null || !metadata.EntityTag.Equals(IfRange)
+                                 : metadata.LastModifiedTime.HasValue && metadata.LastModifiedTime.Value > (DateTime)IfRange))
         {
           ranges = null; // then send the entire entity to the client rather than only the requested range
         }
 
-        string mediaType = metadata != null ? metadata.MediaType : null;
         if(ranges != null && ranges.Length != 1) // if multiple ranges were specified, then we should send a multipart/byteranges response
         {
           Context.Response.StatusCode = (int)HttpStatusCode.PartialContent;
@@ -474,7 +473,10 @@ public class GetOrHeadRequest : WebDAVRequest
           else
           {
             string boundary = DAVUtility.CreateMimeBoundary(), header = "\r\n--" + boundary + "\r\n";
-            if(!string.IsNullOrEmpty(mediaType)) header += "Content-Type: " + DAVUtility.HeaderEncode(mediaType) + "\r\n";
+            if(!string.IsNullOrEmpty(metadata.MediaType))
+            {
+              header += "Content-Type: " + DAVUtility.HeaderEncode(metadata.MediaType) + "\r\n";
+            }
             header += "Content-range: bytes ";
 
             Context.Response.ContentType = "multipart/byteranges; boundary=" + boundary;
@@ -487,7 +489,7 @@ public class GetOrHeadRequest : WebDAVRequest
               // write the MIME part for this range
               Context.Response.Write(header);
               Context.Response.Write(range.Start.ToInvariantString() + "-" + (range.Start + range.Length - 1).ToInvariantString() + "/" +
-                                     entityLength.ToInvariantString() + "\r\n\r\n");
+                                     metadata.Length.Value.ToInvariantString() + "\r\n\r\n");
               WriteStreamRange(entityBody, range.Start - offset, range.Length);
               if(!entityBody.CanSeek) offset = range.Start + range.Length;
             }
@@ -496,14 +498,14 @@ public class GetOrHeadRequest : WebDAVRequest
         }
         else
         {
-          long rangeStart = 0, rangeLength = entityLength;
+          long rangeStart = 0, entityLength = metadata.Length ?? -1, rangeLength = entityLength;
           if(ranges != null && ranges.Length == 1)
           {
             rangeStart  = ranges[0].Start;
             rangeLength = ranges[0].Length;
           }
 
-          Context.Response.ContentType = mediaType; // set ContentType even if mediaType is null to avoid the text/html default
+          Context.Response.ContentType = metadata.MediaType; // set ContentType even if mediaType is null to avoid the text/html default
           bool shouldSendBody = !IsHeadRequest; // in general, we want to write the entity body unless it's a HEAD request
           if(rangeStart == 0 && rangeLength == entityLength) // if we're sending the whole file, then we want to use a 200 OK response
           {

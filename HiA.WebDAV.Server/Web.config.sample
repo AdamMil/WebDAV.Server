@@ -20,53 +20,69 @@
   </system.webServer>
 
   <HiA.WebDAV>
-    <!-- The 'enabled' property is optional and true by default. If false, all HiA.WebDAV services are disabled.
-         The 'showSensitiveErrors' property is optional and false by default. If true, additional error information may be included with
-         responses. This information can help you troubleshoot issues with a WebDAV service but it's possible that in certain cases the
-         messages could contain sensitive information.
+    <!-- * The 'enabled' property is optional and true by default. If false, all HiA.WebDAV services are disabled.
+         * The 'showSensitiveErrors' property is optional and false by default. If true, additional error information may be included with
+           responses. This information can help you troubleshoot issues with a WebDAV service but it's possible that in certain cases the
+           messages could contain sensitive information.
     -->
     <server enabled="true" showSensitiveErrors="false">
+      <!-- The 'defaultLockManager' element configures the default lock manager used when a service does not specify its own lock manager.
+           (Most services use the default lock manager, so this applies to most services.) It should have a 'type' attribute set to the
+           full type name of a class that implements the HiA.WebDAV.Server.ILockManager interface. The class must either have a public
+           default constructor or a constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional
+           configuration attributes to be processed by the lock manager). If the element is omitted, no default lock manager will be
+           available, disabling locking for most services. These are the built-in lock managers:
+           * HiA.WebDAV.Server.MemoryLockManager - A lock manager which holds locks in memory while the service is running but does not
+                                                   persist them to any permanent storage device.
+      -->
+      <defaultLockManager type="HiA.WebDAV.Server.MemoryLockManager, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
       <!-- The 'locations' collection defines the roots of WebDAV services within the URL space. -->
       <locations>
         <!-- A location is used to match request URIs against different WebDAV services. Multiple locations can match the same URI;
-              the first matching location is used, even if the location is disabled. If the first matching location is disabled or no
-              location matches a request URI, the request is ignored by the HiA.WebDAV service. This allows you to carve out a subtree from
-              a WebDAV service that is excluded from WebDAV processing by adding a disabled location matching that subtree. Locations have
-              the following attributes, all of which are optional except for 'match':
-              * match     A string matching the request URI, of the form [[scheme://](hostname|IP)[:port]][/path/to/davroot/]
-                          If the scheme portion is unspecified, the location matches any scheme. If a hostname is used, it must match the
-                          host within the request URI; otherwise, if an IP is used, it must match the IP of the network interface
-                          servicing the connection. If the port is unspecified, the location matches any port. If the entire authority
-                          portion is unspecified, the location matches any authority. If the path is specified, it identifies the root of a
-                          WebDAV service, and all URIs under that path are matched by the location; otherwise, it matches all paths. The
-                          URI must be in its canonical form, with no unnecessarily escaped characters. The match attribute is required, and
-                          must be unique among locations in the collection. If you want a match attribute value that matches all URIs,
-                          use "/". Examples:
-                            https://www.example.com:8080/webdav/  - matches HTTPS requests to www.example.com on port 8080 under /webdav/
-                            www.example.com:8080/webdav/          - matches both HTTP and HTTPS requests
-                            www.example.com/webdav/               - matches requests to any port
-                            123.234.99.88/webdav/                 - matches requests serviced by the interface bound to 123.234.99.88
-                            [2001:db8:85a3::8a2e:370:7334]/path/  - matches an IPv6 address
-                            /webdav/                              - matches requests on any hostname, as long as the path is under /webdav/
-                            www.example.com                       - matches all requests to www.example.com
-              * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, and
-                          they will not be processed by other locations in the list.
-              * type      The full type name of a class that implements the HiA.WebDAV.Server.IWebDAVService interface. The class must
-                          either have a public default constructor or a constructor that accepts a
-                          HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration attributes to be processed
-                          by the service). This attribute is required for enabled locations.
-              * caseSensitive      If true, path matches (but not hostname matches) will be done case sensitively. If false, case will be
-                                   ignored. The default is false.
-              * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
-                                   requests to the root of the server and to the "*" URL. This option is provided as a workaround for
-                                   WebDAV clients that incorrectly submit OPTIONS requests to the root of the server. Using this option is
-                                   not necessary if the 'match' attribute is such that the service would serve requests to the root anyway.
-                                   If this option is enabled, the service must be prepared to handle URLs outside its scope.
-                                   The default is false.
-              * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.Server.IWebDAVService instance as
-                          parameters if it has a public constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection. Be
-                          aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
-                          interpreted as a custom attribute and not the required "match" attribute.
+             the first matching location is used, even if the location is disabled. If the first matching location is disabled or no
+             location matches a request URI, the request is ignored by the HiA.WebDAV service. This allows you to carve out a subtree from
+             a WebDAV service that is excluded from WebDAV processing by adding a disabled location matching that subtree. Locations have
+             the following attributes, all of which are optional except for 'match':
+             * match     A string matching the request URI, of the form [[scheme://](hostname|IP)[:port]][/path/to/davroot/]
+                         If the scheme portion is unspecified, the location matches any scheme. If a hostname is used, it must match the
+                         host within the request URI; otherwise, if an IP is used, it must match the IP of the network interface
+                         servicing the connection. If the port is unspecified, the location matches any port. If the entire authority
+                         portion is unspecified, the location matches any authority. If the path is specified, it identifies the root of a
+                         WebDAV service, and all URIs under that path are matched by the location; otherwise, it matches all paths. The
+                         URI must be in its canonical form, with no unnecessarily escaped characters. The match attribute is required, and
+                         must be unique among locations in the collection. If you want a match attribute value that matches all URIs,
+                         use "/". Examples:
+                           https://www.example.com:8080/webdav/  - matches HTTPS requests to www.example.com on port 8080 under /webdav/
+                           www.example.com:8080/webdav/          - matches both HTTP and HTTPS requests
+                           www.example.com/webdav/               - matches requests to any port
+                           123.234.99.88/webdav/                 - matches requests serviced by the interface bound to 123.234.99.88
+                           [2001:db8:85a3::8a2e:370:7334]/path/  - matches an IPv6 address
+                           /webdav/                              - matches requests on any hostname, as long as the path is under /webdav/
+                           www.example.com                       - matches all requests to www.example.com
+             * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, and
+                         they will not be processed by other locations in the list.
+             * type      The full type name of a class that implements the HiA.WebDAV.Server.IWebDAVService interface. The class must
+                         either have a public default constructor or a constructor that accepts a
+                         HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration attributes to be processed
+                         by the service). This attribute is required for enabled locations.
+             * caseSensitive      If true, path matches (but not hostname matches) will be done case sensitively. If false, case will be
+                                  ignored. The default is false.
+             * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
+                                  requests to the root of the server and to the "*" URL. This option is provided as a workaround for
+                                  WebDAV clients that incorrectly submit OPTIONS requests to the root of the server. Using this option is
+                                  not necessary if the 'match' attribute is such that the service would serve requests to the root anyway.
+                                  If this option is enabled, the service must be prepared to handle URLs outside its scope.
+                                  The default is false.
+             * <other>   Attributes not listed above will be collected and passed to the HiA.WebDAV.Server.IWebDAVService instance as
+                         parameters if it has a public constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection. Be
+                         aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
+                         interpreted as a custom attribute and not the required "match" attribute.
+             The built-in WebDAV services are:
+             * HiA.WebDAV.Server.FileSystemService - Serves files from the filesystem. Supports the following configuration attributes:
+               o fsRoot   - Specifies the root within the filesystem from which files will be served. Effectively, this maps the service
+                            root to the given filesystem root. If empty or omitted, all files on all drives will be served.
+               o writable - Determines whether the DAV service allows the creation, deletion, and modification of files and directories.
+                            The default is false.
         -->
         <add match="https://www.example.com/webdav/help/" enabled="false" /> <!-- provide a non-WebDAV subtree within the WebDAV space -->
         <add match="https://www.example.com/webdav/" enabled="true"
