@@ -216,7 +216,7 @@ public class LockRequest : WebDAVRequest
       // the Lock-Token header should be supplied when a new lock is created, but not when a lock is refreshed (RFC 4918 section 9.10)
       if(!IsRefresh) Context.Response.Headers[HttpHeaders.LockToken] = "<" + NewLock.LockToken + ">";
 
-      using(XmlWriter writer = Context.OpenResponseXml(Status ?? ConditionCodes.NoContent))
+      using(XmlWriter writer = Context.OpenResponseXml(Status ?? ConditionCodes.OK))
       {
         writer.WriteStartElement(Names.prop);
         writer.WriteAttributeString("xmlns", Names.DAV);
