@@ -4,8 +4,6 @@ using System.ComponentModel;
 using System.Configuration;
 using HiA.Configuration;
 
-// TODO: perhaps we should have a way to configure a default lock manager on a per-location basis as well
-
 namespace HiA.WebDAV.Server.Configuration
 {
 
@@ -45,40 +43,6 @@ public sealed class AuthorizationFilterElement : ConfigurationElement
 
   /// <summary>Gets the type implementing the <see cref="IAuthorizationFilter"/> interface, used restrict requests to resources.</summary>
   [ConfigurationProperty("type"), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(IAuthorizationFilter))]
-  public Type Type
-  {
-    get { return (Type)this["type"]; }
-  }
-
-  /// <inheritdoc/>
-  protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
-  {
-    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to filter instances
-    return true;
-  }
-}
-#endregion
-
-#region DefaultLockManagerElement
-/// <summary>Implements a <see cref="ConfigurationElement"/> that specifies the default <see cref="ILockManager"/> to use for the WebDAV
-/// server.
-/// </summary>
-public sealed class DefaultLockManagerElement : ConfigurationElement
-{
-  /// <summary>Initializes a new <see cref="DefaultLockManagerElement"/>.</summary>
-  public DefaultLockManagerElement()
-  {
-    Parameters = new ParameterCollection();
-  }
-
-  /// <summary>Gets a collection of additional parameters for the <see cref="ILockManager"/>.</summary>
-  public ParameterCollection Parameters
-  {
-    get; private set;
-  }
-
-  /// <summary>Gets the type implementing the <see cref="ILockManager"/> interface.</summary>
-  [ConfigurationProperty("type", IsRequired=true), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(ILockManager))]
   public Type Type
   {
     get { return (Type)this["type"]; }
@@ -179,6 +143,39 @@ public sealed class LocationElement : ConfigurationElement
 }
 #endregion
 
+#region LockManagerElement
+/// <summary>Implements a <see cref="ConfigurationElement"/> that specifies the <see cref="ILockManager"/> to use for the WebDAV server.</summary>
+public sealed class LockManagerElement : ConfigurationElement
+{
+  /// <summary>Initializes a new <see cref="LockManagerElement"/>.</summary>
+  public LockManagerElement()
+  {
+    Parameters = new ParameterCollection();
+  }
+
+  /// <summary>Gets a collection of additional parameters for the <see cref="ILockManager"/>.</summary>
+  public ParameterCollection Parameters
+  {
+    get;
+    private set;
+  }
+
+  /// <summary>Gets the type implementing the <see cref="ILockManager"/> interface.</summary>
+  [ConfigurationProperty("type", IsRequired=true), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(ILockManager))]
+  public Type Type
+  {
+    get { return (Type)this["type"]; }
+  }
+
+  /// <inheritdoc/>
+  protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
+  {
+    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to filter instances
+    return true;
+  }
+}
+#endregion
+
 #region ParameterCollection
 /// <summary>Contains additional key/value pairs representing parameters to <see cref="IWebDAVService"/> and
 /// <see cref="IAuthorizationFilter"/> objects that were specified in the application configuration file.
@@ -205,20 +202,18 @@ public sealed class WebDAVServerSection : ConfigurationSection
     get { return (bool)this["enabled"]; }
   }
 
-  /// <summary>Gets the <see cref="DefaultLockManagerElement"/> describing the default <see cref="ILockManager"/> to be used by the WebDAV
-  /// server.
-  /// </summary>
-  [ConfigurationProperty("defaultLockManager")]
-  public DefaultLockManagerElement DefaultLockManager
-  {
-    get { return (DefaultLockManagerElement)this["defaultLockManager"]; }
-  }
-
   /// <summary>Gets a collection of <see cref="LocationElement"/> that represent the configured locations.</summary>
   [ConfigurationProperty("locations"), ConfigurationCollection(typeof(LocationCollection))]
   public LocationCollection Locations
   {
     get { return (LocationCollection)this["locations"]; }
+  }
+
+  /// <summary>Gets the <see cref="LockManagerElement"/> describing the <see cref="ILockManager"/> to be used by the WebDAV server.</summary>
+  [ConfigurationProperty("davLockManager")] // I wanted to call this "lockManager", but apparently names starting with "lock" are reserved
+  public LockManagerElement LockManager
+  {
+    get { return (LockManagerElement)this["davLockManager"]; }
   }
 
   /// <summary>Gets whether to show potentially sensitive error messages when exceptions occur.</summary>

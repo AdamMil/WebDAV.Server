@@ -180,21 +180,21 @@ public class PropPatchRequest : WebDAVRequest
 
     XmlDocument xml = Context.LoadRequestXml();
     if(xml == null) throw Exceptions.BadRequest("The request body was missing."); // an XML body is required by RFC 4918 section 9.2
-    xml.DocumentElement.AssertName(Names.propertyupdate); // and it has to be a <propertyupdate> body
+    xml.DocumentElement.AssertName(DAVNames.propertyupdate); // and it has to be a <propertyupdate> body
 
     // parse all of the property patches
     bool hasBadValue = false; // whether we encountered a property with an unparsable value
     foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements())
     {
-      if(child.HasName(Names.set)) // if the patch should set new or existing properties...
+      if(child.HasName(DAVNames.set)) // if the patch should set new or existing properties...
       {
         PropertyPatch patch = new PropertyPatch(false);
-        XmlElement props = child.GetChild(Names.prop); // the element containing individual property elements
-        string lang = props.GetInheritedAttributeValue(Names.xmlLang); // get the default language for properties in the set
+        XmlElement props = child.GetChild(DAVNames.prop); // the element containing individual property elements
+        string lang = props.GetInheritedAttributeValue(DAVNames.xmlLang); // get the default language for properties in the set
         foreach(XmlElement prop in props.EnumerateChildElements())
         {
           // if a type was specified, parse the value as an instance of that type
-          string typeName = prop.GetAttribute(Names.xsiType);
+          string typeName = prop.GetAttribute(DAVNames.xsiType);
           XmlQualifiedName type = null;
           object parsedValue = null;
           bool hasParsedValue = false;
@@ -203,7 +203,7 @@ public class PropPatchRequest : WebDAVRequest
             type = prop.ParseQualifiedName(typeName);
             // if the property has a text value and a type that we may recognize (i.e. one in the xs: namespace), try to parse it...
             if(prop.ChildNodes.Count == 1 && prop.ChildNodes[0].NodeType == XmlNodeType.Text &&
-               type.Namespace.OrdinalEquals(Names.XmlSchema))
+               type.Namespace.OrdinalEquals(DAVNames.XmlSchema))
             {
               bool knownType;
               hasParsedValue = TryParseValue(prop.ChildNodes[0].Value, type, out parsedValue, out knownType);
@@ -231,10 +231,10 @@ public class PropPatchRequest : WebDAVRequest
         }
         Patches.Add(patch);
       }
-      else if(child.HasName(Names.remove)) // if the patch should remove properties...
+      else if(child.HasName(DAVNames.remove)) // if the patch should remove properties...
       {
         PropertyPatch patch = new PropertyPatch(true);
-        patch.Remove.AddRange(child.GetChild(Names.prop).EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName));
+        patch.Remove.AddRange(child.GetChild(DAVNames.prop).EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName));
         Patches.Add(patch);
       }
     }
@@ -296,13 +296,13 @@ public class PropPatchRequest : WebDAVRequest
     using(MultiStatusResponse response = Context.OpenMultiStatusResponse(namespaces))
     {
       XmlWriter writer = response.Writer;
-      writer.WriteStartElement(Names.response.Name);
-      writer.WriteElementString(Names.href.Name, Context.ServiceRoot + Context.RequestPath);
+      writer.WriteStartElement(DAVNames.response.Name);
+      writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + Context.RequestPath);
 
       foreach(KeyValuePair<ConditionCode, List<XmlQualifiedName>> pair in namesByStatus)
       {
-        writer.WriteStartElement(Names.propstat.Name);
-        writer.WriteStartElement(Names.prop.Name);
+        writer.WriteStartElement(DAVNames.propstat.Name);
+        writer.WriteStartElement(DAVNames.prop.Name);
         foreach(XmlQualifiedName name in pair.Value) writer.WriteEmptyElement(name);
         writer.WriteEndElement(); // </prop>
         response.WriteStatus(pair.Key);
@@ -323,23 +323,23 @@ public class PropPatchRequest : WebDAVRequest
       knownType = false; // if we didn't examine the type, then we can't say that it's known
       return true;
     }
-    else if(expectedType == Names.xsString)
+    else if(expectedType == DAVNames.xsString)
     {
       value = str;
       return true;
     }
-    if(expectedType == Names.xsDateTime || expectedType == Names.xsDate)
+    if(expectedType == DAVNames.xsDateTime || expectedType == DAVNames.xsDate)
     {
       return XmlUtility.TryParseDateTime(str, out value);
     }
-    else if(expectedType == Names.xsInt)
+    else if(expectedType == DAVNames.xsInt)
     {
       int intValue;
       if(!int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsULong)
+    else if(expectedType == DAVNames.xsULong)
     {
       ulong intValue;
       if(!ulong.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
@@ -349,49 +349,49 @@ public class PropPatchRequest : WebDAVRequest
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsLong)
+    else if(expectedType == DAVNames.xsLong)
     {
       long intValue;
       if(!long.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsBoolean)
+    else if(expectedType == DAVNames.xsBoolean)
     {
       bool boolValue;
       if(!XmlUtility.TryParseBoolean(str, out boolValue)) return false;
       value = boolValue;
       return true;
     }
-    else if(expectedType == Names.xsUri)
+    else if(expectedType == DAVNames.xsUri)
     {
       Uri uri;
       if(!Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return false;
       value = uri;
       return true;
     }
-    else if(expectedType == Names.xsDouble)
+    else if(expectedType == DAVNames.xsDouble)
     {
       double doubleValue;
       if(!double.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out doubleValue)) return false;
       value = doubleValue;
       return true;
     }
-    else if(expectedType == Names.xsFloat)
+    else if(expectedType == DAVNames.xsFloat)
     {
       float floatValue;
       if(!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out floatValue)) return false;
       value = floatValue;
       return true;
     }
-    else if(expectedType == Names.xsDecimal)
+    else if(expectedType == DAVNames.xsDecimal)
     {
       decimal decimalValue;
       if(!decimal.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out decimalValue)) return false;
       value = decimalValue;
       return true;
     }
-    else if(expectedType == Names.xsUInt)
+    else if(expectedType == DAVNames.xsUInt)
     {
       uint intValue;
       if(!uint.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
@@ -401,14 +401,14 @@ public class PropPatchRequest : WebDAVRequest
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsShort)
+    else if(expectedType == DAVNames.xsShort)
     {
       short intValue;
       if(!short.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsUShort)
+    else if(expectedType == DAVNames.xsUShort)
     {
       ushort intValue;
       if(!ushort.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
@@ -418,7 +418,7 @@ public class PropPatchRequest : WebDAVRequest
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsUByte)
+    else if(expectedType == DAVNames.xsUByte)
     {
       byte intValue;
       if(!byte.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
@@ -428,27 +428,27 @@ public class PropPatchRequest : WebDAVRequest
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsSByte)
+    else if(expectedType == DAVNames.xsSByte)
     {
       sbyte intValue;
       if(!sbyte.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
       value = intValue;
       return true;
     }
-    else if(expectedType == Names.xsDuration)
+    else if(expectedType == DAVNames.xsDuration)
     {
       XmlDuration duration;
       if(!XmlDuration.TryParse(str, out duration)) return false;
       value = duration;
       return true;
     }
-    else if(expectedType == Names.xsB64Binary)
+    else if(expectedType == DAVNames.xsB64Binary)
     {
       try { value = Convert.FromBase64String(str); }
       catch(FormatException) { return false; }
       return true;
     }
-    else if(expectedType == Names.xsHexBinary)
+    else if(expectedType == DAVNames.xsHexBinary)
     {
       byte[] binary;
       if(!BinaryUtility.TryParseHex(str, out binary)) return false;

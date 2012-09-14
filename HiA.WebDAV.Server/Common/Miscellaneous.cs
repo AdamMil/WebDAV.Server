@@ -220,11 +220,11 @@ public static class DAVUtility
   internal static XmlElement Extract(this XmlElement element)
   {
     if(element == null) throw new ArgumentNullException();
-    string xmlLang = element.GetInheritedAttributeValue(Names.xmlLang);
+    string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
     XmlDocument emptyDoc = new XmlDocument();
     element = (XmlElement)emptyDoc.ImportNode(element, true);
     // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang being inherited)
-    if(!string.IsNullOrEmpty(xmlLang)) element.SetAttribute(Names.xmlLang, xmlLang);
+    if(!string.IsNullOrEmpty(xmlLang)) element.SetAttribute(DAVNames.xmlLang, xmlLang);
     emptyDoc.AppendChild(element);
     return element;
   }
@@ -405,8 +405,8 @@ public static class DAVUtility
   /// </summary>
   internal static void WriteStatusResponse(HttpRequest request, HttpResponse response, int httpStatusCode, string errorText)
   {
-    // TODO: should we apply logic here to filter out potentially sensitive error messages (e.g. for 5xx errors), or should we trust the
-    // callers to check the settings?
+    // we could apply logic here to filter out potentially sensitive error messages (e.g. for 5xx errors), but we won't because we trust
+    // the callers to check the configuration settings
     response.StatusCode        = httpStatusCode;
     response.StatusDescription = DAVUtility.GetStatusCodeMessage(httpStatusCode);
     // write a response body unless the status code disallows it

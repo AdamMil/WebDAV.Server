@@ -14,8 +14,8 @@ using HiA.WebDAV.Server.Configuration;
 // TODO: improve GetEntityMetadata() for dynamic resources
 // TODO: simplify PropFind() 
 // TODO: more cleanup and refactoring...
-// TODO: some type of permissions model that allows us to separate GET access from LOCK access, for instance. or perhaps we should tie
-//       LOCK access to write access...
+// TODO: some type of permissions model that allows us to separate GET access from LOCK access. we should probably tie LOCK access to
+// write access...
 
 namespace HiA.WebDAV.Server
 {
@@ -98,7 +98,8 @@ public class FileSystemService : WebDAVService
     }
     else
     {
-      CreateNewFile(request, s => request.ProcessStandardRequest(request.Context.ServiceRoot + request.Context.RequestPath, null, false));
+      string lockPath = request.Context.ServiceRoot + request.Context.RequestPath;
+      CreateNewFile(request, s => request.ProcessStandardRequest(LockType.WriteLocks, lockPath, null, false));
       if(request.Status == null || request.Status.IsSuccessful)
       {
         request.Status = ConditionCodes.Created; // then return 201 Created
@@ -172,7 +173,6 @@ public class FileSystemService : WebDAVService
       {
         request.AllowedMethods.Add(HttpMethods.Put);
       }
-      request.AllowedMethods.Add(HttpMethods.MkCol); // and the MKCOL verb to create a new directory there
       request.SupportsLocking = request.Context.LockManager != null;
     }
   }
@@ -195,6 +195,13 @@ public class FileSystemService : WebDAVService
   {
     if(context == null) throw new ArgumentNullException();
     return ResolveResource(resourcePath);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Unlock/node()" />
+  public override void Unlock(UnlockRequest request)
+  {
+    if(IsReadOnly || request.Context.LockManager == null) base.Unlock(request); // deny the request if locking is not supported
+    else request.ProcessStandardRequest(); // otherwise, anyone can remove a dangling lock
   }
 
   readonly StringComparison comparison;
@@ -409,8 +416,8 @@ public abstract class FileSystemResource : WebDAVResource
     {
       foreach(XmlQualifiedName property in dirProps)
       {
-        if(property == Names.resourcetype) directoryResource.SetValue(property, ResourceType.Collection);
-        else if(displayName != null && property == Names.displayname) directoryResource.SetValue(property, displayName);
+        if(property == DAVNames.resourcetype) directoryResource.SetValue(property, ResourceType.Collection);
+        else if(displayName != null && property == DAVNames.displayname) directoryResource.SetValue(property, displayName);
         else SetEntryProperties(request.Context, directoryResource, property, directory);
       }
     }
@@ -457,8 +464,8 @@ public abstract class FileSystemResource : WebDAVResource
     {
       foreach(XmlQualifiedName property in fileProps)
       {
-        if(property == Names.resourcetype) fileResource.SetValue(property, null);
-        else if(property == Names.getcontentlength) fileResource.SetValue(property, (ulong)file.Length, null, null);
+        if(property == DAVNames.resourcetype) fileResource.SetValue(property, null);
+        else if(property == DAVNames.getcontentlength) fileResource.SetValue(property, (ulong)file.Length, null, null);
         else SetEntryProperties(request.Context, fileResource, property, file);
       }
     }
@@ -475,23 +482,23 @@ public abstract class FileSystemResource : WebDAVResource
   void SetEntryProperties(WebDAVContext context, PropFindResource resource, XmlQualifiedName property, FileSystemInfo entry)
   {
     bool supportLocks = !IsReadOnly && context.LockManager != null;
-    if(property == Names.displayname)
+    if(property == DAVNames.displayname)
     {
       resource.SetValue(property, entry.Name, null, null);
     }
-    else if(property == Names.creationdate)
+    else if(property == DAVNames.creationdate)
     {
       resource.SetValue(property, new DateTimeOffset(entry.CreationTime));
     }
-    else if(property == Names.getlastmodified)
+    else if(property == DAVNames.getlastmodified)
     {
       resource.SetValue(property, new DateTimeOffset(entry.LastWriteTime));
     }
-    else if(supportLocks && property == Names.lockdiscovery)
+    else if(supportLocks && property == DAVNames.lockdiscovery)
     {
       resource.SetValue(property, context.LockManager.GetLocks(context.ServiceRoot + resource.RelativePath, true, false, null));
     }
-    else if(supportLocks && property == Names.supportedlock)
+    else if(supportLocks && property == DAVNames.supportedlock)
     {
       resource.SetValue(property, LockType.WriteLocks);
     }
@@ -562,7 +569,7 @@ public class DirectoryResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
-    request.ProcessStandardRequest(true);
+    request.ProcessStandardRequest(LockType.WriteLocks, true);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -587,18 +594,18 @@ public class DirectoryResource : FileSystemResource
 
     if((request.Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all properties, add the ones we support
     {
-      properties.Add(Names.displayname); // all filesystem resources support these
-      properties.Add(Names.resourcetype);
-      properties.Add(Names.creationdate);
-      properties.Add(Names.getlastmodified);
+      properties.Add(DAVNames.displayname); // all filesystem resources support these
+      properties.Add(DAVNames.resourcetype);
+      properties.Add(DAVNames.creationdate);
+      properties.Add(DAVNames.getlastmodified);
       if(!IsReadOnly && request.Context.LockManager != null)
       {
-        if(namesOnly) properties.Add(Names.lockdiscovery);
-        properties.Add(Names.supportedlock);
+        if(namesOnly) properties.Add(DAVNames.lockdiscovery);
+        properties.Add(DAVNames.supportedlock);
       }
 
       fileProperties = new HashSet<XmlQualifiedName>(properties);
-      fileProperties.Add(Names.getcontentlength); // files also have the DAV:getcontentlength property
+      fileProperties.Add(DAVNames.getcontentlength); // files also have the DAV:getcontentlength property
     }
 
     try { AddPropFindDirectory(request, properties, fileProperties, CanonicalPath, Info, null, 0); }
@@ -756,7 +763,7 @@ public class FileResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
-    request.ProcessStandardRequest(false);
+    request.ProcessStandardRequest(LockType.WriteLocks, false);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -765,7 +772,7 @@ public class FileResource : FileSystemResource
     if(request == null) throw new ArgumentNullException();
     if(!IsReadOnly) // writable files can be deleted and modified
     {
-      request.AllowedMethods.Add(HttpMethods.Delete); // TODO: support locking
+      request.AllowedMethods.Add(HttpMethods.Delete);
       request.AllowedMethods.Add(HttpMethods.Put);
       request.SupportsLocking = request.Context.LockManager != null;
     }
@@ -780,15 +787,15 @@ public class FileResource : FileSystemResource
     HashSet<XmlQualifiedName> properties = namesOnly ? new HashSet<XmlQualifiedName>() : new HashSet<XmlQualifiedName>(request.Properties);
     if((request.Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all properties...
     {
-      properties.Add(Names.displayname); // add the properties we support to the list
-      properties.Add(Names.resourcetype);
-      properties.Add(Names.creationdate);
-      properties.Add(Names.getlastmodified);
-      properties.Add(Names.getcontentlength);
+      properties.Add(DAVNames.displayname); // add the properties we support to the list
+      properties.Add(DAVNames.resourcetype);
+      properties.Add(DAVNames.creationdate);
+      properties.Add(DAVNames.getlastmodified);
+      properties.Add(DAVNames.getcontentlength);
       if(!IsReadOnly && request.Context.LockManager != null)
       {
-        if(namesOnly) properties.Add(Names.lockdiscovery);
-        properties.Add(Names.supportedlock);
+        if(namesOnly) properties.Add(DAVNames.lockdiscovery);
+        properties.Add(DAVNames.supportedlock);
       }
     }
 
@@ -865,7 +872,7 @@ public class FileSystemRootResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
-    request.ProcessStandardRequest(true);
+    request.ProcessStandardRequest(LockType.WriteLocks, true);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
@@ -883,12 +890,12 @@ public class FileSystemRootResource : FileSystemResource
     HashSet<XmlQualifiedName> properties = namesOnly ? new HashSet<XmlQualifiedName>() : new HashSet<XmlQualifiedName>(request.Properties);
     if((request.Flags & PropFindFlags.IncludeAll) != 0)
     {
-      properties.Add(Names.displayname); // the root resource doesn't actually exist, so it only supports a couple properties
-      properties.Add(Names.resourcetype);
+      properties.Add(DAVNames.displayname); // the root resource doesn't actually exist, so it only supports a couple properties
+      properties.Add(DAVNames.resourcetype);
       if(supportLocks) // if we support locking, add the lock-related properties
       {
-        if(namesOnly) properties.Add(Names.lockdiscovery);
-        properties.Add(Names.supportedlock);
+        if(namesOnly) properties.Add(DAVNames.lockdiscovery);
+        properties.Add(DAVNames.supportedlock);
       }
     }
 
@@ -902,21 +909,21 @@ public class FileSystemRootResource : FileSystemResource
     {
       foreach(XmlQualifiedName property in properties)
       {
-        if(property == Names.displayname)
+        if(property == DAVNames.displayname)
         {
           rootResource.SetValue(property, "Root", null, null);
         }
-        else if(property == Names.resourcetype)
+        else if(property == DAVNames.resourcetype)
         {
           rootResource.SetValue(property, ResourceType.Collection, null, null);
         }
-        else if(supportLocks && property == Names.lockdiscovery)
+        else if(supportLocks && property == DAVNames.lockdiscovery)
         {
-          rootResource.SetValue(Names.lockdiscovery, request.Context.LockManager.GetLocks(request.Context.ServiceRoot, true, false, null));
+          rootResource.SetValue(DAVNames.lockdiscovery, request.Context.LockManager.GetLocks(request.Context.ServiceRoot, true, false, null));
         }
-        else if(supportLocks && property == Names.supportedlock)
+        else if(supportLocks && property == DAVNames.supportedlock)
         {
-          rootResource.SetValue(Names.supportedlock, LockType.WriteLocks);
+          rootResource.SetValue(DAVNames.supportedlock, LockType.WriteLocks);
         }
         else
         {
@@ -933,11 +940,11 @@ public class FileSystemRootResource : FileSystemResource
         HashSet<XmlQualifiedName> fileProperties = properties;
         if((request.Flags & PropFindFlags.IncludeAll) != 0)
         {
-          properties.Add(Names.creationdate); // add the properties that our descendants will have
-          properties.Add(Names.getlastmodified);
+          properties.Add(DAVNames.creationdate); // add the properties that our descendants will have
+          properties.Add(DAVNames.getlastmodified);
 
           fileProperties = new HashSet<XmlQualifiedName>(properties);
-          fileProperties.Add(Names.getcontentlength);
+          fileProperties.Add(DAVNames.getcontentlength);
         }
 
         // add directory resources for each drive that is ready

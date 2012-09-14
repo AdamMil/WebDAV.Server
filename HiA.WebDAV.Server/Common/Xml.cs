@@ -5,122 +5,81 @@ using System.Xml;
 namespace HiA.WebDAV.Server
 {
 
-// TODO: clean this up and make it public so others can use the same response-generation tools we do
-// TODO: add examples
-
-#region MultiStatusResponse
-/// <summary>Implements a wrapper around an <see cref="XmlWriter"/> that assists in the creation of 207 Multi-Status responses.</summary>
-public sealed class MultiStatusResponse : IDisposable
-{
-  internal MultiStatusResponse(XmlWriter writer, HashSet<string> namespaces)
-  {
-    Writer = writer;
-
-    // write the start element using the fully qualified name so the writer knows the namespace, since we haven't defined it yet with
-    // an xmlns attribute. if we don't define the namespace, we'll get an error when we try to create the xmlns attribute
-    writer.WriteStartElement(Names.multistatus);
-    writer.WriteAttributeString("xmlns", Names.DAV); // now add the xmlns element for the DAV: namespace
-
-    if(namespaces != null)
-    {
-      // add xmlns attributes to define each of the other namespaces used within the response
-      uint index = 0;
-      foreach(string ns in namespaces)
-      {
-        // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't
-        // strictly necessary, but makes the output more readable and increases interoperability with poorly written clients that make
-        // assumptions about namespace prefixes
-        string prefix = ns.OrdinalEquals(Names.DAV) ? null :
-                        ns.OrdinalEquals(Names.XmlSchemaInstance) ? "xsi" :
-                        ns.OrdinalEquals(Names.XmlSchema) ? "xs" : MakeNamespaceName(index++);
-        if(prefix != null) writer.WriteAttributeString("xmlns", prefix, null, ns);
-      }
-    }
-  }
-
-  /// <summary>Gets the <see cref="XmlWriter"/> used to write XML into the response stream.</summary>
-  public XmlWriter Writer { get; private set; }
-
-  /// <summary>Writes the <c>&lt;status&gt;</c>, <c>&lt;error&gt;</c>, and/or <c>&lt;responsedescription&gt;</c> elements based on a
-  /// <see cref="ConditionCode"/>.
-  /// </summary>
-  public void WriteStatus(ConditionCode code)
-  {
-    if(code == null) throw new ArgumentNullException();
-    Writer.WriteElementString(Names.status.Name, code.DAVStatusText); // write the DAV:status element
-    code.WriteErrorXml(Writer); // write the DAV:error element, if any
-    if(!string.IsNullOrEmpty(code.Message)) Writer.WriteElementString(Names.responsedescription.Name, code.Message);
-  }
-
-  /// <summary>Finishes writing the multi-status response and disposes the underlying <see cref="XmlWriter"/>.</summary>
-  public void Dispose()
-  {
-    if(!disposed)
-    {
-      Writer.WriteEndElement(); // close the <multistatus> tag
-      Utility.Dispose(Writer);
-      disposed = true;
-    }
-  }
-
-  bool disposed;
-
-  /// <summary>Creates a unique namespace name for a non-negative integer.</summary>
-  static string MakeNamespaceName(uint i)
-  {
-    const string letters = "abcdefghijklmnopqrstuvwxyz"; // first use letters a-z and then switch to names like ns26, ns27, etc.
-    return i < letters.Length ? new string(letters[(int)i], 1) : "ns" + i.ToInvariantString();
-  }
-}
-#endregion
-
-#region Names
+#region DAVNames
 /// <summary>Contains the names of XML elements, attributes, etc. commonly used in generating WebDAV responses.</summary>
-public static class Names
+public static class DAVNames
 {
   /* Namespaces */
   /// <summary>The <c>DAV:</c> namespace, in which all standard WebDAV names are defined.</summary>
   public static readonly string DAV = "DAV:";
   /// <summary>The <c>http://www.w3.org/XML/1998/namespace</c>, which is bound by definition to the <c>xml:</c> prefix.</summary>
-  internal static readonly string Xml = "http://www.w3.org/XML/1998/namespace";
+  public static readonly string Xml = "http://www.w3.org/XML/1998/namespace";
   /// <summary>The <c>http://www.w3.org/2001/XMLSchema</c> namespace, conventionally bound to the <c>xs:</c> prefix.</summary>
   public static readonly string XmlSchema = "http://www.w3.org/2001/XMLSchema";
   /// <summary>The <c>http://www.w3.org/2001/XMLSchema-instance</c> namespace, conventionally bound to the <c>xsi:</c> prefix.</summary>
-  internal static readonly string XmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
+  public static readonly string XmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
 
   /* WebDAV Element Names */
-  internal static readonly XmlQualifiedName activelock = new XmlQualifiedName("activelock", DAV);
+  /// <summary>The <c>DAV:activelock</c> element, used to describe a lock on a resource.</summary>
+  public static readonly XmlQualifiedName activelock = new XmlQualifiedName("activelock", DAV);
   /// <summary>The <c>DAV:allprop</c> element, used within <c>PROPFIND</c> requests to indicate that all elements are desired.</summary>
-  internal static readonly XmlQualifiedName allprop = new XmlQualifiedName("allprop", DAV);
+  public static readonly XmlQualifiedName allprop = new XmlQualifiedName("allprop", DAV);
   /// <summary>The <c>DAV:collection</c> element, used within <see cref="resourcetype"/> to identify a collection resource.</summary>
-  internal static readonly XmlQualifiedName collection = new XmlQualifiedName("collection", DAV);
-  internal static readonly XmlQualifiedName depth = new XmlQualifiedName("depth", DAV);
+  public static readonly XmlQualifiedName collection = new XmlQualifiedName("collection", DAV);
+  /// <summary>The <c>DAV:depth</c> element, used to represent a depth value (e.g. the value of the <c>Depth</c> header) in XML.</summary>
+  public static readonly XmlQualifiedName depth = new XmlQualifiedName("depth", DAV);
   /// <summary>The <c>DAV:error</c> element, used to return additional information about errors.</summary>
   public static readonly XmlQualifiedName error = new XmlQualifiedName("error", DAV);
-  internal static readonly XmlQualifiedName href = new XmlQualifiedName("href", DAV);
-  internal static readonly XmlQualifiedName exclusive = new XmlQualifiedName("exclusive", DAV);
-  internal static readonly XmlQualifiedName include = new XmlQualifiedName("include", DAV);
-  internal static readonly XmlQualifiedName lockentry = new XmlQualifiedName("lockentry", DAV);
-  internal static readonly XmlQualifiedName lockinfo = new XmlQualifiedName("lockinfo", DAV);
-  internal static readonly XmlQualifiedName lockroot = new XmlQualifiedName("lockroot", DAV);
-  internal static readonly XmlQualifiedName lockscope = new XmlQualifiedName("lockscope", DAV);
-  internal static readonly XmlQualifiedName locktoken = new XmlQualifiedName("locktoken", DAV);
-  internal static readonly XmlQualifiedName locktype = new XmlQualifiedName("locktype", DAV);
-  internal static readonly XmlQualifiedName multistatus = new XmlQualifiedName("multistatus", DAV);
-  internal static readonly XmlQualifiedName owner = new XmlQualifiedName("owner", DAV);
-  internal static readonly XmlQualifiedName prop = new XmlQualifiedName("prop", DAV);
-  internal static readonly XmlQualifiedName propertyupdate = new XmlQualifiedName("propertyupdate", DAV);
-  internal static readonly XmlQualifiedName propfind = new XmlQualifiedName("propfind", DAV);
-  internal static readonly XmlQualifiedName propname = new XmlQualifiedName("propname", DAV);
-  internal static readonly XmlQualifiedName propstat = new XmlQualifiedName("propstat", DAV);
-  internal static readonly XmlQualifiedName remove = new XmlQualifiedName("remove", DAV);
-  internal static readonly XmlQualifiedName response = new XmlQualifiedName("response", DAV);
-  internal static readonly XmlQualifiedName responsedescription = new XmlQualifiedName("responsedescription", DAV);
-  internal static readonly XmlQualifiedName set = new XmlQualifiedName("set", DAV);
-  internal static readonly XmlQualifiedName shared = new XmlQualifiedName("shared", DAV);
-  internal static readonly XmlQualifiedName status = new XmlQualifiedName("status", DAV);
-  internal static readonly XmlQualifiedName timeout = new XmlQualifiedName("timeout", DAV);
-  internal static readonly XmlQualifiedName write = new XmlQualifiedName("write", DAV);
+  /// <summary>The <c>DAV:href</c> element, used to represent URIs in various situations.</summary>
+  public static readonly XmlQualifiedName href = new XmlQualifiedName("href", DAV);
+  /// <summary>The <c>DAV:exclusive</c> element, used to describe exclusive locks.</summary>
+  public static readonly XmlQualifiedName exclusive = new XmlQualifiedName("exclusive", DAV);
+  /// <summary>The <c>DAV:include</c> element, used to describe properties that should be included in a <c>PROPFIND</c> request.</summary>
+  public static readonly XmlQualifiedName include = new XmlQualifiedName("include", DAV);
+  /// <summary>The <c>DAV:lockentry</c> element, used to describe a lock type.</summary>
+  public static readonly XmlQualifiedName lockentry = new XmlQualifiedName("lockentry", DAV);
+  /// <summary>The <c>DAV:lockinfo</c> element, used to in a <c>LOCK</c> request to describe the desired lock.</summary>
+  public static readonly XmlQualifiedName lockinfo = new XmlQualifiedName("lockinfo", DAV);
+  /// <summary>The <c>DAV:lockroot</c> element, used to contain the root URL of a lock.</summary>
+  public static readonly XmlQualifiedName lockroot = new XmlQualifiedName("lockroot", DAV);
+  /// <summary>The <c>DAV:lockscope</c> element, used to describe whether a lock is shared or exclusive.</summary>
+  public static readonly XmlQualifiedName lockscope = new XmlQualifiedName("lockscope", DAV);
+  /// <summary>The <c>DAV:locktoken</c> element, used to contain a lock token.</summary>
+  public static readonly XmlQualifiedName locktoken = new XmlQualifiedName("locktoken", DAV);
+  /// <summary>The <c>DAV:locktype</c> element, used to describe the access type of a lock, such as <c>DAV:write</c>.</summary>
+  public static readonly XmlQualifiedName locktype = new XmlQualifiedName("locktype", DAV);
+  /// <summary>The <c>DAV:multistatus</c> element, used to return the status of multiple resources or operations to the client.</summary>
+  public static readonly XmlQualifiedName multistatus = new XmlQualifiedName("multistatus", DAV);
+  /// <summary>The <c>DAV:owner</c> element, used to hold information about the owner of a lock.</summary>
+  public static readonly XmlQualifiedName owner = new XmlQualifiedName("owner", DAV);
+  /// <summary>The <c>DAV:prop</c> element, used to contain a property value.</summary>
+  public static readonly XmlQualifiedName prop = new XmlQualifiedName("prop", DAV);
+  /// <summary>The <c>DAV:propertyupdate</c> element, used to describe a set of property changes in a <c>PROPPATCH</c> request.</summary>
+  public static readonly XmlQualifiedName propertyupdate = new XmlQualifiedName("propertyupdate", DAV);
+  /// <summary>The <c>DAV:propfind</c> element, used to describe the desired property data in a <c>PROPFIND</c> request.</summary>
+  public static readonly XmlQualifiedName propfind = new XmlQualifiedName("propfind", DAV);
+  /// <summary>The <c>DAV:propname</c> element, used to indicate that only property names are desired in a <c>PROPFIND</c> request.</summary>
+  public static readonly XmlQualifiedName propname = new XmlQualifiedName("propname", DAV);
+  /// <summary>The <c>DAV:propstat</c> element, used to describe the status of a property value in a <c>PROPFIND</c> or <c>PROPPATCh</c>
+  /// request.
+  /// </summary>
+  public static readonly XmlQualifiedName propstat = new XmlQualifiedName("propstat", DAV);
+  /// <summary>The <c>DAV:remove</c> element, used to describe the properties to remove from a resource.</summary>
+  public static readonly XmlQualifiedName remove = new XmlQualifiedName("remove", DAV);
+  /// <summary>The <c>DAV:response</c> element, used to describe one of the responses in a multi-status response.</summary>
+  public static readonly XmlQualifiedName response = new XmlQualifiedName("response", DAV);
+  /// <summary>The <c>DAV:responsedescription</c> element, used to provide user-readable data in a <c>DAV:response</c>.</summary>
+  public static readonly XmlQualifiedName responsedescription = new XmlQualifiedName("responsedescription", DAV);
+  /// <summary>The <c>DAV:set</c> element, used to describe properties that should be set in a <c>PROPPATCH</c> request.</summary>
+  public static readonly XmlQualifiedName set = new XmlQualifiedName("set", DAV);
+  /// <summary>The <c>DAV:shared</c> element, used to describe shared locks.</summary>
+  public static readonly XmlQualifiedName shared = new XmlQualifiedName("shared", DAV);
+  /// <summary>The <c>DAV:status</c> element, used to provide machine-readable data in a <c>DAV:response</c>.</summary>
+  public static readonly XmlQualifiedName status = new XmlQualifiedName("status", DAV);
+  /// <summary>The <c>DAV:timeout</c> element, used to describe the number of seconds until a lock expires.</summary>
+  public static readonly XmlQualifiedName timeout = new XmlQualifiedName("timeout", DAV);
+  /// <summary>The <c>DAV:write</c> element, representing a write lock.</summary>
+  public static readonly XmlQualifiedName write = new XmlQualifiedName("write", DAV);
 
   /* WebDAV Property Names */
   /// <summary>The <c>DAV:creationdate</c> property, which is a <see cref="DateTime"/> or <see cref="DateTimeOffset"/> property that
@@ -185,8 +144,10 @@ public static class Names
   public static readonly XmlQualifiedName supportedlock = new XmlQualifiedName("supportedlock", DAV);
 
   /* Other Attribute Names */
-  internal static readonly XmlQualifiedName xmlLang = new XmlQualifiedName("lang", Xml);
-  internal static readonly XmlQualifiedName xsiType = new XmlQualifiedName("type", XmlSchemaInstance);
+  /// <summary>The <c>xml:lang</c> attribute, used to describe the language of XML content.</summary>
+  public static readonly XmlQualifiedName xmlLang = new XmlQualifiedName("lang", Xml);
+  /// <summary>The <c>xsi:type</c> attribute, used to describe the type of an element's content.</summary>
+  public static readonly XmlQualifiedName xsiType = new XmlQualifiedName("type", XmlSchemaInstance);
 
   /* Other Names */
   /// <summary>The <c>xs:boolean</c> type, which represents boolean data, where <c>xs</c> refers to the
@@ -265,6 +226,73 @@ public static class Names
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsUByte = new XmlQualifiedName("unsignedByte", XmlSchema);
+}
+#endregion
+
+// TODO: add examples
+#region MultiStatusResponse
+/// <summary>Implements a wrapper around an <see cref="XmlWriter"/> that assists in the creation of 207 Multi-Status responses.</summary>
+public sealed class MultiStatusResponse : IDisposable
+{
+  internal MultiStatusResponse(XmlWriter writer, HashSet<string> namespaces)
+  {
+    Writer = writer;
+
+    // write the start element using the fully qualified name so the writer knows the namespace, since we haven't defined it yet with
+    // an xmlns attribute. if we don't define the namespace, we'll get an error when we try to create the xmlns attribute
+    writer.WriteStartElement(DAVNames.multistatus);
+    writer.WriteAttributeString("xmlns", DAVNames.DAV); // now add the xmlns element for the DAV: namespace
+
+    if(namespaces != null)
+    {
+      // add xmlns attributes to define each of the other namespaces used within the response
+      uint index = 0;
+      foreach(string ns in namespaces)
+      {
+        // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't
+        // strictly necessary, but makes the output more readable and increases interoperability with poorly written clients that make
+        // assumptions about namespace prefixes
+        string prefix = ns.OrdinalEquals(DAVNames.DAV) ? null :
+                        ns.OrdinalEquals(DAVNames.XmlSchemaInstance) ? "xsi" :
+                        ns.OrdinalEquals(DAVNames.XmlSchema) ? "xs" : MakeNamespaceName(index++);
+        if(prefix != null) writer.WriteAttributeString("xmlns", prefix, null, ns);
+      }
+    }
+  }
+
+  /// <summary>Gets the <see cref="XmlWriter"/> used to write XML into the response stream.</summary>
+  public XmlWriter Writer { get; private set; }
+
+  /// <summary>Writes the <c>&lt;status&gt;</c>, <c>&lt;error&gt;</c>, and/or <c>&lt;responsedescription&gt;</c> elements based on a
+  /// <see cref="ConditionCode"/>.
+  /// </summary>
+  public void WriteStatus(ConditionCode code)
+  {
+    if(code == null) throw new ArgumentNullException();
+    Writer.WriteElementString(DAVNames.status.Name, code.DAVStatusText); // write the DAV:status element
+    code.WriteErrorXml(Writer); // write the DAV:error element, if any
+    if(!string.IsNullOrEmpty(code.Message)) Writer.WriteElementString(DAVNames.responsedescription.Name, code.Message);
+  }
+
+  /// <summary>Finishes writing the multi-status response and disposes the underlying <see cref="XmlWriter"/>.</summary>
+  public void Dispose()
+  {
+    if(!disposed)
+    {
+      Writer.WriteEndElement(); // close the <multistatus> tag
+      Utility.Dispose(Writer);
+      disposed = true;
+    }
+  }
+
+  bool disposed;
+
+  /// <summary>Creates a unique namespace name for a non-negative integer.</summary>
+  static string MakeNamespaceName(uint i)
+  {
+    const string letters = "abcdefghijklmnopqrstuvwxyz"; // first use letters a-z and then switch to names like ns26, ns27, etc.
+    return i < letters.Length ? new string(letters[(int)i], 1) : "ns" + i.ToInvariantString();
+  }
 }
 #endregion
 

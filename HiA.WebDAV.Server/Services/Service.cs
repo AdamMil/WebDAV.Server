@@ -14,10 +14,7 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
   bool IsReusable { get; }
 
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/LockManager/node()" />
-  ILockManager LockManager { get; }
-
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Lock/node()" />
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   void CreateAndLock(LockRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateCopyOrMove/node()" />
@@ -70,6 +67,9 @@ public interface IWebDAVService
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
   IWebDAVResource ResolveResource(WebDAVContext context, string resourcePath);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Unlock/node()" />
+  void Unlock(UnlockRequest request);
 }
 #endregion
 
@@ -83,13 +83,6 @@ public abstract class WebDAVService : IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
   public abstract bool IsReusable { get; }
 
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/LockManager/node()" />
-  /// <remarks>The default implementation returns null, indicating that the server-wide lock manager should be used.</remarks>
-  public virtual ILockManager LockManager
-  {
-    get { return null; }
-  }
-
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   /// <remarks>The default implementation responds with 403 Forbidden, indicating that the service does not support the locking of new
   /// resources.
@@ -97,7 +90,7 @@ public abstract class WebDAVService : IWebDAVService
   public virtual void CreateAndLock(LockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This service does not support the locking of new resources.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the locking of new resources.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateCopyOrMove/node()" />
@@ -191,7 +184,7 @@ public abstract class WebDAVService : IWebDAVService
   public virtual void MakeCollection(MkColRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This service does not support the creation of new collections.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the creation of new collections.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/Options/node()" />
@@ -213,11 +206,21 @@ public abstract class WebDAVService : IWebDAVService
   {
     if(request == null) throw new ArgumentNullException();
     request.Status =
-      new ConditionCode((int)HttpStatusCode.Forbidden, "This service does not support the creation or alteration of resource entities.");
+      new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the creation or alteration of resource entities.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ResolveResource/node()" />
   public abstract IWebDAVResource ResolveResource(WebDAVContext context, string resourcePath);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/Unlock/node()" />
+  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the service does not support the unlocking of
+  /// unmapped URLs.
+  /// </remarks>
+  public virtual void Unlock(UnlockRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the unlocking of unmapped URLs.");
+  }
 }
 #endregion
 

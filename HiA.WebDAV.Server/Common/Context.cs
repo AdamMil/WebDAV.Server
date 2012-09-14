@@ -16,16 +16,16 @@ namespace HiA.WebDAV.Server
 public sealed class WebDAVContext
 {
   internal WebDAVContext(IWebDAVService service, string serviceRootPath, string requestPath, HttpApplication app,
-                         ILockManager defaultLockManager, Configuration config)
+                         ILockManager lockManager, Configuration config)
   {
-    Service            = service;
-    ServiceRoot        = serviceRootPath;
-    RequestPath        = requestPath;
-    Application        = app;
-    Request            = app.Request;
-    Response           = app.Response;
-    DefaultLockManager = defaultLockManager;
-    Settings           = config;
+    Service     = service;
+    ServiceRoot = serviceRootPath;
+    RequestPath = requestPath;
+    Application = app;
+    Request     = app.Request;
+    Response    = app.Response;
+    LockManager = lockManager;
+    Settings    = config;
   }
 
   #region Configuration
@@ -42,18 +42,8 @@ public sealed class WebDAVContext
   }
   #endregion
 
-  /// <summary>Gets the default <see cref="ILockManager"/>, used when an <see cref="IWebDAVService"/> doesn't specify its own lock manager.
-  /// If null, no default lock manager was configured.
-  /// </summary>
-  public ILockManager DefaultLockManager { get; private set; }
-
-  /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request. This is effectively the same as trying
-  /// <see cref="IWebDAVService.LockManager"/> on <see cref="Service"/> and then trying <see cref="DefaultLockManager"/>.
-  /// </summary>
-  public ILockManager LockManager
-  {
-    get { return Service.LockManager ?? DefaultLockManager; }
-  }
+  /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request, or null if no lock manager is configured.</summary>
+  public ILockManager LockManager { get; private set; }
 
   /// <summary>Gets the <see cref="HttpRequest"/> associated with the WebDAV request.</summary>
   public HttpRequest Request { get; private set; }
@@ -69,9 +59,10 @@ public sealed class WebDAVContext
   public IWebDAVResource RequestResource { get; internal set; }
 
   /// <summary>Gets the <see cref="HttpResponse"/> associated with the WebDAV request. In general, you should not write directly to the
-  /// response, but instead use the helper methods provided by the WebDAV framework.
+  /// response, but instead use the helper methods provided by the WebDAV framework, such as <see cref="OpenXmlResponse"/> and
+  /// <see cref="OpenMultiStatusResponse"/>.
   /// </summary>
-  public HttpResponse Response { get; private set; } // TODO: give example of some of those helper methods (after we create them!)
+  public HttpResponse Response { get; private set; }
 
   /// <summary>Gets the <see cref="IWebDAVService"/> responsible for serving this request.</summary>
   public IWebDAVService Service { get; private set; }
@@ -135,7 +126,7 @@ public sealed class WebDAVContext
     // begin outputting a multistatus (HTTP 207) response as defined in RFC 4918
     Response.StatusCode        = 207;
     Response.StatusDescription = DAVUtility.GetStatusCodeMessage(207); // 207 is an extension, so set the description manually
-    return new MultiStatusResponse(OpenResponseXml(null), namespaces);
+    return new MultiStatusResponse(OpenXmlResponse(null), namespaces);
   }
 
   /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
@@ -282,7 +273,7 @@ public sealed class WebDAVContext
   /// <remarks>The <see cref="XmlWriter"/> object returned must be disposed to complete the response. The best practice is to use
   /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response does not terminate the web request.
   /// </remarks>
-  public XmlWriter OpenResponseXml(ConditionCode status)
+  public XmlWriter OpenXmlResponse(ConditionCode status)
   {
     if(status != null)
     {
@@ -325,8 +316,8 @@ public sealed class WebDAVContext
     {
       foreach(ResourceStatus member in failedMembers)
       {
-        response.Writer.WriteStartElement(Names.response.Name);
-        response.Writer.WriteElementString(Names.href.Name, member.AbsolutePath);
+        response.Writer.WriteStartElement(DAVNames.response.Name);
+        response.Writer.WriteElementString(DAVNames.href.Name, member.AbsolutePath);
         response.WriteStatus(member.Status);
         response.Writer.WriteEndElement();
       }

@@ -26,16 +26,32 @@
            messages could contain sensitive information.
     -->
     <server enabled="true" showSensitiveErrors="false">
-      <!-- The 'defaultLockManager' element configures the default lock manager used when a service does not specify its own lock manager.
-           (Most services use the default lock manager, so this applies to most services.) It should have a 'type' attribute set to the
-           full type name of a class that implements the HiA.WebDAV.Server.ILockManager interface. The class must either have a public
+      <!-- The 'davLockManager' element configures the lock manager used for the WebDAV server. It should have a 'type' attribute set to
+           the full type name of a class that implements the HiA.WebDAV.Server.ILockManager interface. The class must either have a public
            default constructor or a constructor that accepts a HiA.WebDAV.Server.Configuration.ParameterCollection (allowing additional
            configuration attributes to be processed by the lock manager). If the element is omitted, no default lock manager will be
            available, disabling locking for most services. These are the built-in lock managers:
+           * HiA.WebDAV.Server.FileLockManager - A lock manager which stores the locks in a file on disk. It has these parameters:
+             o lockFile      - The path to the file in which the locks will be saved.
+             o revertToSelf  - Boolean. Determines whether the lock manager will revert to the process identity before opening the file on
+                               disk. This allows the file to be opened with the IIS process account, which is usually more privileged.
+                               The default is true.
+             o writeInterval - Positive integer. The number of seconds to wait before flushing pending changes to disk. The default is 60
+                               and the maximum is 2147483.
            * HiA.WebDAV.Server.MemoryLockManager - A lock manager which holds locks in memory while the service is running but does not
                                                    persist them to any permanent storage device.
+           In addition to the manager-specific parameters mentioned above, all built-in lock managers support the following parameters:
+           * defaultTimeout     - Nonnegative integer. The default lock timeout, in seconds, used when the client does not request a
+                                  specific timeout. A value of zero means that locks do not time out by default. The default is zero.
+           * maximumLocks       - Nonnegative integer. The maximum number of locks that can be active at any one time. A value of zero
+                                  indicates that there is no limit. The default is zero.
+           * maximumLocksPerUrl - Nonnegative integer. The maximum number of locks that can be active on a single URL. A value of zero
+                                  indicates that there is no limit. The default is zero.
+           * maximumTimeout     - Nonnegative integer. The maximum lock timeout, in seconds. A value of zero indicates that there is no
+                                  maximum. The default is zero.
       -->
-      <defaultLockManager type="HiA.WebDAV.Server.MemoryLockManager, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+      <davLockManager type="HiA.WebDAV.Server.FileLockManager, HiA.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5"
+                      lockFile="D:\data\webdav\locks" maximumLocksPerUrl="10" maximumTimeout="1209600" writeInterval="300" />
       <!-- The 'locations' collection defines the roots of WebDAV services within the URL space. -->
       <locations>
         <!-- A location is used to match request URIs against different WebDAV services. Multiple locations can match the same URI;
@@ -81,8 +97,8 @@
              * HiA.WebDAV.Server.FileSystemService - Serves files from the filesystem. Supports the following configuration attributes:
                o fsRoot   - Specifies the root within the filesystem from which files will be served. Effectively, this maps the service
                             root to the given filesystem root. If empty or omitted, all files on all drives will be served.
-               o writable - Determines whether the DAV service allows the creation, deletion, and modification of files and directories.
-                            The default is false.
+               o writable - Boolean. Determines whether the DAV service allows the creation, deletion, and modification of files and
+                            directories. The default is false.
         -->
         <add match="https://www.example.com/webdav/help/" enabled="false" /> <!-- provide a non-WebDAV subtree within the WebDAV space -->
         <add match="https://www.example.com/webdav/" enabled="true"

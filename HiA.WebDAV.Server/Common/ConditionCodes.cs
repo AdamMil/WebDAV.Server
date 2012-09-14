@@ -131,8 +131,8 @@ public class ConditionCode
   {
     if(ErrorElement != null)
     {
-      writer.WriteStartElement(Names.error);
-      if(writer.LookupPrefix(Names.DAV) == null) writer.WriteAttributeString("xmlns", Names.DAV); // define our namespace if necessary
+      writer.WriteStartElement(DAVNames.error);
+      if(writer.LookupPrefix(DAVNames.DAV) == null) writer.WriteAttributeString("xmlns", DAVNames.DAV); // define our namespace if necessary
       WriteErrorElement(writer);
       writer.WriteEndElement();
     }
@@ -186,7 +186,7 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   protected override void WriteErrorElement(XmlWriter writer)
   {
     writer.WriteStartElement(ErrorElement);
-    foreach(string path in resourcePaths) writer.WriteElementString(Names.href, path);
+    foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, path);
     writer.WriteEndElement();
   }
 
@@ -205,7 +205,7 @@ public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
   /// least one path in the array.
   /// </param>
   public LockTokenSubmittedConditionCode(params string[] absoluteResourcePaths)
-    : base(423, new XmlQualifiedName("lock-token-submitted", Names.DAV),
+    : base(423, new XmlQualifiedName("lock-token-submitted", DAVNames.DAV),
            "A lock token was not submitted for one or more locked resources.", absoluteResourcePaths)
   {
     if(absoluteResourcePaths.Length == 0) throw new ArgumentException("The list of locked resource paths was empty.");
@@ -226,7 +226,7 @@ public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
   /// <param name="httpStatusCode">The HTTP status code related to the error condition.</param>
   /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
   public NoConflictingLockConditionCode(int httpStatusCode, params string[] absoluteResourcePaths)
-    : base(httpStatusCode, new XmlQualifiedName("no-conflicting-lock", Names.DAV), "The requested lock conflicts with an existing lock.",
+    : base(httpStatusCode, new XmlQualifiedName("no-conflicting-lock", DAVNames.DAV), "The requested lock conflicts with an existing lock.",
            absoluteResourcePaths) { }
 }
 #endregion
@@ -244,7 +244,7 @@ public static class ConditionCodes
   /// property.
   /// </summary>
   public static readonly ConditionCode CannotModifyProtectedProperty =
-    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("cannot-modify-protected-property", Names.DAV),
+    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("cannot-modify-protected-property", DAVNames.DAV),
                       "An attempt was made to set a protected property.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 409 Conflict status code.</summary>
@@ -271,14 +271,14 @@ public static class ConditionCodes
   /// does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
   /// </summary>
   public static readonly ConditionCode LockTokenMatchesRequestUri409 =
-    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", Names.DAV),
+    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", DAVNames.DAV),
       "The request URI does not fall within the scope of the lock token.");
 
   /// <summary>The DAV:lock-token-matches-request-uri precondition, based on the HTTP 412 Precondition Failed status code, used when the
   /// request URL does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
   /// </summary>
   public static readonly ConditionCode LockTokenMatchesRequestUri412 =
-    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", Names.DAV),
+    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", DAVNames.DAV),
       "The request URI does not fall within the scope of the lock token.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 405 Method Not Allowed status code.</summary>
@@ -297,7 +297,7 @@ public static class ConditionCodes
   /// allow that.
   /// </summary>
   public static readonly ConditionCode NoExternalEntities =
-    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("no-external-entities", Names.DAV),
+    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("no-external-entities", DAVNames.DAV),
                       "This server does not allow external XML entities.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 406 Not Acceptable status code.</summary>
@@ -322,13 +322,13 @@ public static class ConditionCodes
   /// properties with the same behavior and semantics at the destination.
   /// </summary>
   public static readonly ConditionCode PreservedLiveProperties =
-    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("preserved-live-properties", Names.DAV),
+    new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("preserved-live-properties", DAVNames.DAV),
                       "The server received a valid COPY or MOVE request, but was unable to preserve all of the live properties at the " +
                       "destination.");
 
   /// <summary>The DAV:propfind-finite-depth precondition, used when an infinite-depth PROPFIND request is not supported by a collection.</summary>
   public static readonly ConditionCode PropFindFiniteDepth =
-    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("propfind-finite-depth", Names.DAV),
+    new ConditionCode(HttpStatusCode.Forbidden, new XmlQualifiedName("propfind-finite-depth", DAVNames.DAV),
                       "This server does not allow infinite-depth PROPFIND requests on this collection.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 416 Requested Range Not Satisfiable status code.</summary>
