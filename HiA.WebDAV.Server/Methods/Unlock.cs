@@ -2,7 +2,6 @@
 using System.Net;
 
 // TODO: add processing examples and documentation
-// TODO: some kind of permission model to control who can unlock which resources
 
 namespace HiA.WebDAV.Server
 {
@@ -35,6 +34,9 @@ public class UnlockRequest : SimpleRequest
   public string LockToken { get; private set; }
 
   /// <summary>Processes a standard <c>UNLOCK</c> request.</summary>
+  /// <remarks>This method attempts to unlock the canonical resource URL if <see cref="WebDAVContext.RequestResource"/> is not null, and
+  /// to unlock the <see cref="WebDAVContext.RequestPath"/> otherwise.
+  /// </remarks>
   public void ProcessStandardRequest()
   {
     ConditionCode precondition = CheckPreconditions(null);
@@ -47,7 +49,9 @@ public class UnlockRequest : SimpleRequest
     ActiveLock lockObject = null;
     if(Context.LockManager != null)
     {
-      lockObject = Context.LockManager.GetLock(LockToken, Context.ServiceRoot + Context.RequestResource.CanonicalPath);
+      string lockPath = Context.ServiceRoot + (Context.RequestResource == null ? Context.RequestPath
+                                                                               : Context.RequestResource.CanonicalPath);
+      lockObject = Context.LockManager.GetLock(LockToken, lockPath);
     }
 
     if(lockObject == null) Status = ConditionCodes.LockTokenMatchesRequestUri409;

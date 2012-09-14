@@ -7,7 +7,6 @@ using System.Xml;
 // TODO: add dead properties, etc.
 // TODO: add or find xml types for guid and other common values that aren't in xs:
 // TODO: other stuff from DAV RFC section 4.3
-// TODO: add a .Status property or something so that processors don't have to throw exceptions if they don't want to handle a request
 
 namespace HiA.WebDAV.Server
 {
@@ -63,7 +62,7 @@ public class ResourceType : IElementValue
   }
 
   /// <summary>Represents the <c>DAV:collection</c> resource type.</summary>
-  public static readonly ResourceType Collection = new ResourceType(Names.collection);
+  public static readonly ResourceType Collection = new ResourceType(DAVNames.collection);
 
   /// <summary>Gets the qualified name of the root element of the resource type XML.</summary>
   protected XmlQualifiedName Name { get; private set; }
@@ -193,17 +192,17 @@ public class PropFindRequest : WebDAVRequest
     else // the client included a body, which should be a DAV::propfind element
     {
       // parse the DAV::propfind element
-      xml.DocumentElement.AssertName(Names.propfind);
+      xml.DocumentElement.AssertName(DAVNames.propfind);
       bool allProp = false, include = false, prop = false, propName = false;
       foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements()) // examine the children of the root
       {
         // the DAV::allprop and DAV::propname elements are simple flags
-        if(!child.SetFlagOnce(Names.allprop, ref allProp) && !child.SetFlagOnce(Names.propname, ref propName))
+        if(!child.SetFlagOnce(DAVNames.allprop, ref allProp) && !child.SetFlagOnce(DAVNames.propname, ref propName))
         {
           // the DAV::prop and DAV::include elements both contain lists of property names
-          if(child.SetFlagOnce(Names.prop, ref prop) || child.SetFlagOnce(Names.include, ref include))
+          if(child.SetFlagOnce(DAVNames.prop, ref prop) || child.SetFlagOnce(DAVNames.include, ref include))
           {
-            if(!allProp && child.HasName(Names.include)) // include should come after allprop
+            if(!allProp && child.HasName(DAVNames.include)) // include should come after allprop
             {
               throw Exceptions.BadRequest("The include element must follow the allprop element.");
             }
@@ -234,7 +233,7 @@ public class PropFindRequest : WebDAVRequest
 
     // validate the request processing and collect the set of XML namespaces used in the response (DAV: is added automatically)
     HashSet<string> namespaces = new HashSet<string>();
-    namespaces.Add(Names.XmlSchemaInstance); // we use xsi:, in xsi:type
+    namespaces.Add(DAVNames.XmlSchemaInstance); // we use xsi:, in xsi:type
     foreach(PropFindResource resource in Resources) resource.Validate(this, namespaces);
 
     using(MultiStatusResponse response = Context.OpenMultiStatusResponse(namespaces))
@@ -245,8 +244,8 @@ public class PropFindRequest : WebDAVRequest
       var valuesByStatus = new MultiValuedDictionary<ConditionCode, KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>();
       foreach(PropFindResource resource in Resources)
       {
-        writer.WriteStartElement(Names.response.Name);
-        writer.WriteElementString(Names.href.Name, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
+        writer.WriteStartElement(DAVNames.response.Name);
+        writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
 
         // group the properties by condition code. (unspecified condition codes are assumed to be 200 OK)
         valuesByStatus.Clear();
@@ -258,10 +257,10 @@ public class PropFindRequest : WebDAVRequest
         // then, output a <propstat> element for each status, containing the properties having that status
         foreach(KeyValuePair<ConditionCode, List<KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>> spair in valuesByStatus)
         {
-          writer.WriteStartElement(Names.propstat.Name);
+          writer.WriteStartElement(DAVNames.propstat.Name);
 
           // output the properties
-          writer.WriteStartElement(Names.prop.Name);
+          writer.WriteStartElement(DAVNames.prop.Name);
           foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
           {
             writer.WriteStartElement(ppair.Key); // write the property name
@@ -271,11 +270,11 @@ public class PropFindRequest : WebDAVRequest
               XmlQualifiedName type = ppair.Value.Type;
               if(type != null)
               {
-                writer.WriteAttributeString(Names.xsiType, StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
+                writer.WriteAttributeString(DAVNames.xsiType, StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
               }
 
               // if the property has a language, write it in an xml:lang attribute
-              if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(Names.xmlLang, ppair.Value.Language);
+              if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
 
               object value = ppair.Value.Value;
               if(value != null) // if the property has a value...
@@ -294,10 +293,10 @@ public class PropFindRequest : WebDAVRequest
                 else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
                 {
                   byte[] binaryValue = (byte[])value;
-                  if(type == Names.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
+                  if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
                   else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
                 }
-                else if(type == Names.xsDate) // if the type is specified as xs:date, write only the date portions of any datetime values
+                else if(type == DAVNames.xsDate) // if the type is specified as xs:date, write only the date portions of any datetime values
                 {
                   if(value is DateTime) writer.WriteDate((DateTime)value);
                   else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
@@ -597,29 +596,29 @@ public sealed class PropFindResource
     {
       switch(Type.GetTypeCode(value.GetType()))
       {
-        case TypeCode.Boolean: type = Names.xsBoolean; break;
-        case TypeCode.Byte: type = Names.xsUByte; break;
-        case TypeCode.Char: case TypeCode.String: type = Names.xsString; break;
+        case TypeCode.Boolean: type = DAVNames.xsBoolean; break;
+        case TypeCode.Byte: type = DAVNames.xsUByte; break;
+        case TypeCode.Char: case TypeCode.String: type = DAVNames.xsString; break;
         case TypeCode.DateTime:
         {
           DateTime dateTime = (DateTime)value;
-          type = dateTime.Kind == DateTimeKind.Unspecified && dateTime.TimeOfDay.Ticks == 0 ? Names.xsDate : Names.xsDateTime;
+          type = dateTime.Kind == DateTimeKind.Unspecified && dateTime.TimeOfDay.Ticks == 0 ? DAVNames.xsDate : DAVNames.xsDateTime;
           break;
         }
-        case TypeCode.Decimal: type = Names.xsDecimal; break;
-        case TypeCode.Double: type = Names.xsDouble; break;
-        case TypeCode.Int16: type = Names.xsShort; break;
-        case TypeCode.Int32: type = Names.xsInt; break;
-        case TypeCode.Int64: type = Names.xsLong; break;
-        case TypeCode.SByte: type = Names.xsSByte; break;
-        case TypeCode.Single: type = Names.xsFloat; break;
-        case TypeCode.UInt16: type = Names.xsUShort; break;
-        case TypeCode.UInt32: type = Names.xsUInt; break;
-        case TypeCode.UInt64: type = Names.xsULong; break;
+        case TypeCode.Decimal: type = DAVNames.xsDecimal; break;
+        case TypeCode.Double: type = DAVNames.xsDouble; break;
+        case TypeCode.Int16: type = DAVNames.xsShort; break;
+        case TypeCode.Int32: type = DAVNames.xsInt; break;
+        case TypeCode.Int64: type = DAVNames.xsLong; break;
+        case TypeCode.SByte: type = DAVNames.xsSByte; break;
+        case TypeCode.Single: type = DAVNames.xsFloat; break;
+        case TypeCode.UInt16: type = DAVNames.xsUShort; break;
+        case TypeCode.UInt32: type = DAVNames.xsUInt; break;
+        case TypeCode.UInt64: type = DAVNames.xsULong; break;
         case TypeCode.Object:
-          if(value is DateTimeOffset) type = Names.xsDateTime;
-          else if(value is XmlDuration || value is TimeSpan) type = Names.xsDuration;
-          else if(value is byte[]) type = Names.xsB64Binary;
+          if(value is DateTimeOffset) type = DAVNames.xsDateTime;
+          else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
+          else if(value is byte[]) type = DAVNames.xsB64Binary;
           break;
       }
     }
@@ -640,7 +639,7 @@ public sealed class PropFindResource
   {
     if(property == null) throw new ArgumentNullException();
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
-    if(value != null && type != null && type.Namespace.OrdinalEquals(Names.XmlSchema) && !builtInTypes.ContainsKey(property))
+    if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) && !builtInTypes.ContainsKey(property))
     {
       value = ValidateValueType(property, value, type);
     }
@@ -738,7 +737,7 @@ public sealed class PropFindResource
       }
       else if(value != null)
       {
-        if(property == Names.resourcetype)
+        if(property == DAVNames.resourcetype)
         {
           if(value is XmlQualifiedName)
           {
@@ -754,18 +753,18 @@ public sealed class PropFindResource
                                                  "resource type, or an IEnumerable<T> of ResourceType or XmlQualifiedName.");
           }
         }
-        else if(property == Names.getetag)
+        else if(property == DAVNames.getetag)
         {
           if(!(value is EntityTag)) throw new ContractViolationException(property + " is expected to be an EntityTag.");
         }
-        else if(property == Names.lockdiscovery)
+        else if(property == DAVNames.lockdiscovery)
         {
           if(!(value is ActiveLock) && !(value is IEnumerable<ActiveLock>))
           {
             throw new ContractViolationException(property + " is expected to be an ActiveLock or IEnumerable<ActiveLock>.");
           }
         }
-        else if(property == Names.supportedlock)
+        else if(property == DAVNames.supportedlock)
         {
           if(!(value is LockType) && !(value is IEnumerable<LockType>))
           {
@@ -776,7 +775,7 @@ public sealed class PropFindResource
 
       type = null; // built-in properties shouldn't report their type (as per RFC 4316 section 5)
     }
-    else if(type == Names.xsString)
+    else if(type == DAVNames.xsString)
     {
       type = null; // xs:string types should not be reported because that's the default (as per RFC 4316 section 5)
     }
@@ -921,74 +920,74 @@ public sealed class PropFindResource
     {
       return value;
     }
-    else if(expectedType == Names.xsString)
+    else if(expectedType == DAVNames.xsString)
     {
       if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
       return value;
     }
-    if(expectedType == Names.xsDateTime || expectedType == Names.xsDate)
+    if(expectedType == DAVNames.xsDateTime || expectedType == DAVNames.xsDate)
     {
       if(value is DateTime || value is DateTimeOffset) return value;
     }
-    else if(expectedType == Names.xsInt)
+    else if(expectedType == DAVNames.xsInt)
     {
       return (int)ValidateSignedInteger(property, value, int.MinValue, int.MaxValue);
     }
-    else if(expectedType == Names.xsULong)
+    else if(expectedType == DAVNames.xsULong)
     {
       return ValidateUnsignedInteger(property, value, ulong.MaxValue);
     }
-    else if(expectedType == Names.xsLong)
+    else if(expectedType == DAVNames.xsLong)
     {
       return ValidateSignedInteger(property, value, long.MinValue, long.MaxValue);
     }
-    else if(expectedType == Names.xsBoolean)
+    else if(expectedType == DAVNames.xsBoolean)
     {
       if(value is bool) return value;
     }
-    else if(expectedType == Names.xsUri)
+    else if(expectedType == DAVNames.xsUri)
     {
       if(value is Uri) return value;
       Uri uri;
       if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
     }
-    else if(expectedType == Names.xsDouble)
+    else if(expectedType == DAVNames.xsDouble)
     {
       if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value);
     }
-    else if(expectedType == Names.xsFloat)
+    else if(expectedType == DAVNames.xsFloat)
     {
       if(value is float || IsInteger(value)) return Convert.ToSingle(value);
     }
-    else if(expectedType == Names.xsDecimal)
+    else if(expectedType == DAVNames.xsDecimal)
     {
       if(value is double || value is float || value is decimal || IsInteger(value)) return Convert.ToDecimal(value);
     }
-    else if(expectedType == Names.xsUInt)
+    else if(expectedType == DAVNames.xsUInt)
     {
       return (uint)ValidateUnsignedInteger(property, value, uint.MaxValue);
     }
-    else if(expectedType == Names.xsShort)
+    else if(expectedType == DAVNames.xsShort)
     {
       return (short)ValidateSignedInteger(property, value, short.MinValue, short.MaxValue);
     }
-    else if(expectedType == Names.xsUShort)
+    else if(expectedType == DAVNames.xsUShort)
     {
       return (ushort)ValidateUnsignedInteger(property, value, ushort.MaxValue);
     }
-    else if(expectedType == Names.xsUByte)
+    else if(expectedType == DAVNames.xsUByte)
     {
       return (byte)ValidateUnsignedInteger(property, value, byte.MaxValue);
     }
-    else if(expectedType == Names.xsSByte)
+    else if(expectedType == DAVNames.xsSByte)
     {
       return (sbyte)ValidateSignedInteger(property, value, sbyte.MinValue, sbyte.MaxValue);
     }
-    else if(expectedType == Names.xsDuration)
+    else if(expectedType == DAVNames.xsDuration)
     {
       if(value is XmlDuration || value is TimeSpan) return value;
     }
-    else if(expectedType == Names.xsB64Binary || expectedType == Names.xsHexBinary)
+    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
     {
       if(value is byte[]) return value;
     }
@@ -1003,9 +1002,10 @@ public sealed class PropFindResource
 
   static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
   {
-    { Names.creationdate, Names.xsDateTime }, { Names.displayname, Names.xsString }, { Names.getcontentlanguage, Names.xsString },
-    { Names.getcontentlength, Names.xsULong }, { Names.getcontenttype, Names.xsString }, { Names.getetag, null },
-    { Names.getlastmodified, Names.xsDateTime }, { Names.lockdiscovery, null }, { Names.resourcetype, null }, { Names.supportedlock, null }
+    { DAVNames.creationdate, DAVNames.xsDateTime }, { DAVNames.displayname, DAVNames.xsString },
+    { DAVNames.getcontentlanguage, DAVNames.xsString }, { DAVNames.getcontentlength, DAVNames.xsULong },
+    { DAVNames.getcontenttype, DAVNames.xsString }, { DAVNames.getetag, null }, { DAVNames.getlastmodified, DAVNames.xsDateTime },
+    { DAVNames.lockdiscovery, null }, { DAVNames.resourcetype, null }, { DAVNames.supportedlock, null }
   };
 }
 #endregion

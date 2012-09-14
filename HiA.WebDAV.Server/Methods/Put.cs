@@ -4,7 +4,6 @@ using System.Net;
 using HiA.IO;
 
 // TODO: add processing examples and documentation
-// TODO: have some kind of authorization to control the use of lock tokens
 
 namespace HiA.WebDAV.Server
 {

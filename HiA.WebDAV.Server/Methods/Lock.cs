@@ -6,7 +6,9 @@ using System.Net;
 using System.Xml;
 
 // TODO: add processing examples and documentation
-// TODO: only allow setting locks supported by the resource
+// TODO: RFC 4918 section 9.10.1 has a proposed erratum changing it to say that only the request-URI is locked in a LOCK request. if that
+// change is adopted, we won't be able to use the canonical resource URL, and will need to update lock-related code in various places.
+// check back later to see the status of the proposal
 
 namespace HiA.WebDAV.Server
 {
@@ -87,15 +89,17 @@ public class LockRequest : WebDAVRequest
   public ReadOnlyListWrapper<uint> RequestedTimeouts { get; private set; }
 
   /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
+  /// <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
   /// <param name="supportsRecursiveLocks">True if the resource supports recursive locks and false if not. Typically, true should be passed
   /// for collection resources and false for non-collection resources.
   /// </param>
-  public void ProcessStandardRequest(bool supportsRecursiveLocks)
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks)
   {
-    ProcessStandardRequest(null, null, supportsRecursiveLocks);
+    ProcessStandardRequest(supportedLocks, null, null, supportsRecursiveLocks);
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
+  /// <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
   /// <param name="absolutePath">The absolute, canonical path of the resource to lock. If null, the path to the
   /// <see cref="WebDAVContext.RequestResource"/> will be used, if it's available. If null and the request resource is not available, an
   /// exception will be thrown.
@@ -107,20 +111,25 @@ public class LockRequest : WebDAVRequest
   /// <param name="supportsRecursiveLocks">True if the resource supports recursive locks and false if not. Typically, true should be passed
   /// for collection resources and false for non-collection resources.
   /// </param>
-  public void ProcessStandardRequest(string absolutePath, EntityMetadata metadata, bool supportsRecursiveLocks)
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, string absolutePath, EntityMetadata metadata,
+                                     bool supportsRecursiveLocks)
   {
+    if(absolutePath == null && Context.RequestResource == null)
+    {
+      throw new ArgumentException("A lock path must be provided if there is no request resource.");
+    }
+
     if(Context.LockManager == null) // if there's no lock manager, the resource can't be locked
     {
-      Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support locking.");
+      Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support locking.");
+    }
+    else if(supportedLocks != null && LockType != null && !supportedLocks.Any(L => LockType.Equals(L))) // is the lock type unsupported?
+    {
+      Status = new ConditionCode(HttpStatusCode.BadRequest, LockType.ToString() + " locks are not supported by this resource.");
     }
     else // otherwise, we can try to lock it
     {
-      if(absolutePath == null)
-      {
-        if(Context.RequestResource == null) throw new ArgumentException("A lock path must be provided if there is no request resource.");
-        absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
-      }
-
+      if(absolutePath == null) absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
       bool recursive = supportsRecursiveLocks && Depth == Depth.SelfAndDescendants;
       ConditionCode precondition = CheckPreconditions(metadata);
       if(precondition != null) // if the preconditions weren't satisfied...
@@ -137,7 +146,7 @@ public class LockRequest : WebDAVRequest
       }
       else // the preconditions were satisfied...
       {
-        uint? requestedTimeout = RequestedTimeouts.Count == 0 ? (uint?)null : RequestedTimeouts[0];
+        uint? requestedTimeout = GetAppropriateTimeout();
         if(IsRefresh) // if the client wants to refresh a lock...
         {
           ActiveLock lockObject = Context.LockManager.GetLock(GetSubmittedLockTokens().First(), absolutePath);
@@ -153,10 +162,50 @@ public class LockRequest : WebDAVRequest
         }
         else // the client wants to create a new lock...
         {
-          try { NewLock = Context.LockManager.AddLock(absolutePath, LockType, recursive, requestedTimeout, OwnerData); }
-          catch(LockConflictException) { ProcessConflictingLocks(absolutePath, recursive, true); }
+          try
+          {
+            NewLock = Context.LockManager.AddLock(absolutePath, LockType, recursive, requestedTimeout, OwnerData);
+          }
+          catch(LockConflictException)
+          {
+            ProcessConflictingLocks(absolutePath, recursive, true);
+          }
+          catch(LockLimitReachedException ex)
+          {
+            Status = ex.ConditionCode ?? new ConditionCode(HttpStatusCode.ServiceUnavailable, "A lock limit has been reached.");
+          }
         }
       }
+    }
+  }
+
+  /// <summary>Returns the most appropriate lock timeout requested by the client, or null if the client did not request a lock timeout.</summary>
+  /// <remarks>The default implementation checks the lock timeouts requested by the user against <see cref="LockManager.MaximumTimeout"/>
+  /// if <see cref="WebDAVContext.LockManager"/> derives from <see cref="LockManager"/>.
+  /// </remarks>
+  protected virtual uint? GetAppropriateTimeout()
+  {
+    if(RequestedTimeouts.Count == 0)
+    {
+      return null;
+    }
+    else
+    {
+      // if there are multiple requested timeouts, try to return the first one that complies with the limits set in the lock manager, if
+      // we know what the limits are. we know some of the limits, at least, if it's a built-in LockManager class
+      if(RequestedTimeouts.Count > 1)
+      {
+        LockManager builtInManager = Context.LockManager as LockManager;
+        if(builtInManager != null && builtInManager.MaximumTimeout != 0)
+        {
+          for(int i=0; i<RequestedTimeouts.Count; i++)
+          {
+            uint timeout = RequestedTimeouts[i];
+            if(timeout != 0 && timeout <= builtInManager.MaximumTimeout) return timeout;
+          }
+        }
+      }
+      return RequestedTimeouts[0];
     }
   }
 
@@ -172,23 +221,23 @@ public class LockRequest : WebDAVRequest
     }
     else
     {
-      xml.DocumentElement.AssertName(Names.lockinfo);
+      xml.DocumentElement.AssertName(DAVNames.lockinfo);
       XmlQualifiedName type = null;
       bool? exclusive = null;
       foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements())
       {
         if(child.HasChildNodes)
         {
-          if(child.HasName(Names.lockscope))
+          if(child.HasName(DAVNames.lockscope))
           {
-            if(child.FirstChild.HasName(Names.exclusive)) exclusive = true;
-            else if(child.FirstChild.HasName(Names.shared)) exclusive = false;
+            if(child.FirstChild.HasName(DAVNames.exclusive)) exclusive = true;
+            else if(child.FirstChild.HasName(DAVNames.shared)) exclusive = false;
           }
-          else if(child.HasName(Names.locktype))
+          else if(child.HasName(DAVNames.locktype))
           {
             type = child.FirstChild.GetQualifiedName();
           }
-          else if(child.HasName(Names.owner))
+          else if(child.HasName(DAVNames.owner))
           {
             OwnerData = child.Extract();
           }
@@ -214,13 +263,13 @@ public class LockRequest : WebDAVRequest
     else if(NewLock != null)
     {
       // the Lock-Token header should be supplied when a new lock is created, but not when a lock is refreshed (RFC 4918 section 9.10)
-      if(!IsRefresh) Context.Response.Headers[HttpHeaders.LockToken] = "<" + NewLock.LockToken + ">";
+      if(!IsRefresh) Context.Response.Headers[HttpHeaders.LockToken] = "<" + NewLock.Token + ">";
 
-      using(XmlWriter writer = Context.OpenResponseXml(Status ?? ConditionCodes.OK))
+      using(XmlWriter writer = Context.OpenXmlResponse(Status ?? ConditionCodes.OK))
       {
-        writer.WriteStartElement(Names.prop);
-        writer.WriteAttributeString("xmlns", Names.DAV);
-        writer.WriteStartElement(Names.lockdiscovery);
+        writer.WriteStartElement(DAVNames.prop);
+        writer.WriteAttributeString("xmlns", DAVNames.DAV);
+        writer.WriteStartElement(DAVNames.lockdiscovery);
         ((IElementValue)NewLock).WriteValue(writer, Context);
         writer.WriteEndElement(); // lockdiscovery
         writer.WriteEndElement(); // prop
@@ -238,7 +287,7 @@ public class LockRequest : WebDAVRequest
 
   void ProcessConflictingLocks(string lockPath, bool recursive, bool forceError)
   {
-    HashSet<string> paths = Context.LockManager.GetConflictingLocks(lockPath, LockType, recursive).Select(L => L.LockPath).ToSet();
+    HashSet<string> paths = Context.LockManager.GetConflictingLocks(lockPath, LockType, recursive).Select(L => L.Path).ToSet();
     foreach(string path in paths) FailedResources.Add(path, ConditionCodes.Locked);
 
     if(FailedResources.Count == 0) // if there weren't any known conflicting locks...

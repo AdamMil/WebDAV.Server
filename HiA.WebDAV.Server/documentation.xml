@@ -25,6 +25,7 @@
       </param>
       <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
       <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
+      <exception cref="LockLimitReachedException">Thrown if adding the lock would cause a lock limit to be exceeded.</exception>
     </AddLock>
     <GetConflictingLocks>
       <summary>Returns a collection of existing locks that conflict with the given proposed lock.</summary>
@@ -243,14 +244,12 @@
       </summary>
       <remarks>It is recommended that services be made reusable if possible, as this improves performance.</remarks>
     </IsReusable>
-    <LockManager>
-      <summary>
-        Gets the <see cref="ILockManager"/> used to control locking of the resources exposed by the WebDAV service. If null is
-        returned, the default lock manager for the WebDAV server will be used.
-      </summary>
-    </LockManager>
     <MakeCollection>
-      <summary>Executes a <see cref="MkColRequest"/>. See the <see cref="MkColRequest"/> documentation for details on how to service it.</summary>
+      <summary>
+        Executes a <see cref="MkColRequest"/>. All DAV-compliant services must support the <c>MKCOL</c> method (i.e. they cannot
+        respond with 405 Method Not Allowed), although they can disable collection creation by responding with 403 Forbidden.
+        See the <see cref="MkColRequest"/> documentation for details on how to service it.
+      </summary>
     </MakeCollection>
     <Options>
       <summary>
@@ -292,6 +291,17 @@
         </note>
       </remarks>
     </ResolveResource>
+    <Unlock>
+      <summary>
+        Executes an <see cref="UnlockRequest"/> against an unmapped URL. See the <see cref="UnlockRequest"/> documentation for details on
+        how to service it.
+      </summary>
+      <remarks>
+        <c>UNLOCK</c> requests may be made against unmapped URLs in the case that a resource is locked and then later deleted from outside
+        the WebDAV service. (For instance, a file on disk may be locked through WebDAV but later deleted by a user.) Allowing <c>UNLOCK</c>
+        requests on unmapped URLs provides a way for these dangling locks to be released.
+      </remarks>
+    </Unlock>
   </IWebDAVService>
 
   <LockManager>

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -295,7 +294,6 @@ public abstract class WebDAVRequest
       foreach(TaggedIfLists clause in ifClauses)
       {
         EntityMetadata metadata = null;
-        ILockManager lockManager = null;
         if(clause.ResourceTag == null || clause.ResourceTag.OrdinalEquals(Context.ServiceRoot + Context.RequestPath) ||
            clause.ResourceTag[0] != '/' && clause.ResourceTagUri.Equals(Context.Request.Url))
         {
@@ -305,8 +303,7 @@ public abstract class WebDAVRequest
             requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
           }
 
-          metadata    = requestMetadata;
-          lockManager = Context.LockManager;
+          metadata = requestMetadata;
         }
         else
         {
@@ -314,8 +311,7 @@ public abstract class WebDAVRequest
           IWebDAVResource resource;
           if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource))
           {
-            metadata    = resource.GetEntityMetadata(clause.ChecksEntityTag());
-            lockManager = service.LockManager ?? Context.DefaultLockManager;
+            metadata  = resource.GetEntityMetadata(clause.ChecksEntityTag());
           }
         }
 
@@ -331,11 +327,11 @@ public abstract class WebDAVRequest
               {
                 match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
               }
-              else if(lockManager != null)
+              else if(Context.LockManager != null)
               {
                 string absolutePath = clause.ResourceTag == null ? null :
                                       clause.ResourceTag[0] == '/' ? clause.ResourceTag : clause.ResourceTagUri.AbsolutePath;
-                match = lockManager.GetLock(condition.LockToken, absolutePath) != null;
+                match = Context.LockManager.GetLock(condition.LockToken, absolutePath) != null;
               }
             }
 
@@ -453,11 +449,10 @@ public abstract class WebDAVRequest
       absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
     }
 
-    ILockManager lockManager = (service ?? Context.Service).LockManager ?? Context.DefaultLockManager;
-    if(lockManager != null)
+    if(Context.LockManager != null)
     {
       HashSet<string> submittedTokens = GetSubmittedLockTokens();
-      Predicate<ActiveLock> filter = L => lockType.ConflictsWith(L.LockType);
+      Predicate<ActiveLock> filter = L => lockType.ConflictsWith(L.Type);
       bool isBuiltInType = lockType.GetType() == typeof(LockType); // can we make assumptions about the LockType implementation?
 
       if(checkParent) // if we have to check the parent collection for a lock...
@@ -465,7 +460,7 @@ public abstract class WebDAVRequest
         string parentPath = DAVUtility.GetParentPath(absolutePath);
         if(parentPath != null) // if the resource has a parent...
         {
-          IList<ActiveLock> locks = lockManager.GetLocks(parentPath, true, false, filter);
+          IList<ActiveLock> locks = Context.LockManager.GetLocks(parentPath, true, false, filter);
           if(locks.Count != 0) // and the parent is locked...
           {
             ActiveLock lockObject = GetSubmittedLock(locks, submittedTokens); // see if a relevant token was submitted
@@ -477,14 +472,14 @@ public abstract class WebDAVRequest
               // otherwise, we still need to look at descendant locks, but we can skip the ones that aren't covered by (i.e. don't conflict
               // with) the recursive parent lock
               if(isBuiltInType) return null;
-              else filter = Combine(filter, L => !lockObject.LockType.ConflictsWith(L.LockType));
+              else filter = Combine(filter, L => !lockObject.Type.ConflictsWith(L.Type));
             }
           }
         }
       }
 
       // now check locks directly on the resource
-      IList<ActiveLock> directLocks = lockManager.GetLocks(absolutePath, !checkParent, false, filter);
+      IList<ActiveLock> directLocks = Context.LockManager.GetLocks(absolutePath, !checkParent, false, filter);
       if(directLocks.Count != 0)
       {
         ActiveLock lockObject = GetSubmittedLock(directLocks, submittedTokens); // see if a relevant token was submitted
@@ -492,14 +487,14 @@ public abstract class WebDAVRequest
         if(lockObject.Recursive && checkDescendants)
         {
           if(isBuiltInType) return null; // see above for a description of this code
-          else filter = Combine(filter, L => !lockObject.LockType.ConflictsWith(L.LockType));
+          else filter = Combine(filter, L => !lockObject.Type.ConflictsWith(L.Type));
         }
       }
 
       // now look at locks that are descendants of the resource
       if(checkDescendants)
       {
-        IList<ActiveLock> locks = lockManager.GetLocks(absolutePath, false, true, filter);
+        IList<ActiveLock> locks = Context.LockManager.GetLocks(absolutePath, false, true, filter);
         List<ActiveLock> descendantLocks;
         if(directLocks.Count == 0)
         {
@@ -510,13 +505,13 @@ public abstract class WebDAVRequest
           descendantLocks = new List<ActiveLock>(locks.Count);
           foreach(ActiveLock lockObject in locks)
           {
-            if(lockObject.LockPath.Length > absolutePath.Length) descendantLocks.Add(lockObject);
+            if(lockObject.Path.Length > absolutePath.Length) descendantLocks.Add(lockObject);
           }
         }
 
         if(descendantLocks.Count != 0)
         {
-          descendantLocks.Sort((a, b) => string.Compare(a.LockPath, b.LockPath, StringComparison.Ordinal));
+          descendantLocks.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.Ordinal));
           for(int i=0; i<descendantLocks.Count; )
           {
             ConditionCode status = CheckDescendantLocks(descendantLocks, ref i, submittedTokens, isBuiltInType ? null : filter);
@@ -632,8 +627,8 @@ public abstract class WebDAVRequest
     // find all locks with the same (base) path
     int end = start+1, baseCount = 1;
     ActiveLock baseLock = locks[start];
-    string basePath = baseLock.LockPath;
-    while(end < locks.Count && basePath.OrdinalEquals(locks[end].LockPath))
+    string basePath = baseLock.Path;
+    while(end < locks.Count && basePath.OrdinalEquals(locks[end].Path))
     {
       if(filter == null || filter(locks[end])) baseCount++;
       end++;
@@ -642,7 +637,7 @@ public abstract class WebDAVRequest
 
     if(baseCount == 1) // if there's only one of them, check it directly
     {
-      if(!submittedTokens.Contains(baseLock.LockToken)) baseLock = null;
+      if(!submittedTokens.Contains(baseLock.Token)) baseLock = null;
     }
     else // otherwise, there are multiple locks with the same path, and we only require one of them to match
     {
@@ -662,18 +657,18 @@ public abstract class WebDAVRequest
     {
       if(filter == null) // if there was no filter, we can simply skip over all descendants
       {
-        while(end < locks.Count && locks[end].LockPath.StartsWith(basePath, StringComparison.Ordinal)) end++;
+        while(end < locks.Count && locks[end].Path.StartsWith(basePath, StringComparison.Ordinal)) end++;
         index = end;
         return null;
       }
       else // otherwise, we may not be able to skip all descendants, but we can make the filter more restrictive
       {
-        filter = Combine(filter, L => !baseLock.LockType.ConflictsWith(L.LockType));
+        filter = Combine(filter, L => !baseLock.Type.ConflictsWith(L.Type));
       }
     }
 
     // in any case, now look at the descendants
-    while(index < locks.Count && locks[index].LockPath.StartsWith(basePath, StringComparison.Ordinal))
+    while(index < locks.Count && locks[index].Path.StartsWith(basePath, StringComparison.Ordinal))
     {
       ConditionCode status = CheckDescendantLocks(locks, ref index, submittedTokens, filter);
       if(status != null) return status;
@@ -698,7 +693,7 @@ public abstract class WebDAVRequest
     ActiveLock matchingLock = null;
     foreach(ActiveLock lockObject in locks)
     {
-      if(submittedTokens.Contains(lockObject.LockToken))
+      if(submittedTokens.Contains(lockObject.Token))
       {
         matchingLock = lockObject;
         if(matchingLock.Recursive) break; // we prefer recursive locks over non-recursive locks, so keep searching if it's not recursive

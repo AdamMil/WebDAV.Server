@@ -75,8 +75,7 @@ public class LockConflictException : WebDAVException
 {
   public LockConflictException() : this("There is a conflict with an existing lock.", null) { }
   public LockConflictException(string message) : this(message, null) { }
-  public LockConflictException(string message, Exception innerException)
-    : base((int)HttpStatusCode.InternalServerError, message, innerException) { }
+  public LockConflictException(string message, Exception innerException) : base(423, message, innerException) { }
   public LockConflictException(ActiveLock conflictingLock) : this(GetMessage(conflictingLock)) { }
   protected LockConflictException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 
@@ -85,6 +84,19 @@ public class LockConflictException : WebDAVException
     if(conflictingLock == null) throw new ArgumentNullException();
     return "There is a lock conflict with " + conflictingLock.ToString();
   }
+}
+#endregion
+
+#region LockLimitReachedException
+/// <summary>Indicates that a resource could not be locked because a lock limit was reached.</summary>
+[Serializable]
+public class LockLimitReachedException : WebDAVException
+{
+  public LockLimitReachedException() : this("The lock limit on this resource has been reached.", null) { }
+  public LockLimitReachedException(string message) : this(message, null) { }
+  public LockLimitReachedException(string message, Exception innerException)
+    : base((int)HttpStatusCode.ServiceUnavailable, message, innerException) { }
+  protected LockLimitReachedException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 }
 #endregion
 

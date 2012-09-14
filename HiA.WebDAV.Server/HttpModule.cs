@@ -8,11 +8,14 @@ using System.Text.RegularExpressions;
 using System.Web;
 using HiA.WebDAV.Server.Configuration;
 
-// TODO: our uses of 405 Method Not Found are in violation of RFC 2616 section 10.4.6 because they don't supply an Allow header containing
-// a list of legal methods, but it would be nontrivial to construct such a header...
+// TODO: we should use 405 Method Not Found in more places (but it's difficult because RFC 2616 section 10.4.6 requires supplying an Allow
+// header containing a list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally,
+// though, in WebDAVModule)
 
 // TODO: look into Microsoft's WebDAV extensions
 // TODO: support the Expects header (RFC 2616 section 14.20) if IIS doesn't do it for us
+// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI, but we
+// might do that sometimes... check for it and see what we can do about it...
 
 namespace HiA.WebDAV.Server
 {
@@ -115,23 +118,23 @@ public sealed class WebDAVModule : IHttpModule
         for(int i=0; i<Locations.Length; i++) Locations[i] = new LocationConfig(config.Locations[i]);
       }
 
-      if(config.DefaultLockManager != null && config.DefaultLockManager.Type != null)
+      if(config.LockManager != null && config.LockManager.Type != null)
       {
-        ConstructorInfo cons = config.DefaultLockManager.Type.GetConstructor(new Type[] { typeof(ParameterCollection) });
+        ConstructorInfo cons = config.LockManager.Type.GetConstructor(new Type[] { typeof(ParameterCollection) });
         if(cons != null)
         {
-          DefaultLockManager = (ILockManager)cons.Invoke(new object[] { config.DefaultLockManager.Parameters });
+          LockManager = (ILockManager)cons.Invoke(new object[] { config.LockManager.Parameters });
         }
         else
         {
-          cons = config.DefaultLockManager.Type.GetConstructor(Type.EmptyTypes);
+          cons = config.LockManager.Type.GetConstructor(Type.EmptyTypes);
           if(cons != null)
           {
-            DefaultLockManager = (ILockManager)cons.Invoke(null);
+            LockManager = (ILockManager)cons.Invoke(null);
           }
           else
           {
-            throw new ConfigurationErrorsException(config.DefaultLockManager.Type.FullName + " does not have either a public default " +
+            throw new ConfigurationErrorsException(config.LockManager.Type.FullName + " does not have either a public default " +
                                                    "constructor or a public constructor that accepts a " +
                                                    typeof(ParameterCollection).FullName + " object.");
           }
@@ -139,12 +142,14 @@ public sealed class WebDAVModule : IHttpModule
       }
 
       ContextSettings = new WebDAVContext.Configuration(ShowSensitiveErrors);
+
+      AppDomain.CurrentDomain.DomainUnload += OnDomainUnloading;
     }
 
     /// <summary>Gets the <see cref="WebDAVContext.Configuration"/> object that should be used when servicing requests.</summary>
     public WebDAVContext.Configuration ContextSettings;
-    /// <summary>Gets the <see cref="ILockManager"/> defined in the configuration.s</summary>
-    public readonly ILockManager DefaultLockManager;
+    /// <summary>Gets the <see cref="ILockManager"/> defined in the configuration.</summary>
+    public readonly ILockManager LockManager;
     /// <summary>The <see cref="LocationConfig"/> objects representing the WebDAV services defined in the configuration, or null if
     /// the WebDAV module is disabled (i.e. <see cref="Enabled"/> is false).
     /// </summary>
@@ -153,6 +158,17 @@ public sealed class WebDAVModule : IHttpModule
     public readonly bool Enabled;
     /// <summary>Whether to show potentially sensitive error messages when an exception occurs.</summary>
     public readonly bool ShowSensitiveErrors;
+
+    void OnDomainUnloading(object sender, EventArgs e)
+    {
+      // dispose things when the domain is about to be unloaded because if we wait for the finalizer, things may be too messed up to be
+      // disposed properly. (e.g. FileStreams may already be closed, so we can't save data like locks)
+      if(Locations != null)
+      {
+        foreach(LocationConfig location in Locations) location.Dispose();
+      }
+      if(LockManager != null) LockManager.Dispose();
+    }
   }
   #endregion
 
@@ -162,6 +178,12 @@ public sealed class WebDAVModule : IHttpModule
     public AuthFilterConfig(AuthorizationFilterElement config)
     {
       filterCreator = GetCreationDelegate<IAuthorizationFilter>(config.Type, config.Parameters);
+    }
+
+    public void Dispose()
+    {
+      Utility.Dispose(sharedFilter);
+      sharedFilter = null;
     }
 
     public IAuthorizationFilter GetFilter()
@@ -206,6 +228,17 @@ public sealed class WebDAVModule : IHttpModule
       sharedService = null;
     }
 
+    public void Dispose()
+    {
+      Utility.Dispose(sharedService);
+      sharedService = null;
+
+      if(AuthFilters != null)
+      {
+        foreach(AuthFilterConfig authFilter in AuthFilters) authFilter.Dispose();
+      }
+    }
+
     /// <summary>Returns a <see cref="Uri"/> relative to the root of the WebDAV service.</summary>
     public string GetRelativeUrl(Uri requestUri)
     {
@@ -243,7 +276,7 @@ public sealed class WebDAVModule : IHttpModule
 
     bool IpMatches(HttpRequest request)
     {
-      throw new NotImplementedException(); // TODO: implement IP-based matching
+      throw new NotImplementedException(); // TODO: implement IP-based matching, if possible
     }
 
     void ParseMatch(string matchString)
@@ -307,12 +340,19 @@ public sealed class WebDAVModule : IHttpModule
           }
           catch(HttpException ex) // HttpExceptions might be okay (this includes WebDAVException)
           {
-            int httpCode = ex.GetHttpCode();
-            if(httpCode >= 500 && httpCode < 600) throw; // 500 errors represent server failure, so propagate the error to ASP.NET
-            // lesser errors are the client's fault and don't represent server failure, so send the response to the client as normal
             WebDAVException wde = ex as WebDAVException; // if it's a WebDAVException, use the ConditionCode if it's available
-            if(wde != null && wde.ConditionCode != null) WriteErrorResponse(application, wde.ConditionCode);
-            else WriteErrorResponse(application, httpCode, ex.Message);
+            if(wde != null && wde.ConditionCode != null)
+            {
+              WriteErrorResponse(application, wde.ConditionCode);
+            }
+            else
+            {
+              // 5xx errors represent server failure, so propagate the error to ASP.NET. lesser errors are typically the client's fault
+              // and don't represent server failure, so send the response to the client as normal
+              int httpCode = ex.GetHttpCode();
+              if(httpCode >= 500 && httpCode < 600) throw;
+              else WriteErrorResponse(application, httpCode, ex.Message);
+            }
           }
           catch(UnauthorizedAccessException ex)
           {
@@ -355,7 +395,7 @@ public sealed class WebDAVModule : IHttpModule
   static WebDAVContext CreateContext(LocationConfig location, string requestPath, HttpApplication application, Configuration config)
   {
     return new WebDAVContext(location.GetService(), location.RootPath, requestPath, application,
-                             config.DefaultLockManager, config.ContextSettings);
+                             config.LockManager, config.ContextSettings);
   }
 
   /// <summary>Returns the given string or null, depending on the value of <see cref="Configuration.ShowSensitiveErrors"/>.</summary>
@@ -469,6 +509,10 @@ public sealed class WebDAVModule : IHttpModule
       else if(method.OrdinalEquals(HttpMethods.MkCol))
       {
         ProcessMethod(context, context.Service.CreateMkCol(context), context.Service.MakeCollection);
+      }
+      else if(method.OrdinalEquals(HttpMethods.Unlock))
+      {
+        ProcessMethod(context, context.Service.CreateUnlock(context), context.Service.Unlock);
       }
       else if(!context.Service.HandleGenericRequest(context))
       {

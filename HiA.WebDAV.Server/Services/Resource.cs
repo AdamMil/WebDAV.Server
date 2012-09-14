@@ -67,7 +67,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual void CopyOrMove(CopyOrMoveRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support being copied or moved.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support being copied or moved.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
@@ -75,7 +75,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual void Delete(DeleteRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support deletion.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support deletion.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
@@ -96,7 +96,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual void Lock(LockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource cannot be locked.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource cannot be locked.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -125,7 +125,7 @@ public abstract class WebDAVResource : IWebDAVResource
     if(request == null) throw new ArgumentNullException();
 
     // decline to set any property
-    ConditionCode errorStatus = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support setting properties.");
+    ConditionCode errorStatus = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support setting properties.");
     foreach(PropertyPatch patch in request.Patches)
     {
       foreach(PropertyRemoval removal in patch.Remove) removal.Status = errorStatus;
@@ -138,7 +138,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual void Put(PutRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Forbidden, "This resource does not support setting its content.");
+    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support setting its content.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
@@ -148,7 +148,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public virtual void Unlock(UnlockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode((int)HttpStatusCode.Conflict, "The resource is not locked (because it does not support locking).");
+    request.Status = new ConditionCode(HttpStatusCode.Conflict, "The resource is not locked (because it does not support locking).");
   }
 
   /// <include file="documentation.xml" path="/DAV/ISupportAuthorization/ShouldDenyAccess/node()" />

@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Text;
 
-// TODO: consider making lock support default to true if Context.LockManager != null
 // TODO: add processing examples and documentation
 
 namespace HiA.WebDAV.Server
@@ -81,8 +80,8 @@ public class OptionsRequest : SimpleRequest
 
   /// <summary>Gets a collection that should be filled with the list of supported HTTP methods for the request URL. By default, the
   /// collection contains <c>GET</c>, <c>HEAD</c>, <c>OPTIONS</c>, and <c>TRACE</c>. In addition, <c>PROPFIND</c>, <c>PROPPATCH</c>,
-  /// <c>COPY</c>, and <c>MOVE</c> will be treated as effectively present for all WebDAV-compliant resources, as required by RFC 4918
-  /// sections 9.1, 9.2, 9.8, and 9.9. Similarly, <c>LOCK</c> and <c>UNLOCK</c> will advertised automatically if
+  /// <c>COPY</c>, <c>MOVE</c>, and <c>MKCOL</c> will be treated as effectively present for all WebDAV-compliant resources, as required by
+  /// RFC 4918 sections 9.1, 9.2, 9.3, 9.8, and 9.9. Similarly, <c>LOCK</c> and <c>UNLOCK</c> will advertised automatically if
   /// <see cref="SupportsLocking"/> is true. Generally, this default and automatic behavior is sufficient for read-only resources.
   /// Writable resources should implement <see cref="IWebDAVResource.Options"/> to add additional methods.
   /// </summary>
@@ -109,13 +108,18 @@ public class OptionsRequest : SimpleRequest
   /// </remarks>
   public SupportedExtensionCollection SupportedExtensions { get; private set; }
 
-  /// <summary>Gets or sets whether the resource or service provides a minimal set of WebDAV locking support, including the <c>LOCK</c> and
-  /// <c>UNLOCK</c> methods, the <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties, the <c>Time-Out</c> response header, and
-  /// the <c>Lock-Token</c> request header. A resource or service that advertises lock support should also support the <c>Timeout</c>
-  /// request header and the <c>DAV:owner</c> element. The defaut is false.
-  /// </summary>
-  /// <remarks>Lock support will be reported in the <c>DAV</c> header. This property is ignored if <see cref="IsDAVCompliant"/> is set to
-  /// false.
+  /// <summary>Gets or sets whether the resource or service provides a minimal set of WebDAV locking support. The default is false.</summary>
+  /// <remarks>
+  /// At a minimum, a service or resource that supports locking must support the including the <c>LOCK</c> and <c>UNLOCK</c> methods, the
+  /// <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties, the <c>Timeout</c> header, and the <c>Lock-Token</c> header. It
+  /// should also support the <c>DAV:owner</c> element. Locking of existing resources can be accomplished by implementing the
+  /// <see cref="IWebDAVResource.Lock"/> and <see cref="IWebDAVResource.Unlock"/> methods (using
+  /// <see cref="LockRequest.ProcessStandardRequest(IEnumerable{LockType},bool)"/> and <see cref="UnlockRequest.ProcessStandardRequest"/>)
+  /// and providing values for the <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties. Locking new resources can be supported
+  /// by implementing the <see cref="IWebDAVService.CreateAndLock"/> method.
+  /// <para>
+  /// Lock support will be reported in the <c>DAV</c> header. This property is ignored if <see cref="IsDAVCompliant"/> is set to false.
+  /// </para>
   /// </remarks>
   // TODO: translate this documentation into API concepts after we've implemented locking
   public bool SupportsLocking { get; set; }
@@ -150,13 +154,14 @@ public class OptionsRequest : SimpleRequest
       {
         // get the set of support HTTP methods
         IEnumerable<string> methods = AllowedMethods;
-        if(IsDAVCompliant) // if the resource or service is DAV-compliant, report PROPFIND, PROPPATCH, COPY, and MOVE as well, as required
-        {                  // by RFC 4918 (sections 9.1, 9.2, 9.8, and 9.9)
+        if(IsDAVCompliant) // if the resource or service is DAV-compliant, report PROPFIND, PROPPATCH, COPY, MOVE, and MKCOL as well, as
+        {                  // required by RFC 4918 (sections 9.1, 9.2, 9.3, 9.8, and 9.9)
           HashSet<string> set = new HashSet<string>(methods);
           set.Add(HttpMethods.PropFind);
           set.Add(HttpMethods.PropPatch);
           set.Add(HttpMethods.Copy);
           set.Add(HttpMethods.Move);
+          set.Add(HttpMethods.MkCol);
           if(SupportsLocking) // if the resource or service claims to support locking, then it must support LOCK and UNLOCK
           {
             set.Add(HttpMethods.Lock);
