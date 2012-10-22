@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Xml;
@@ -44,10 +43,7 @@ public class LockRequest : WebDAVRequest
         else if(timeoutStr.StartsWith("Second-", StringComparison.Ordinal))
         {
           uint timeoutSeconds;
-          if(uint.TryParse(timeoutStr.Substring(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out timeoutSeconds))
-          {
-            requestedTimeouts.Add(timeoutSeconds);
-          }
+          if(InvariantCultureUtility.TryParse(timeoutStr.Substring(7), out timeoutSeconds)) requestedTimeouts.Add(timeoutSeconds);
         }
       }
       RequestedTimeouts = new ReadOnlyListWrapper<uint>(requestedTimeouts);

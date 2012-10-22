@@ -335,31 +335,28 @@ public class PropPatchRequest : WebDAVRequest
     else if(expectedType == DAVNames.xsInt)
     {
       int intValue;
-      if(!int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
+      if(!InvariantCultureUtility.TryParse(str, out intValue)) return false;
       value = intValue;
       return true;
     }
     else if(expectedType == DAVNames.xsULong)
     {
       ulong intValue;
-      if(!ulong.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
+      if(!InvariantCultureUtility.TryParse(str, out intValue)) return false;
       value = intValue;
       return true;
     }
     else if(expectedType == DAVNames.xsLong)
     {
       long intValue;
-      if(!long.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue)) return false;
+      if(!InvariantCultureUtility.TryParse(str, out intValue)) return false;
       value = intValue;
       return true;
     }
     else if(expectedType == DAVNames.xsBoolean)
     {
       bool boolValue;
-      if(!XmlUtility.TryParseBoolean(str, out boolValue)) return false;
+      if(!XmlUtility.TryParse(str, out boolValue)) return false;
       value = boolValue;
       return true;
     }
@@ -373,7 +370,7 @@ public class PropPatchRequest : WebDAVRequest
     else if(expectedType == DAVNames.xsDouble)
     {
       double doubleValue;
-      if(!double.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out doubleValue)) return false;
+      if(!InvariantCultureUtility.TryParse(str, out doubleValue)) return false;
       value = doubleValue;
       return true;
     }
@@ -394,10 +391,7 @@ public class PropPatchRequest : WebDAVRequest
     else if(expectedType == DAVNames.xsUInt)
     {
       uint intValue;
-      if(!uint.TryParse(str, NumberStyles.AllowLeadingWhite|NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out intValue))
-      {
-        return false;
-      }
+      if(!InvariantCultureUtility.TryParse(str, out intValue)) return false;
       value = intValue;
       return true;
     }
