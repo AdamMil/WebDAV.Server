@@ -70,17 +70,15 @@ public class GetOrHeadRequest : WebDAVRequest
           if(rangeString[0] == '-') // if it's a suffix range, it consists of a length taken from the end of the body
           {
             long length;
-            if(!long.TryParse(rangeString.Substring(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out length)) goto failed;
+            if(!InvariantCultureUtility.TryParse(rangeString.Substring(1), out length)) goto failed;
             ranges[i] = new ByteRange(-1, length, false);
           }
           else // otherwise, it's a normal range taken from the beginning (and possibly extending to the end)
           {
             long start, end = -1;
             int dash = rangeString.IndexOf('-');
-            if(!long.TryParse(rangeString.Substring(0, dash), NumberStyles.Integer, CultureInfo.InvariantCulture, out start) ||
-               dash < rangeString.Length-1 &&
-               (!long.TryParse(rangeString.Substring(dash+1), NumberStyles.Integer, CultureInfo.InvariantCulture, out end) ||
-                end < start))
+            if(!InvariantCultureUtility.TryParse(rangeString.Substring(0, dash), out start) ||
+               dash < rangeString.Length-1 && (!InvariantCultureUtility.TryParse(rangeString.Substring(dash+1), out end) || end < start))
             {
               goto failed;
             }
