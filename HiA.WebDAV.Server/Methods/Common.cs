@@ -407,8 +407,8 @@ public abstract class WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
   /// <remarks>The default implementation always returns null.
-  /// <note type="inheritinfo">Derived classes should typically implement this method by calling
-  /// see cref="CheckSubmittedLockTokens(LockType,bool)"/> or one of its overrides.
+  /// <note type="inherit">Derived classes should typically implement this method by calling
+  /// <see cref="CheckSubmittedLockTokens(LockType,bool,bool)"/> or one of its overrides.
   /// </note>
   /// </remarks>
   protected virtual ConditionCode CheckSubmittedLockTokens()

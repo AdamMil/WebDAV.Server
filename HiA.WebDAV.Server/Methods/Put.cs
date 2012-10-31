@@ -120,25 +120,12 @@ public class PutRequest : SimpleRequest
         // if the client requested a partial PUT...
         if(ContentRange.Start != -1)
         {
-          // we need to know how long the replacement stream is, so copy it to a temporary file if necessary
+          // we need to know how long the replacement stream is, so copy it to a temporary location if necessary
           if(!replacementStream.CanSeek)
           {
             Impersonation.RunWithImpersonation(Impersonation.RevertToSelf, false, delegate // revert to self so we can open a temp file
-            {
-              TemporaryFileStream tempFile = null;
-              try
-              {
-                tempFile = new TemporaryFileStream();
-                replacementStream.CopyTo(tempFile);
-                replacementStream.Dispose();
-                replacementStream = tempFile;
-                tempFile.Position = 0;
-                tempFile = null;
-              }
-              finally
-              {
-                Utility.Dispose(tempFile); // this should close the temp file only if it couldn't be written correctly
-              }
+            {                                                                              // if necessary
+              replacementStream = new SeekableStreamWrapper(replacementStream);
             });
           }
 
