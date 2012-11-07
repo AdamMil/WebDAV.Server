@@ -19,7 +19,7 @@ namespace HiA.WebDAV.Server
 
 #region ActiveLock
 /// <summary>Describes an active lock on a resource. This object is used with the <c>DAV:lockdiscovery</c> property.</summary>
-public class ActiveLock : IElementValue
+public sealed class ActiveLock : IElementValue
 {
   /// <summary>Initializes a new <see cref="ActiveLock"/> object.</summary>
   /// <param name="absoluteLockRoot">The absolute, canonical path to the resource to which the lock is directly applied.</param>
@@ -152,7 +152,7 @@ public class ActiveLock : IElementValue
     writer.Write(_owner != null);
     if(_owner != null)
     {
-      StringWriter sw = new StringWriter();
+      StringWriter sw = new StringWriter(CultureInfo.InvariantCulture);
       _owner.OwnerDocument.Save(sw);
       writer.Write(sw.ToString());
     }
@@ -167,7 +167,7 @@ public class ActiveLock : IElementValue
   /// <summary>Refreshes the lock timeout by computing a new <see cref="ExpirationTime"/> <paramref name="timeoutSeconds"/> seconds in the
   /// future, or setting <see cref="ExpirationTime"/> to null if <paramref name="timeoutSeconds"/> is zero.
   /// </summary>
-  protected internal void Refresh(uint timeoutSeconds)
+  internal void Refresh(uint timeoutSeconds)
   {
     lock(this)
     {
@@ -184,6 +184,7 @@ public class ActiveLock : IElementValue
 
   void IElementValue.WriteValue(XmlWriter writer, WebDAVContext context)
   {
+    if(writer == null) throw new ArgumentNullException();
     writer.WriteStartElement(DAVNames.activelock);
     writer.WriteStartElement(DAVNames.lockscope);
     writer.WriteEmptyElement(Type.Exclusive ? DAVNames.exclusive : DAVNames.shared);
@@ -337,6 +338,7 @@ public sealed class LockType : IElementValue
 
   void IElementValue.WriteValue(XmlWriter writer, WebDAVContext context)
   {
+    if(writer == null) throw new ArgumentNullException();
     writer.WriteStartElement(DAVNames.lockentry);
     writer.WriteStartElement(DAVNames.lockscope);
     writer.WriteEmptyElement(Exclusive ? DAVNames.exclusive : DAVNames.shared);
@@ -481,8 +483,8 @@ public abstract class LockManager : ILockManager
   /// <inheritdoc/>
   public void Dispose()
   {
-    GC.SuppressFinalize(this);
     Dispose(false);
+    GC.SuppressFinalize(this);
     disposed = true;
   }
 
@@ -935,9 +937,8 @@ public class FileLockManager : LockManager
           }
         }
       }
-      catch
-      {
-      }
+      catch(IOException) { }
+      catch(OutOfMemoryException) { }
 
       throw new InvalidDataException(fileName + " is not a valid lock file. If you want to use this file name, remove the file first.");
     }
@@ -1012,8 +1013,6 @@ public class MemoryLockManager : LockManager
   /// <summary>Initializes a new <see cref="MemoryLockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
   public MemoryLockManager(ParameterCollection parameters) : base(parameters) { }
 
-  /// <include file="documentation.xml" path="/DAV/LockManager/Dispose/node()" />
-  protected override void Dispose(bool finalizing) { }
   /// <include file="documentation.xml" path="/DAV/LockManager/OnLockAdded/node()" />
   protected override void OnLockAdded(ActiveLock newLock) { }
   /// <include file="documentation.xml" path="/DAV/LockManager/OnLockRemoved/node()" />
