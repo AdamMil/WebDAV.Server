@@ -103,18 +103,15 @@ public sealed class ContentRange
     if(m.Groups["s"].Success)
     {
       long end;
-      if(!long.TryParse(m.Groups["s"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out start) ||
-          !long.TryParse(m.Groups["e"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out end) || start > end)
+      if(!InvariantCultureUtility.TryParseExact(m.Groups["s"].Value, out start) ||
+         !InvariantCultureUtility.TryParseExact(m.Groups["e"].Value, out end)   || start > end)
       {
         return false;
       }
       length = end - start + 1;
     }
 
-    if(m.Groups["L"].Success && !long.TryParse(m.Groups["L"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out totalLength))
-    {
-      return false;
-    }
+    if(m.Groups["L"].Success && !InvariantCultureUtility.TryParseExact(m.Groups["L"].Value, out totalLength)) return false;
 
     return true;
   }
