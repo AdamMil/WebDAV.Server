@@ -377,7 +377,7 @@ public class PropPatchRequest : WebDAVRequest
     else if(expectedType == DAVNames.xsFloat)
     {
       float floatValue;
-      if(!float.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out floatValue)) return false;
+      if(!InvariantCultureUtility.TryParse(str, out floatValue)) return false;
       value = floatValue;
       return true;
     }

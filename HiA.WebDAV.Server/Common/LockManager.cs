@@ -708,7 +708,7 @@ public abstract class LockManager : ILockManager
     string str = parameters.TryGetValue(paramName);
     if(!string.IsNullOrEmpty(str))
     {
-      if(!uint.TryParse(str, NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out value))
+      if(!InvariantCultureUtility.TryParse(str, out value))
       {
         throw new ArgumentException("The " + paramName + " value \"" + str + "\" is not a valid integer or is out of range.");
       }
