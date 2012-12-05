@@ -10,7 +10,6 @@ using HiA.WebDAV.Server.Configuration;
 
 // TODO: add some helper methods somewhere to encapsulate common lock-related actions like getting the locks on a resource (e.g. the
 // request.Context.LockManager.GetLocks(request.Context.ServiceRoot + CanonicalPath, true, false, null) bit)
-// TODO: make LockManager use a ReaderWriterLockSlim (and remember to update locking in derived classes)
 // TODO: we may want FileLockManager to just clobber the file if it's invalid, possibly with an option to enable this. that way, a
 // corrupt lock file (e.g. due to a sudden shutdown) won't stop the server from working
 
@@ -947,7 +946,6 @@ public class FileLockManager : LockManager
   void OnChanged()
   {
     // OnChanged() is always called from within a lock, so we don't need any locking semantics here
-    // NOTE: if the base class changes to use a ReaderWriterLockSlim, something will need to change so the lock(this) in WriteChanges works
     if(!pendingWrite)
     {
       timer.Change(writeInterval, Timeout.Infinite);

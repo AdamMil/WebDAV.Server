@@ -16,6 +16,7 @@ using HiA.WebDAV.Server.Configuration;
 // TODO: support the Expects header (RFC 2616 section 14.20) if IIS doesn't do it for us
 // TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI, but we
 // might do that sometimes... check for it and see what we can do about it...
+// TODO: see if we can annotate the code with reliability attributes. (http://msdn.microsoft.com/en-us/magazine/cc163716.aspx)
 
 namespace HiA.WebDAV.Server
 {
