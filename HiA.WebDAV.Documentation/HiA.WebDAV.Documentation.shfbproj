@@ -29,7 +29,7 @@
     <SdkLinkTarget>Blank</SdkLinkTarget>
     <RootNamespaceContainer>False</RootNamespaceContainer>
     <PresentationStyle>vs2005</PresentationStyle>
-    <Preliminary>False</Preliminary>
+    <Preliminary>True</Preliminary>
     <NamingMethod>Guid</NamingMethod>
     <HelpTitle>HiA.WebDAV Documentation</HelpTitle>
     <FeedbackEMailAddress>adam%40adammil.net</FeedbackEMailAddress>
@@ -46,7 +46,8 @@
     </DocumentationSources>
     <NamespaceSummaries>
       <NamespaceSummaryItem name="HiA.WebDAV.Server" isDocumented="True" xmlns="">This namespace contains the classes intended to be used to create WebDAV services.</NamespaceSummaryItem>
-<NamespaceSummaryItem name="HiA.WebDAV.Server.Configuration" isDocumented="True" xmlns="">This namespace contains configuration elements not intended to be directly used by WebDAV applications.</NamespaceSummaryItem></NamespaceSummaries>
+      <NamespaceSummaryItem name="HiA.WebDAV.Server.Configuration" isDocumented="True" xmlns="">This namespace contains configuration elements not intended to be directly used by WebDAV applications.</NamespaceSummaryItem>
+    </NamespaceSummaries>
   </PropertyGroup>
   <!-- There are no properties for these groups.  AnyCPU needs to appear in
        order for Visual Studio to perform the build.  The others are optional
