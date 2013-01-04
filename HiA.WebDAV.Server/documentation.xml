@@ -307,7 +307,7 @@
   <LockManager>
     <Dispose>
       <summary>Called to dispose the lock manager.</summary>
-      <param name="finalizing">True if the method was called from the finalizer and false if not.</param>
+      <param name="manualDispose">False if the method was called from the finalizer and true if not.</param>
       <remarks>This method should be overriden by derived lock managers to flush lock data to persistent storage.</remarks>
     </Dispose>
     <OnLockAdded>
@@ -393,6 +393,10 @@
       <param name="resource">
         A variable that will receive the <see cref="IWebDAVResource"/> corresponding to the <paramref name="uri"/>.
       </param>
+      <remarks>
+        If the <see cref="IWebDAVService.IsReusable"/> property of the returned <see cref="IWebDAVService"/> is false, you should dispose
+        it if it implements <see cref="IDisposable"/>.
+      </remarks>
     </ResolveUri>
   </WebDAVModule>
   

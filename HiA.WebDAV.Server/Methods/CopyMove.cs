@@ -13,7 +13,7 @@ namespace HiA.WebDAV.Server
 
 /// <summary>Represents a <c>COPY</c> or <c>MOVE</c> request.</summary>
 /// <remarks>The <c>COPY</c> and <c>MOVE</c> requests are described in sections 9.8 and 9.9 of RFC 4918.</remarks>
-public class CopyOrMoveRequest : WebDAVRequest
+public class CopyOrMoveRequest : WebDAVRequest, IDisposable
 {
   /// <summary>Initializes a new <see cref="CopyOrMoveRequest"/> based on a new WebDAV request.</summary>
   public CopyOrMoveRequest(WebDAVContext context) : base(context)
@@ -95,6 +95,18 @@ public class CopyOrMoveRequest : WebDAVRequest
   /// resources.) If null, application-specific default behavior should be applied.
   /// </summary>
   public bool? Overwrite { get; private set; }
+
+  /// <inheritdoc/>
+  public void Dispose()
+  {
+    Dispose(true);
+  }
+
+  /// <summary>Called to dispose the request.</summary>
+  protected virtual void Dispose(bool manualDispose)
+  {
+    if(DestinationService != null && !DestinationService.IsReusable) Utility.Dispose(DestinationService);
+  }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()

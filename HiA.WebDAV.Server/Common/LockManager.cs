@@ -428,7 +428,7 @@ public abstract class LockManager : ILockManager
   /// <summary>Finalizes the <see cref="LockManager"/> by calling <see cref="Dispose(bool)"/>.</summary>
   ~LockManager()
   {
-    Dispose(true);
+    Dispose(false);
     disposed = true;
   }
 
@@ -482,7 +482,7 @@ public abstract class LockManager : ILockManager
   /// <inheritdoc/>
   public void Dispose()
   {
-    Dispose(false);
+    Dispose(true);
     GC.SuppressFinalize(this);
     disposed = true;
   }
@@ -635,7 +635,7 @@ public abstract class LockManager : ILockManager
   }
 
   /// <include file="documentation.xml" path="/DAV/LockManager/Dispose/node()" />
-  protected virtual void Dispose(bool finalizing) { }
+  protected virtual void Dispose(bool manualDispose) { }
 
   /// <summary>Returns a list of all locks currently existing in the lock manager. Note that this method may call
   /// <see cref="OnLockRemoved"/> if an expired lock is discovered and removed by this method, so <see cref="OnLockRemoved"/> must be
@@ -854,7 +854,7 @@ public class FileLockManager : LockManager
   }
 
   /// <include file="documentation.xml" path="/DAV/LockManager/Dispose/node()" />
-  protected override void Dispose(bool finalizing)
+  protected override void Dispose(bool manualDispose)
   {
     if(!disposed)
     {
@@ -876,7 +876,7 @@ public class FileLockManager : LockManager
       }
     }
 
-    base.Dispose(finalizing);
+    base.Dispose(manualDispose);
   }
 
   /// <summary>Called to execute the given action, such as opening the lock file, in an elevated privilege context when the
