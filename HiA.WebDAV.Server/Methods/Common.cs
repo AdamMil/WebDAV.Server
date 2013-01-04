@@ -311,8 +311,9 @@ public abstract class WebDAVRequest
           IWebDAVResource resource;
           if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource))
           {
-            metadata  = resource.GetEntityMetadata(clause.ChecksEntityTag());
+            metadata = resource.GetEntityMetadata(clause.ChecksEntityTag());
           }
+          if(service != null && !service.IsReusable) Utility.Dispose(service);
         }
 
         foreach(IfList list in clause.Lists)

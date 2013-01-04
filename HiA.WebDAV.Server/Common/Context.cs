@@ -13,7 +13,7 @@ namespace HiA.WebDAV.Server
 {
 
 /// <summary>Contains information about the current WebDAV request.</summary>
-public sealed class WebDAVContext
+public sealed class WebDAVContext : IDisposable
 {
   internal WebDAVContext(IWebDAVService service, string serviceRootPath, string requestPath, HttpApplication app,
                          ILockManager lockManager, Configuration config)
@@ -376,6 +376,11 @@ public sealed class WebDAVContext
     public static readonly RestrictiveResolver Instance = new RestrictiveResolver();
   }
   #endregion
+
+  void IDisposable.Dispose()
+  {
+    if(!Service.IsReusable) Utility.Dispose(Service);
+  }
 
   /// <summary>Returns a default preference value for a content encoding.</summary>
   static int GetDefaultPreference(string encoding)
