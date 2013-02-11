@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 #endif
 [assembly: AssemblyCompany("Webmedia")]
 [assembly: AssemblyProduct("HiA.NET")]
-[assembly: AssemblyCopyright("Copyright © Webmedia 2012")]
+[assembly: AssemblyCopyright("Copyright © Webmedia 2012-2013")]
 
 [assembly: ComVisible(false)]
 
