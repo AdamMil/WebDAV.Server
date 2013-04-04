@@ -84,6 +84,12 @@ public class LockRequest : WebDAVRequest
   /// </summary>
   public ReadOnlyListWrapper<uint> RequestedTimeouts { get; private set; }
 
+  /// <summary>Gets or sets arbitrary data to be associated with any lock created by the lock request. If null, no additional information
+  /// will be associated with the lock. This property is not used if a lock is merely refreshed and so cannot be used to alter the data
+  /// associated with an existing lock.
+  /// </summary>
+  public XmlElement ServerData { get; set; }
+
   /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
   /// <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
   /// <param name="supportsRecursiveLocks">True if the resource supports recursive locks and false if not. Typically, true should be passed
@@ -160,7 +166,7 @@ public class LockRequest : WebDAVRequest
         {
           try
           {
-            NewLock = Context.LockManager.AddLock(absolutePath, LockType, recursive, requestedTimeout, OwnerData);
+            NewLock = Context.LockManager.AddLock(absolutePath, LockType, recursive, requestedTimeout, OwnerData, ServerData);
           }
           catch(LockConflictException)
           {

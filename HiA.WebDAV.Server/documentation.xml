@@ -23,6 +23,10 @@
         An <see cref="XmlElement"/> containing the <c>DAV:owner</c> element supplied by the client with the lock request, or null if no
         <c>owner</c> element was supplied.
       </param>
+      <param name="serverData">
+        An <see cref="XmlElement"/> containing arbitrary data the server wishes to associated with the lock, or null if no additional data
+        is to be associated with the lock.
+      </param>
       <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
       <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
       <exception cref="LockLimitReachedException">Thrown if adding the lock would cause a lock limit to be exceeded.</exception>
