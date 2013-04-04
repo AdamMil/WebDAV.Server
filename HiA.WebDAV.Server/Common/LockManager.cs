@@ -34,11 +34,12 @@ public sealed class ActiveLock : IElementValue
   /// does not expire.
   /// </param>
   /// <param name="ownerData">Arbitrary data about the owner of the lock submitted by the client.</param>
+  /// <param name="serverData">Arbitrary data associated with the lock by the server.</param>
   /// <exception cref="ArgumentException">Thrown if <paramref name="lockToken"/> is empty, or if <paramref name="ownerData"/> is specified
   /// but is not a <c>DAV:owner</c> element.
   /// </exception>
   public ActiveLock(string absoluteLockRoot, string lockToken, LockType lockType, bool recursive,
-                    DateTime creationTime, uint timeoutSeconds, XmlElement ownerData)
+                    DateTime creationTime, uint timeoutSeconds, XmlElement ownerData, XmlElement serverData)
   {
     if(absoluteLockRoot == null || lockToken == null || lockType == null) throw new ArgumentNullException();
     if(string.IsNullOrEmpty(lockToken)) throw new ArgumentException("A lock token is required.");
@@ -56,6 +57,8 @@ public sealed class ActiveLock : IElementValue
       if(!ownerData.HasName(DAVNames.owner)) throw new ArgumentException("The owner data must be a DAV:owner element.");
       _owner = ownerData.Extract();
     }
+
+    if(serverData != null) _serverData = serverData.Extract();
 
     CreationTime = creationTime.Kind == DateTimeKind.Local ?
       creationTime.ToUniversalTime() : DateTime.SpecifyKind(creationTime, DateTimeKind.Utc);
@@ -75,18 +78,13 @@ public sealed class ActiveLock : IElementValue
 
     CreationTime = reader.ReadDateTime();
     if(reader.ReadBoolean()) ExpirationTime = reader.ReadDateTime();
-    Path      = reader.ReadString();
-    Recursive = reader.ReadBoolean();
-    Timeout   = reader.ReadEncodedUInt32();
-    Token     = reader.ReadString();
-    Type      = LockType.Load(reader);
-
-    if(reader.ReadBoolean())
-    {
-      XmlDocument xml = new XmlDocument();
-      xml.LoadXml(reader.ReadString());
-      _owner = xml.DocumentElement;
-    }
+    Path        = reader.ReadString();
+    Recursive   = reader.ReadBoolean();
+    Timeout     = reader.ReadEncodedUInt32();
+    Token       = reader.ReadString();
+    Type        = LockType.Load(reader);
+    _owner      = ReadXmlData(reader);
+    _serverData = ReadXmlData(reader);
   }
 
   /// <summary>Gets the time when the lock was originally created, in UTC.</summary>
@@ -122,6 +120,14 @@ public sealed class ActiveLock : IElementValue
     return _owner == null ? null : (XmlElement)_owner.Clone();
   }
 
+  /// <summary>Returns arbitrary information associated with the lock by the server. If null, no server information was associated with the
+  /// lock.
+  /// </summary>
+  public XmlElement GetServerData()
+  {
+    return _serverData == null ? null : (XmlElement)_serverData.Clone();
+  }
+
   /// <summary>Gets whether the given absolute path is within the scope of the lock.</summary>
   public bool IsInScope(string absolutePath)
   {
@@ -147,14 +153,8 @@ public sealed class ActiveLock : IElementValue
     writer.WriteEncoded(Timeout);
     writer.Write(Token);
     Type.Save(writer);
-
-    writer.Write(_owner != null);
-    if(_owner != null)
-    {
-      StringWriter sw = new StringWriter(CultureInfo.InvariantCulture);
-      _owner.OwnerDocument.Save(sw);
-      writer.Write(sw.ToString());
-    }
+    WriteXmlData(writer, _owner);
+    WriteXmlData(writer, _serverData);
   }
 
   /// <inheritdoc/>
@@ -212,7 +212,30 @@ public sealed class ActiveLock : IElementValue
   }
   #endregion
 
-  XmlElement _owner;
+  XmlElement _owner, _serverData;
+
+  static XmlElement ReadXmlData(BinaryReader reader)
+  {
+    XmlElement el = null;
+    if(reader.ReadBoolean())
+    {
+      XmlDocument xml = new XmlDocument();
+      xml.LoadXml(reader.ReadString());
+      el = xml.DocumentElement;
+    }
+    return el;
+  }
+
+  static void WriteXmlData(BinaryWriter writer, XmlElement data)
+  {
+    writer.Write(data != null);
+    if(data != null)
+    {
+      StringWriter sw = new StringWriter(CultureInfo.InvariantCulture);
+      data.OwnerDocument.Save(sw);
+      writer.Write(sw.ToString());
+    }
+  }
 }
 #endregion
 
@@ -356,7 +379,8 @@ public sealed class LockType : IElementValue
 public interface ILockManager : IDisposable
 {
   /// <include file="documentation.xml" path="/DAV/ILockManager/AddLock/node()" />
-  ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData);
+  ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData,
+                     XmlElement serverData);
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetConflictingLocks/node()" />
   IList<ActiveLock> GetConflictingLocks(string absolutePath, LockType type, bool recursive);
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetLock/node()" />
@@ -449,7 +473,8 @@ public abstract class LockManager : ILockManager
   public uint MaximumTimeout { get; set; }
 
   /// <include file="documentation.xml" path="/DAV/ILockManager/AddLock/node()" />
-  public ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData)
+  public ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData,
+                            XmlElement serverData)
   {
     ValidateAbsolutePath(absolutePath);
     if(type == null) throw new ArgumentNullException();
@@ -471,7 +496,7 @@ public abstract class LockManager : ILockManager
       }
 
       ActiveLock newLock = new ActiveLock(absolutePath, MakeLockToken(), type, recursive, DateTime.UtcNow,
-                                          ClipTimeout(timeoutSeconds ?? DefaultTimeout), ownerData);
+                                          ClipTimeout(timeoutSeconds ?? DefaultTimeout), ownerData, serverData);
       locksByToken.Add(newLock.Token, newLock);
       locksByUrl.Add(newLock.Path, newLock);
       OnLockAdded(newLock);
