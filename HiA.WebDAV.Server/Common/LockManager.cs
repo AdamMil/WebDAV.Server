@@ -144,7 +144,7 @@ public sealed class ActiveLock : IElementValue
   public void Save(BinaryWriter writer)
   {
     if(writer == null) throw new ArgumentNullException();
-    writer.Write((byte)0);
+    writer.Write((byte)0); // version 0
     writer.Write(CreationTime);
     writer.Write(ExpirationTime.HasValue);
     if(ExpirationTime.HasValue) writer.Write(ExpirationTime.Value);
