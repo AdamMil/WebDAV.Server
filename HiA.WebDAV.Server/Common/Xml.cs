@@ -323,11 +323,7 @@ static class XmlExtensions
   public static IEnumerable<XmlElement> EnumerateChildElements(this XmlNode node)
   {
     if(node == null) throw new ArgumentNullException();
-    foreach(XmlNode child in node.ChildNodes)
-    {
-      child.AssertElement();
-      yield return (XmlElement)child;
-    }
+    return EnumerateChildElementsCore(node); // put the generator in its own method so we can do argument validation eagerly
   }
 
   public static XmlElement GetChild(this XmlElement element, XmlQualifiedName qname)
@@ -351,6 +347,15 @@ static class XmlExtensions
     else
     {
       return false;
+    }
+  }
+
+  static IEnumerable<XmlElement> EnumerateChildElementsCore(XmlNode node)
+  {
+    foreach(XmlNode child in node.ChildNodes)
+    {
+      child.AssertElement();
+      yield return (XmlElement)child;
     }
   }
 }
