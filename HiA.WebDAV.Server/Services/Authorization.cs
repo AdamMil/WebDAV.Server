@@ -1,4 +1,12 @@
-﻿namespace HiA.WebDAV.Server
+﻿/*
+ * Version: EUPL 1.1
+ * 
+ * The contents of this file are subject to the European Union Public Licence Version 1.1 (the "Licence"); 
+ * you may not use this file except in compliance with the Licence. 
+ * You may obtain a copy of the Licence at:
+ * http://joinup.ec.europa.eu/software/page/eupl/licence-eupl
+ */
+namespace HiA.WebDAV.Server
 {
 
 /// <summary>Represents an object that can deny the requesting user access to execute the request.</summary>
