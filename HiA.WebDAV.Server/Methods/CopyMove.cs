@@ -1,4 +1,12 @@
-﻿using System;
+﻿/*
+ * Version: EUPL 1.1
+ * 
+ * The contents of this file are subject to the European Union Public Licence Version 1.1 (the "Licence"); 
+ * you may not use this file except in compliance with the Licence. 
+ * You may obtain a copy of the Licence at:
+ * http://joinup.ec.europa.eu/software/page/eupl/licence-eupl
+ */
+using System;
 
 // TODO: facilitate cross-service copies where either the source or destination can handle it. for instance, we may want the FlairPoint
 // service to allow files to be copied to/from the filesystem service. the logic would be implemented in the FlairPoint service regardless
