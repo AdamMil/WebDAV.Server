@@ -22,6 +22,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Debug\HiA.WebDAV.Server.xml</DocumentationFile>
+    <CodeAnalysisRuleSet>..\..\..\Analysis.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -31,6 +32,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Release\HiA.WebDAV.Server.xml</DocumentationFile>
+    <CodeAnalysisRuleSet>..\..\..\Analysis.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -46,6 +48,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Common\LockManager.cs" />
+    <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="Methods\CopyMove.cs" />
     <Compile Include="Methods\Delete.cs" />
     <Compile Include="Methods\Get.cs" />
@@ -65,11 +68,12 @@
     <Compile Include="Methods\Common.cs" />
     <Compile Include="Methods\PropFind.cs" />
     <Compile Include="Common\Miscellaneous.cs" />
-    <Compile Include="AssemblyInfo.cs" />
     <Compile Include="Services\FileSystemService.cs" />
     <Compile Include="Services\Resource.cs" />
     <Compile Include="Services\Service.cs" />
     <Compile Include="Common\Xml.cs" />
+    <None Include="..\..\..\SharedAssemblyInfo\SharedAssemblyInfo.base.cs" />
+    <Compile Include="SharedAssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Web.config.sample" />

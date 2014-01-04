@@ -6,6 +6,21 @@
     </Equals>
   </ConditionCode>
 
+  <IElementValue>
+    <GetNamespaces>
+      <summary>
+        Returns the XML namespaces used by the property value, or null if the value does not use any namespaces. It is not necessary
+        to include the <c>DAV:</c> namespace.
+      </summary>
+    </GetNamespaces>
+    <WriteValue>
+      <summary>
+        Writes the value into XML. Any namespaces used by the value will already have been defined in the enclosing context, so no
+        new <c>xmlns</c> attributes should be added.
+      </summary>
+    </WriteValue>
+  </IElementValue>
+
   <ILockManager>
     <AddLock>
       <summary>Adds a new resource lock if no conflicting lock exists.</summary>
@@ -114,8 +129,9 @@
         it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
         it's canonical, the path must not contain any unnecessarily encoded characters. In particular, you should not use
         <see cref="System.Web.HttpUtility.UrlPathEncode"/> to construct the path, since it encodes characters unnecessarily and so does not
-        produce a canonical path. Only the question mark (<c>?</c>) and number sign (<c>#</c>) should be escaped (as <c>%3f</c> and
-        <c>%23</c>, respectively). <see cref="DAVUtility.CanonicalPathEncode"/> will perform the appropriate encoding for you.
+        produce a canonical path. Only the question mark (<c>?</c>), percent sign (<c>%</c>), and number sign (<c>#</c>) should be escaped
+        (as <c>%3f</c>, <c>%25</c>, and <c>%23</c>, respectively). <see cref="DAVUtility.CanonicalPathEncode"/> will perform the
+        appropriate encoding for you.
       </remarks>
     </CanonicalPath>
     <CopyOrMove>

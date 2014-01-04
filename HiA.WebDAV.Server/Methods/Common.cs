@@ -129,13 +129,6 @@ public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedNa
     Items.Add(qname);
   }
 
-  internal void AddRange(IEnumerable<XmlQualifiedName> names)
-  {
-    foreach(XmlQualifiedName name in names) Add(name);
-  }
-
-  internal static readonly PropertyNameSet Empty = new PropertyNameSet();
-
   HashSet<XmlQualifiedName> names;
 }
 #endregion
@@ -169,6 +162,8 @@ public abstract class WebDAVRequest
   /// <summary>Initializes a new <see cref="WebDAVRequest"/> based on a new WebDAV request.</summary>
   protected WebDAVRequest(WebDAVContext context)
   {
+    if(context == null) throw new ArgumentNullException();
+
     Context    = context;
     MethodName = context.Request.HttpMethod;
 
@@ -788,7 +783,7 @@ public abstract class WebDAVRequest
 
         while(true)
         {
-          bool negated = value.StartsWith("Not ");
+          bool negated = value.StartsWith("Not ", StringComparison.Ordinal);
           if(negated)
           {
             index = SkipWhitespace(value, index+4);
@@ -888,8 +883,6 @@ public abstract class WebDAVRequest
     return index;
   }
 
-  static readonly Regex matchRe = new Regex(@"^\s*(?:(?:W/)?""(?:\\.|[^""])*""(?:\s*,\s*(?:W/)?""(?:\\.|[^""\\])*"")*\s*)?$",
-                                            RegexOptions.Compiled | RegexOptions.Singleline);
   static readonly EntityTag[] MatchAny = new EntityTag[0];
 }
 #endregion

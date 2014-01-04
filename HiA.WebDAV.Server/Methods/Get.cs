@@ -30,14 +30,46 @@ public struct ByteRange
   public ByteRange(long start, long length)
   {
     if(start < 0 || length < 0 || (start + length) < 0) throw new ArgumentOutOfRangeException();
-    Start  = start;
-    Length = length;
+    _start  = start;
+    _length = length;
   }
 
   internal ByteRange(long start, long length, bool dummy)
   {
-    Start  = start;
-    Length = length;
+    _start  = start;
+    _length = length;
+  }
+
+  /// <inheritdoc/>
+  public override bool Equals(object obj)
+  {
+    if(!(obj is ByteRange)) return false;
+    ByteRange range = (ByteRange)obj;
+    return range.Length == Length && range.Start == Start;
+  }
+
+  /// <summary>Determines whether this <see cref="ByteRange"/> object equals the given <see cref="ByteRange"/> object.</summary>
+  public bool Equals(ByteRange range)
+  {
+    return range.Length == Length && range.Start == Start;
+  }
+
+  /// <inheritdoc/>
+  public override int GetHashCode()
+  {
+    return Length.GetHashCode() ^ Start.GetHashCode();
+  }
+
+  /// <summary>Determines whether two <see cref="ByteRange"/> values are equal.</summary>
+  public static bool operator==(ByteRange a, ByteRange b)
+  {
+    return a._length == b._length && a._start == b._start;
+  }
+
+  /// <summary>Determines whether two <see cref="ByteRange"/> values are unequal.</summary>
+  public static bool operator!=(ByteRange a, ByteRange b)
+  {
+    return a._length != b._length || a._start != b._start;
   }
 
   /// <inheritdoc/>
@@ -46,11 +78,19 @@ public struct ByteRange
     return Start.ToInvariantString() + " + " + Length.ToInvariantString();
   }
 
-  /// <summary>Gets the start of the range, in bytes.</summary>
-  public readonly long Start;
-
   /// <summary>Gets the length the range, in bytes.</summary>
-  public readonly long Length;
+  public long Length
+  {
+    get { return _length; }
+  }
+
+  /// <summary>Gets the start of the range, in bytes.</summary>
+  public long Start
+  {
+    get { return _start; }
+  }
+
+  long _length, _start;
 }
 #endregion
 
@@ -121,6 +161,8 @@ public class GetOrHeadRequest : WebDAVRequest
         }
       }
     }
+
+    IsHeadRequest = context.Request.HttpMethod.OrdinalEquals(HttpMethods.Head);
   }
 
   /// <summary>Gets the value parsed from the HTTP <c>If-Range</c> header. This is either null (if the header was unspecified or invalid)

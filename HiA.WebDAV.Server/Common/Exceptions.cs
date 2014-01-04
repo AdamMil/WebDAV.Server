@@ -9,6 +9,7 @@
 using System;
 using System.Net;
 using System.Runtime.Serialization;
+using System.Security.Permissions;
 using System.Web;
 using System.Xml;
 
@@ -50,10 +51,24 @@ public class WebDAVException : HttpException
   public WebDAVException(int httpStatusCode, string message, Exception innerException) : base(httpStatusCode, message, innerException) { }
   public WebDAVException(string message) : base(message) { }
   public WebDAVException(string message, Exception innerException) : base(message, innerException) { }
-  protected WebDAVException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+
+  protected WebDAVException(SerializationInfo info, StreamingContext context) : base(info, context)
+  {
+    if(info == null) throw new ArgumentNullException();
+    ConditionCode = (ConditionCode)info.GetValue("ConditionCode", typeof(ConditionCode));
+  }
 
   /// <summary>Gets the WebDAV condition code associated with this exception, or null if no code was passed to the constructor.</summary>
   public ConditionCode ConditionCode { get; private set; }
+
+  /// <inheritdoc/>
+  [SecurityPermission(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.SerializationFormatter)]
+  public override void GetObjectData(SerializationInfo info, StreamingContext context)
+  {
+    if(info == null) throw new ArgumentNullException();
+    base.GetObjectData(info, context);
+    info.AddValue("ConditionCode", ConditionCode);
+  }
 
   static int GetStatusCode(ConditionCode conditionCode)
   {
