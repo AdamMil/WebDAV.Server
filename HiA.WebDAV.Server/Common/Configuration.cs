@@ -28,6 +28,7 @@ public sealed class AuthorizationFilterCollection : CustomElementCollection<Auth
   /// <inheritdoc/>
   protected override object GetElementKey(AuthorizationFilterElement element)
   {
+    if(element == null) throw new ArgumentNullException();
     return element.Type;
   }
 }
@@ -78,6 +79,7 @@ public sealed class LocationCollection : CustomElementCollection<LocationElement
   /// <inheritdoc/>
   protected override object GetElementKey(LocationElement element)
   {
+    if(element == null) throw new ArgumentNullException();
     return element.Match;
   }
 }

@@ -220,8 +220,11 @@ public sealed class WebDAVContext : IDisposable
         }
 
         float preference = acceptedEncodings[starIndex].Preference;
-        if(!hasGzip) acceptedEncodings.Add(new Accept("gzip", preference));
-        if(!hasDeflate) acceptedEncodings.Add(new Accept("deflate", preference));
+        if(enableCompression)
+        {
+          if(!hasGzip) acceptedEncodings.Add(new Accept("gzip", preference));
+          if(!hasDeflate) acceptedEncodings.Add(new Accept("deflate", preference));
+        }
         if(!hasIdentity) acceptedEncodings.Add(new Accept("identity", preference));
       }
 
@@ -239,7 +242,7 @@ public sealed class WebDAVContext : IDisposable
         string name = acceptable.Name;
         if(acceptable.Preference != 0) // if the encoding is allowed...
         {
-          if(name.OrdinalEquals("gzip") || name.OrdinalEquals("deflate") || name.OrdinalEquals("identity"))
+          if(enableCompression && (name.OrdinalEquals("gzip") || name.OrdinalEquals("deflate")) || name.OrdinalEquals("identity"))
           {
             encoding = name; // use it
             break;

@@ -25,13 +25,9 @@ namespace HiA.WebDAV.Server
 /// </summary>
 public interface IElementValue
 {
-  /// <summary>Returns the XML namespaces used by the property value, or null if the value does not use any namespaces. It is not necessary
-  /// to include the <c>DAV:</c> namespace.
-  /// </summary>
+  /// <include file="documentation.xml" path="/DAV/IElementValue/GetNamespaces/node()" />
   IEnumerable<string> GetNamespaces();
-  /// <summary>Writes the value into XML. Any namespaces used by the value will already have been defined in the enclosing context, so no
-  /// new <c>xmlns</c> attributes should be added.
-  /// </summary>
+  /// <include file="documentation.xml" path="/DAV/IElementValue/WriteValue/node()" />
   void WriteValue(XmlWriter writer, WebDAVContext context);
 }
 #endregion
@@ -961,15 +957,18 @@ public sealed class PropFindResource
     }
     else if(expectedType == DAVNames.xsDouble)
     {
-      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value);
+      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
     }
     else if(expectedType == DAVNames.xsFloat)
     {
-      if(value is float || IsInteger(value)) return Convert.ToSingle(value);
+      if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
     }
     else if(expectedType == DAVNames.xsDecimal)
     {
-      if(value is double || value is float || value is decimal || IsInteger(value)) return Convert.ToDecimal(value);
+      if(value is double || value is float || value is decimal || IsInteger(value))
+      {
+        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+      }
     }
     else if(expectedType == DAVNames.xsUInt)
     {

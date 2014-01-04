@@ -133,9 +133,10 @@ public sealed class ContentRange
 /// <summary>Contains useful utilities for DAV services.</summary>
 public static class DAVUtility
 {
+  // TODO: is it correct to encode percent signs?
   /// <summary>Encodes a string into the canonical URL path form so that it can be used to construct URL paths.</summary>
-  /// <remarks>This method only encodes the question mark (<c>?</c>) and number sign (<c>#</c>), which is the minimal encoding required
-  /// within a URL path.
+  /// <remarks>This method only encodes the question mark (<c>?</c>), number sign (<c>#</c>), and percent sign (<c>%</c>), which is the
+  /// minimal encoding required within a URL path.
   /// </remarks>
   public static string CanonicalPathEncode(string path)
   {
@@ -144,14 +145,15 @@ public static class DAVUtility
       for(int i=0; i<path.Length; i++)
       {
         char c = path[i];
-        if(c == '?' || c == '#')
+        if(c == '#' || c == '%' || c == '?')
         {
           StringBuilder sb = new StringBuilder(path.Length + 10);
           sb.Append(path, 0, i);
           while(true)
           {
-            if(c == '?') sb.Append("%3f");
-            else if(c == '#') sb.Append("%23");
+            if(c == '#') sb.Append("%23");
+            else if(c == '%') sb.Append("%25");
+            else if(c == '?') sb.Append("%3f");
             else sb.Append(c);
             if(++i == path.Length) break;
             c = path[i];
@@ -179,7 +181,6 @@ public static class DAVUtility
   public static EntityTag ComputeEntityTag(Stream entityBody, bool rewindStream)
   {
     if(entityBody == null) throw new ArgumentNullException();
-    long position = rewindStream ? entityBody.Position : 0;
     if(rewindStream) entityBody.Position = 0;
     return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false);
   }
@@ -232,23 +233,6 @@ public static class DAVUtility
     if(!string.IsNullOrEmpty(xmlLang)) element.SetAttribute(DAVNames.xmlLang, xmlLang);
     emptyDoc.AppendChild(element);
     return element;
-  }
-
-  /// <summary>Returns the absolute path of an absolute URI or a URI constructed from an absolute path.</summary>
-  internal static string GetAbsolutePath(Uri uri)
-  {
-    if(uri == null) throw new ArgumentNullException();
-    string path;
-    if(uri.IsAbsoluteUri)
-    {
-      path = uri.AbsolutePath;
-    }
-    else
-    {
-      path = uri.ToString();
-      if(path.Length == 0 || path[0] != '/') throw new ArgumentException("The given URI does not have an absolute path.");
-    }
-    return path;
   }
 
   /// <summary>Converts the given date time to UTC and truncates it to one-second precision as necessary. This produces a
@@ -570,6 +554,7 @@ public sealed class EntityTag : IElementValue
 
   void IElementValue.WriteValue(XmlWriter writer, WebDAVContext context)
   {
+    if(writer == null) throw new ArgumentNullException();
     writer.WriteString(ToHeaderString());
   }
 }

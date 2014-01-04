@@ -123,6 +123,7 @@ public class FileSystemService : WebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/MakeCollection/node()" />
   public override void MakeCollection(MkColRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     if(IsReadOnly)
     {
       base.MakeCollection(request); // call the default implementation, which denies the request
@@ -208,6 +209,7 @@ public class FileSystemService : WebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/Unlock/node()" />
   public override void Unlock(UnlockRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     if(IsReadOnly || request.Context.LockManager == null) base.Unlock(request); // deny the request if locking is not supported
     else request.ProcessStandardRequest(); // otherwise, anyone can remove a dangling lock
   }
@@ -402,6 +404,7 @@ public abstract class FileSystemResource : WebDAVResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
   public override void Unlock(UnlockRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     if(IsReadOnly || request.Context.LockManager == null) base.Unlock(request); // use the base implementation if we don't support locking
     else request.ProcessStandardRequest();
   }
@@ -577,6 +580,7 @@ public class DirectoryResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     request.ProcessStandardRequest(LockType.WriteLocks, true);
   }
 
@@ -771,6 +775,7 @@ public class FileResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     request.ProcessStandardRequest(LockType.WriteLocks, false);
   }
 
@@ -880,12 +885,14 @@ public class FileSystemRootResource : FileSystemResource
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
   public override void Lock(LockRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     request.ProcessStandardRequest(LockType.WriteLocks, true);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   public override void Options(OptionsRequest request)
   {
+    if(request == null) throw new ArgumentNullException();
     request.SupportsLocking = !IsReadOnly && request.Context.LockManager != null;
   }
 

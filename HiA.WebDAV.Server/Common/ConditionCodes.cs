@@ -15,6 +15,7 @@ namespace HiA.WebDAV.Server
 
 #region ConditionCode
 /// <summary>A representation of a WebDAV status code, which gives additional information about a result.</summary>
+[Serializable]
 public class ConditionCode
 {
   /// <summary>Initializes a new <see cref="ConditionCode"/> based on an HTTP status code.</summary>
@@ -157,7 +158,7 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   /// <param name="errorElement">The name of the WebDAV precondition error element. This parameter is required.</param>
   /// <param name="message">An additional message to send to the client.</param>
   /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
-  public LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, string[] absoluteResourcePaths)
+  protected LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, string[] absoluteResourcePaths)
     : base(httpStatusCode, errorElement, message)
   {
     if(absoluteResourcePaths == null || errorElement == null) throw new ArgumentNullException();
@@ -193,6 +194,7 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   /// </summary>
   protected override void WriteErrorElement(XmlWriter writer)
   {
+    if(writer == null) throw new ArgumentNullException();
     writer.WriteStartElement(ErrorElement);
     foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, path);
     writer.WriteEndElement();
