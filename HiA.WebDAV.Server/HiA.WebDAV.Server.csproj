@@ -7,7 +7,6 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>HiA.WebDAV.Server</RootNamespace>
     <AssemblyName>HiA.WebDAV.Server</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
@@ -66,7 +65,7 @@
     <Compile Include="Methods\Common.cs" />
     <Compile Include="Methods\PropFind.cs" />
     <Compile Include="Common\Miscellaneous.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="AssemblyInfo.cs" />
     <Compile Include="Services\FileSystemService.cs" />
     <Compile Include="Services\Resource.cs" />
     <Compile Include="Services\Service.cs" />
