@@ -1,0 +1,38 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebDAV.Server", "Server\WebDAV.Server.csproj", "{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.Utilities", "..\AdamMil.net\Utilities\AdamMil.Utilities.csproj", "{29134637-6D08-432C-8161-9DEEE13C955D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.Collections", "..\AdamMil.net\Collections\AdamMil.Collections.csproj", "{D9724C65-C54A-4671-BA0B-40B0B38464DD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.IO", "C:\Users\Adam\Desktop\AdamMil.net\IO\AdamMil.IO.csproj", "{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29134637-6D08-432C-8161-9DEEE13C955D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29134637-6D08-432C-8161-9DEEE13C955D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29134637-6D08-432C-8161-9DEEE13C955D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29134637-6D08-432C-8161-9DEEE13C955D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D9724C65-C54A-4671-BA0B-40B0B38464DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D9724C65-C54A-4671-BA0B-40B0B38464DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D9724C65-C54A-4671-BA0B-40B0B38464DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D9724C65-C54A-4671-BA0B-40B0B38464DD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
