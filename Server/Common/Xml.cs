@@ -249,9 +249,9 @@ public static class DAVNames
 }
 #endregion
 
-// TODO: add examples
 #region MultiStatusResponse
 /// <summary>Implements a wrapper around an <see cref="XmlWriter"/> that assists in the creation of 207 Multi-Status responses.</summary>
+/// <seealso cref="WebDAVContext.OpenMultiStatusResponse"/>
 public sealed class MultiStatusResponse : IDisposable
 {
   internal MultiStatusResponse(XmlWriter writer, HashSet<string> namespaces)
@@ -266,7 +266,6 @@ public sealed class MultiStatusResponse : IDisposable
     if(namespaces != null)
     {
       // add xmlns attributes to define each of the other namespaces used within the response
-      uint index = 0;
       foreach(string ns in namespaces)
       {
         // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't
@@ -274,7 +273,7 @@ public sealed class MultiStatusResponse : IDisposable
         // assumptions about namespace prefixes
         string prefix = ns.OrdinalEquals(DAVNames.DAV) ? null :
                         ns.OrdinalEquals(DAVNames.XmlSchemaInstance) ? "xsi" :
-                        ns.OrdinalEquals(DAVNames.XmlSchema) ? "xs" : MakeNamespaceName(index++);
+                        ns.OrdinalEquals(DAVNames.XmlSchema) ? "xs" : MakeNamespacePrefix();
         if(prefix != null) writer.WriteAttributeString("xmlns", prefix, null, ns);
       }
     }
@@ -305,10 +304,16 @@ public sealed class MultiStatusResponse : IDisposable
     }
   }
 
+  internal string MakeNamespacePrefix()
+  {
+    return MakeNamespacePrefix(namespaceNameCount++);
+  }
+
+  uint namespaceNameCount;
   bool disposed;
 
-  /// <summary>Creates a unique namespace name for a non-negative integer.</summary>
-  static string MakeNamespaceName(uint i)
+  /// <summary>Creates a unique namespace prefix for a non-negative integer.</summary>
+  static string MakeNamespacePrefix(uint i)
   {
     const string letters = "abcdefghijklmnopqrstuvwxyz"; // first use letters a-z and then switch to names like ns26, ns27, etc.
     return i < letters.Length ? new string(letters[(int)i], 1) : "ns" + i.ToStringInvariant();

@@ -25,8 +25,6 @@ using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: add dead properties, etc.
-// TODO: add or find xml types for guid and other common values that aren't in xs:
 // TODO: other stuff from DAV RFC section 4.3
 
 namespace AdamMil.WebDAV.Server
@@ -140,57 +138,61 @@ public class PropFindRequest : WebDAVRequest
   public PropFindResourceCollection Resources { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
-  /// <param name="properties">A dictionary containing all of the properties for the request resource. Live properties that are expensive
+  /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive
   /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
   /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null). In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates which will provide
+  /// be null). Dead properties only need to be added if you want to override properties from the configured <see cref="IPropertyStore"/>.
+  /// In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates which will provide
   /// the values when executed. This allows you to add delegates that compute expensive properties only when needed.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, properties);
+    AddResource(Context.RequestPath, properties, SetObjectValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
-  /// <param name="properties">A dictionary containing all of the properties for the request resource. Live properties that are expensive
-  /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
+  /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive to
+  /// compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
   /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null).
+  /// be null). Dead properties only need to be added if you want to override properties from the configured <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, properties);
+    AddResource(Context.RequestPath, properties, SetPropFindValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
-  /// <param name="getProperties">Given a value representing a resource, returns a dictionary containing all of the resource's properties.
-  /// Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
-  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
-  /// case, the property values are ignored and can be null). In addition to property values, the dictionary can also contain
+  /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
+  /// properties. Live properties that are expensive to compute or transmit only need to be returned if they are referenced by the
+  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
+  /// the property values are ignored and can be null). Dead properties only need to be returned if you want to override properties from
+  /// the configured <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain
   /// <c>Func&lt;object&gt;</c> delegates which will provide the values when executed. This allows you to add delegates that compute
   /// expensive properties only when needed.
   /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
-                                        Func<T, IDictionary<XmlQualifiedName, object>> getProperties, Func<T, IEnumerable<T>> getChildren)
+                                        Func<T, string, IDictionary<XmlQualifiedName, object>> getProperties,
+                                        Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, Context.RequestPath, 0);
+    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, SetObjectValue, Context.RequestPath, 0);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
-  /// <param name="getProperties">Given a value representing a resource, returns a dictionary containing all of the resource's properties.
-  /// Live properties that are expensive to compute or transmit only need to be added if they are referenced by the
-  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter
-  /// case, the property values are ignored and can be null).
+  /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
+  /// properties. Live Properties that are expensive to compute or transmit only need to be returned if they are referenced by the
+  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
+  /// the property values are ignored and can be null). Dead properties only need to be added if you want to override properties from the
+  /// configured <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
-                                        Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties,
-                                        Func<T, IEnumerable<T>> getChildren)
+                                        Func<T, string, IDictionary<XmlQualifiedName, PropFindValue>> getProperties,
+                                        Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, Context.RequestPath, 0);
+    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, SetPropFindValue, Context.RequestPath, 0);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -280,56 +282,65 @@ public class PropFindRequest : WebDAVRequest
           writer.WriteStartElement(DAVNames.prop.Name);
           foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
           {
-            writer.WriteStartElement(ppair.Key); // write the property name
-            if(ppair.Value != null) // if the property has a type or value or language...
+            XmlElement element = ppair.Value == null ? null : ppair.Value.Value as XmlElement;
+            if(element != null) // if we have to output a raw XML element...
             {
-              // if the property has a type that should be reported, write it in an xsi:type attribute
-              XmlQualifiedName type = ppair.Value.Type;
-              if(type != null)
-              {
-                writer.WriteAttributeString(DAVNames.xsiType, StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
-              }
-
-              // if the property has a language, write it in an xml:lang attribute
-              if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
-
-              object value = ppair.Value.Value;
-              if(value != null) // if the property has a value...
-              {
-                // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
-                IElementValue elementValue = value as IElementValue;
-                System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
-                if(elementValue != null) // if the value implements IElementValue...
-                {
-                  elementValue.WriteValue(writer, Context); // let IElementValue do the writing
-                }
-                else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
-                {
-                  foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
-                }
-                else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
-                {
-                  byte[] binaryValue = (byte[])value;
-                  if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
-                  else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
-                }
-                else if(type == DAVNames.xsDate) // if the type is specified as xs:date, write only the date portions of any datetime values
-                {
-                  if(value is DateTime) writer.WriteDate((DateTime)value);
-                  else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
-                  else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
-                }
-                else if(value is XmlDuration || value is Guid)
-                {
-                  writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
-                }
-                else // in the general case, just use .WriteValue(object) to write the value appropriately
-                {
-                  writer.WriteValue(value); // TODO: test this with numeric types such as sbyte, uint, etc. (the WriteValue documentation doesn't mention them)
-                }
-              }
+              WriteElement(response, element);
             }
-            writer.WriteEndElement(); // end property name (i.e. ppair.Key)
+            else // otherwise, we're outputting a value
+            {
+              writer.WriteStartElement(ppair.Key); // write the property name
+              if(ppair.Value != null) // if the property has a type or value or language...
+              {
+                // if the property has a type that should be reported, write it in an xsi:type attribute
+                XmlQualifiedName type = ppair.Value.Type;
+                if(type != null)
+                {
+                  writer.WriteAttributeString(DAVNames.xsiType,
+                                              StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
+                }
+
+                // if the property has a language, write it in an xml:lang attribute
+                if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
+
+                object value = ppair.Value.Value;
+                if(value != null) // if the property has a value...
+                {
+                  // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
+                  IElementValue elementValue = value as IElementValue;
+                  System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
+                  if(elementValue != null) // if the value implements IElementValue...
+                  {
+                    elementValue.WriteValue(writer, Context); // let IElementValue do the writing
+                  }
+                  else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
+                  {
+                    foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
+                  }
+                  else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
+                  {
+                    byte[] binaryValue = (byte[])value;
+                    if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
+                    else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
+                  }
+                  else if(type == DAVNames.xsDate) // if the type is xs:date, write only the date portions of any datetime values
+                  {
+                    if(value is DateTime) writer.WriteDate((DateTime)value);
+                    else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
+                    else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
+                  }
+                  else if(value is XmlDuration || value is Guid)
+                  {
+                    writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
+                  }
+                  else // in the general case, just use .WriteValue(object) to write the value appropriately
+                  {
+                    writer.WriteValue(value);
+                  }
+                }
+              }
+              writer.WriteEndElement(); // end property name (i.e. ppair.Key)
+            }
           }
           writer.WriteEndElement(); // </prop>
 
@@ -388,58 +399,55 @@ public class PropFindRequest : WebDAVRequest
   /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
   /// <see cref="Resources"/>.
   /// </summary>
-  void AddResource(string canonicalPath, IDictionary<XmlQualifiedName, object> properties)
+  void AddResource<V>(string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
+                      Action<PropFindResource,XmlQualifiedName,V> setValue)
   {
     PropFindResource resource = new PropFindResource(canonicalPath);
+    string absolutePath = Context.ServiceRoot + canonicalPath;
     if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
     {
-      resource.SetNames(properties.Keys); // add them
+      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(absolutePath).Keys);
+      resource.SetNames(properties.Keys);
     }
     else // otherwise, the client wants property values
     {
-      foreach(XmlQualifiedName name in Properties) // add the values of properties that the client explicitly requested
-      {
-        object value;
-        if(properties.TryGetValue(name, out value)) resource.SetValue(name, GetPropertyValue(value));
-        else resource.SetError(name, ConditionCodes.NotFound);
-      }
+      // collect the dead properties for the resource
+      IDictionary<XmlQualifiedName,XmlProperty> deadProperties =
+        Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(absolutePath);
 
-      if((Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all other properties too...
+      if(Properties.Count != 0) // if the client explicitly requested certain properties...
       {
-        foreach(KeyValuePair<XmlQualifiedName, object> pair in properties)
+        foreach(XmlQualifiedName name in Properties) // for each explicitly requested property name...
         {
-          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, GetPropertyValue(pair.Value)); // add them if we haven't done so
+          V value;
+          XmlProperty deadProperty;
+          if(properties.TryGetValue(name, out value))
+          {
+            setValue(resource, name, value);
+          }
+          else if(deadProperties != null && deadProperties.TryGetValue(name, out deadProperty))
+          {
+            resource.SetValue(name, GetPropFindValue(deadProperty));
+          }
+          else
+          {
+            resource.SetError(name, ConditionCodes.NotFound);
+          }
         }
       }
-    }
-
-    Resources.Add(resource);
-  }
-
-  /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
-  /// <see cref="Resources"/>.
-  /// </summary>
-  void AddResource(string canonicalPath, IDictionary<XmlQualifiedName, PropFindValue> properties)
-  {
-    PropFindResource resource = new PropFindResource(canonicalPath);
-    if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
-    {
-      resource.SetNames(properties.Keys); // add them
-    }
-    else // otherwise, the client wants property values
-    {
-      foreach(XmlQualifiedName name in Properties) // add the values of properties that the client explicitly requested
-      {
-        PropFindValue value;
-        if(!properties.TryGetValue(name, out value)) resource.SetError(name, ConditionCodes.NotFound);
-        else resource.SetValue(name, value);
-      }
 
       if((Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all other properties too...
       {
-        foreach(KeyValuePair<XmlQualifiedName, PropFindValue> pair in properties)
+        foreach(KeyValuePair<XmlQualifiedName, V> pair in properties) // first add service properties
         {
-          if(!Properties.Contains(pair.Key)) resource.SetValue(pair.Key, pair.Value); // set the property if we haven't already...
+          if(!Properties.Contains(pair.Key)) setValue(resource, pair.Key, pair.Value); // set the property if we haven't already...
+        }
+        if(deadProperties != null) // if there are dead properties...
+        {
+          foreach(XmlProperty deadProperty in deadProperties.Values) // add them, giving priority to property values from the service
+          {
+            if(!resource.Contains(deadProperty.Name)) resource.SetValue(deadProperty.Name, GetPropFindValue(deadProperty));
+          }
         }
       }
     }
@@ -448,51 +456,34 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
-  void ProcessStandardRequest<T>(T resource, Func<T, string> getCanonicalPath,
-                                 Func<T, IDictionary<XmlQualifiedName, object>> getProperties, Func<T, IEnumerable<T>> getChildren,
-                                 string davPath, int depth)
+  void ProcessStandardRequest<T,V>(T resource, Func<T, string> getCanonicalPath,
+                                   Func<T, string, IDictionary<XmlQualifiedName, V>> getProperties,
+                                   Func<T, string, IEnumerable<T>> getChildren,
+                                   Action<PropFindResource,XmlQualifiedName,V> setValue, string davPath, int depth)
   {
     // add the given resource, validating the return values from the delegates first
     string name = getCanonicalPath(resource);
     if(name == null) throw new ArgumentException("A member name was null.");
-    IDictionary<XmlQualifiedName,object> properties = getProperties(resource);
+    IDictionary<XmlQualifiedName,V> properties = getProperties(resource, davPath);
     if(properties == null) throw new ArgumentException("The properties dictionary for " + name + " was null.");
     davPath += name;
-    AddResource(davPath, properties);
+    AddResource(davPath, properties, setValue);
 
     if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
     {
-      IEnumerable<T> children = getChildren(resource);
+      IEnumerable<T> children = getChildren(resource, davPath);
       if(children != null)
       {
         davPath = DAVUtility.WithTrailingSlash(davPath);
-        foreach(T child in children) ProcessStandardRequest(child, getCanonicalPath, getProperties, getChildren, davPath, depth+1);
+        foreach(T child in children) ProcessStandardRequest(child, getCanonicalPath, getProperties, getChildren, setValue, davPath, depth+1);
       }
     }
   }
 
-  /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
-  void ProcessStandardRequest<T>(T resource, Func<T, string> getMemberName,
-                                 Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties, Func<T, IEnumerable<T>> getChildren,
-                                 string davPath, int depth)
+  static PropFindValue GetPropFindValue(XmlProperty deadProperty)
   {
-    // add the given resource, validating the return values from the delegates first
-    string name = getMemberName(resource);
-    if(name == null) throw new ArgumentException("A member name was null.");
-    IDictionary<XmlQualifiedName, PropFindValue> properties = getProperties(resource);
-    if(properties == null) throw new ArgumentException("The properties dictionary for " + name + " was null.");
-    davPath += name;
-    AddResource(davPath, properties);
-
-    if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
-    {
-      IEnumerable<T> children = getChildren(resource);
-      if(children != null)
-      {
-        davPath = DAVUtility.WithTrailingSlash(davPath);
-        foreach(T child in children) ProcessStandardRequest(child, getMemberName, getProperties, getChildren, davPath, depth+1);
-      }
-    }
+    return deadProperty.Element != null ? new PropFindValue(deadProperty.Element) :
+      new PropFindValue(deadProperty.Value, deadProperty.Type, deadProperty.Language);
   }
 
   static object GetPropertyValue(object value)
@@ -503,6 +494,46 @@ public class PropFindRequest : WebDAVRequest
       if(getter != null) value = getter();
     }
     return value;
+  }
+
+  static void SetObjectValue(PropFindResource resource, XmlQualifiedName propertyName, object value)
+  {
+    resource.SetValue(propertyName, value);
+  }
+
+  static void SetPropFindValue(PropFindResource resource, XmlQualifiedName propertyName, PropFindValue value)
+  {
+    resource.SetValue(propertyName, value);
+  }
+
+  static void WriteElement(MultiStatusResponse response, XmlElement element)
+  {
+    XmlWriter writer = response.Writer;
+
+    // begin writing the start tag. we'll assume that all the namespaces are already mapped to prefixes
+    writer.WriteStartElement(element.LocalName, element.NamespaceURI);
+
+    // write the original element attributes, skipping xmlns attributes
+    foreach(XmlAttribute attr in element.Attributes)
+    {
+      if((attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns")) continue;
+      writer.WriteAttributeString(attr.LocalName, attr.NamespaceURI, attr.Value);
+    }
+
+    // now recursively write element content
+    foreach(XmlNode node in element.ChildNodes)
+    {
+      switch(node.NodeType)
+      {
+        case XmlNodeType.CDATA: writer.WriteCData(node.Value); break;
+        case XmlNodeType.Element: WriteElement(response, (XmlElement)node); break;
+        case XmlNodeType.SignificantWhitespace: writer.WriteString(node.Value); break;
+        case XmlNodeType.Text: writer.WriteString(node.Value); break;
+        case XmlNodeType.Whitespace: writer.WriteWhitespace(node.Value); break;
+      }
+    }
+
+    writer.WriteEndElement();
   }
 
   // use a System.Collections.Hashtable because it has a special implementation that allows lock-free reads
@@ -609,37 +640,7 @@ public sealed class PropFindResource
   public void SetValue(XmlQualifiedName property, object value, string language)
   {
     XmlQualifiedName type = null;
-    if(value != null && !builtInTypes.ContainsKey(property))
-    {
-      switch(Type.GetTypeCode(value.GetType()))
-      {
-        case TypeCode.Boolean: type = DAVNames.xsBoolean; break;
-        case TypeCode.Byte: type = DAVNames.xsUByte; break;
-        case TypeCode.Char: case TypeCode.String: type = DAVNames.xsString; break;
-        case TypeCode.DateTime:
-        {
-          DateTime dateTime = (DateTime)value;
-          type = dateTime.Kind == DateTimeKind.Unspecified && dateTime.TimeOfDay.Ticks == 0 ? DAVNames.xsDate : DAVNames.xsDateTime;
-          break;
-        }
-        case TypeCode.Decimal: type = DAVNames.xsDecimal; break;
-        case TypeCode.Double: type = DAVNames.xsDouble; break;
-        case TypeCode.Int16: type = DAVNames.xsShort; break;
-        case TypeCode.Int32: type = DAVNames.xsInt; break;
-        case TypeCode.Int64: type = DAVNames.xsLong; break;
-        case TypeCode.SByte: type = DAVNames.xsSByte; break;
-        case TypeCode.Single: type = DAVNames.xsFloat; break;
-        case TypeCode.UInt16: type = DAVNames.xsUShort; break;
-        case TypeCode.UInt32: type = DAVNames.xsUInt; break;
-        case TypeCode.UInt64: type = DAVNames.xsULong; break;
-        case TypeCode.Object:
-          if(value is DateTimeOffset) type = DAVNames.xsDateTime;
-          else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
-          else if(value is byte[]) type = DAVNames.xsB64Binary;
-          break;
-      }
-    }
-
+    if(value != null && !builtInTypes.ContainsKey(property)) type = DAVUtility.GetXsiType(value);
     SetValueCore(property, value, type, language);
   }
 
@@ -658,7 +659,7 @@ public sealed class PropFindResource
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
     if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) && !builtInTypes.ContainsKey(property))
     {
-      value = ValidateValueType(property, value, type);
+      value = ValidatePropertyValue(property, value, type);
     }
     SetValueCore(property, value, type, language);
   }
@@ -690,8 +691,8 @@ public sealed class PropFindResource
   {
     if(properties.Count == 0) throw new ContractViolationException("A PropFindResource must have at least one property.");
 
-    // perform a more expensive check in debug mode to ensure that all requested properties were provided on all resources
-    // TODO: should we remove the #if and do this check all the time?
+    // perform a more expensive check in debug mode to ensure that all requested properties were provided on all resources. (this helps
+    // check whether the service is implemented correctly)
     #if DEBUG
     foreach(XmlQualifiedName requestedProperty in request.Properties)
     {
@@ -722,13 +723,21 @@ public sealed class PropFindResource
           }
           else
           {
-            System.Collections.IEnumerable enumerable = PropFindRequest.GetElementValuesEnumerable(value);
-            if(enumerable != null)
+            XmlElement element = value as XmlElement;
+            if(element != null)
             {
-              foreach(IElementValue elemValue in enumerable)
+              AddElementNamespaces(element, namespaces);
+            }
+            else
+            {
+              System.Collections.IEnumerable enumerable = PropFindRequest.GetElementValuesEnumerable(value);
+              if(enumerable != null)
               {
-                IEnumerable<string> ns = elemValue.GetNamespaces();
-                if(ns != null) namespaces.UnionWith(ns);
+                foreach(IElementValue elemValue in enumerable)
+                {
+                  IEnumerable<string> ns = elemValue.GetNamespaces();
+                  if(ns != null) namespaces.UnionWith(ns);
+                }
               }
             }
           }
@@ -750,7 +759,7 @@ public sealed class PropFindResource
       // validate that the value matches the expected type
       if(expectedType != null)
       {
-        value = ValidateValueType(property, value, expectedType);
+        value = ValidatePropertyValue(property, value, expectedType);
       }
       else if(value != null)
       {
@@ -801,223 +810,29 @@ public sealed class PropFindResource
     properties[property] = type == null && value == null && language == null ? null : new PropertyValue(type, value, language);
   }
 
-  static bool IsInteger(object value)
+  static void AddElementNamespaces(XmlElement element, HashSet<string> namespaces)
   {
-    switch(Type.GetTypeCode(value.GetType()))
+    if(!string.IsNullOrEmpty(element.NamespaceURI)) namespaces.Add(element.NamespaceURI);
+
+    foreach(XmlAttribute attr in element.Attributes)
     {
-      case TypeCode.Byte: case TypeCode.Int16: case TypeCode.Int32: case TypeCode.Int64: case TypeCode.SByte: case TypeCode.UInt16:
-      case TypeCode.UInt32: case TypeCode.UInt64:
-        return true;
-      case TypeCode.Decimal:
+      if(!string.IsNullOrEmpty(attr.NamespaceURI) && !attr.Prefix.OrdinalEquals("xml") &&
+         !(attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns"))
       {
-        decimal d = (decimal)value;
-        return d == decimal.Truncate(d);
+        namespaces.Add(attr.NamespaceURI);
       }
-      case TypeCode.Double:
-      {
-        double d = (double)value;
-        return d == Math.Truncate(d);
-      }
-      case TypeCode.Single:
-      {
-        float d = (float)value;
-        return d == Math.Truncate(d);
-      }
-      default: return false;
+    }
+
+    foreach(XmlNode child in element.ChildNodes)
+    {
+      if(child.NodeType == XmlNodeType.Element) AddElementNamespaces((XmlElement)child, namespaces);
     }
   }
 
-  static long ValidateSignedInteger(XmlQualifiedName property, object value, long min, long max)
+  static object ValidatePropertyValue(XmlQualifiedName property, object value, XmlQualifiedName expectedType)
   {
-    long intValue;
-    try
-    {
-      switch(Type.GetTypeCode(value.GetType()))
-      {
-        case TypeCode.Decimal:
-        {
-          decimal d = (decimal)value, trunc = decimal.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = decimal.ToInt64(trunc);
-          break;
-        }
-        case TypeCode.Double:
-        {
-          double d = (double)value, trunc = Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((long)trunc);
-          break;
-        }
-        case TypeCode.Int16: intValue = (short)value; break;
-        case TypeCode.Int32: intValue = (int)value; break;
-        case TypeCode.Int64: intValue = (long)value; break;
-        case TypeCode.SByte: intValue = (sbyte)value; break;
-        case TypeCode.Single:
-        {
-          float d =  (float)value, trunc = (float)Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((long)trunc);
-          break;
-        }
-        case TypeCode.UInt16: intValue = (ushort)value; break;
-        case TypeCode.UInt32: intValue = (uint)value; break;
-        case TypeCode.UInt64:
-        {
-          ulong v = (ulong)value;
-          if(v > (ulong)long.MaxValue) goto failed;
-          else intValue = (long)v;
-          break;
-        }
-        default: goto failed;
-      }
-
-      if(intValue >= min && intValue <= max) return intValue;
-    }
-    catch(OverflowException)
-    {
-    }
-
-    failed:
-    throw new ContractViolationException(property.ToString() + " was expected to be an integer between " + min.ToStringInvariant() +
-                                         " and " + max.ToStringInvariant() + " (inclusive), but was " + value.ToString());
-  }
-
-  static ulong ValidateUnsignedInteger(XmlQualifiedName property, object value, ulong max)
-  {
-    ulong intValue;
-    try
-    {
-      switch(Type.GetTypeCode(value.GetType()))
-      {
-        case TypeCode.Decimal:
-        {
-          decimal d = (decimal)value, trunc = decimal.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = decimal.ToUInt64(trunc);
-          break;
-        }
-        case TypeCode.Double:
-        {
-          double d = (double)value, trunc = Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((ulong)trunc);
-          break;
-        }
-        case TypeCode.Int16: intValue = checked((ulong)(short)value); break;
-        case TypeCode.Int32: intValue = checked((ulong)(int)value); break;
-        case TypeCode.Int64: intValue = checked((ulong)(long)value); break;
-        case TypeCode.SByte: intValue = checked((ulong)(sbyte)value); break;
-        case TypeCode.Single:
-        {
-          float d =  (float)value, trunc = (float)Math.Truncate(d);
-          if(d != trunc) goto failed;
-          else intValue = checked((ulong)trunc);
-          break;
-        }
-        case TypeCode.UInt16: intValue = (ushort)value; break;
-        case TypeCode.UInt32: intValue = (uint)value; break;
-        case TypeCode.UInt64: intValue = (ulong)value; break;
-        default: goto failed;
-      }
-
-      if(intValue <= max) return intValue;
-    }
-    catch(OverflowException)
-    {
-    }
-
-    failed:
-    throw new ContractViolationException(property.ToString() + " was expected to be an integer between 0 and " + max.ToStringInvariant() +
-                                         " (inclusive), but was " + value.ToString());
-  }
-
-  static object ValidateValueType(XmlQualifiedName property, object value, XmlQualifiedName expectedType)
-  {
-    if(value == null)
-    {
-      return value;
-    }
-    else if(expectedType == DAVNames.xsString)
-    {
-      if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
-      return value;
-    }
-    if(expectedType == DAVNames.xsDateTime || expectedType == DAVNames.xsDate)
-    {
-      if(value is DateTime || value is DateTimeOffset) return value;
-    }
-    else if(expectedType == DAVNames.xsInt)
-    {
-      return (int)ValidateSignedInteger(property, value, int.MinValue, int.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsULong)
-    {
-      return ValidateUnsignedInteger(property, value, ulong.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsLong)
-    {
-      return ValidateSignedInteger(property, value, long.MinValue, long.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsBoolean)
-    {
-      if(value is bool) return value;
-    }
-    else if(expectedType == DAVNames.xsUri)
-    {
-      if(value is Uri) return value;
-      Uri uri;
-      if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
-    }
-    else if(expectedType == DAVNames.xsDouble)
-    {
-      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
-    }
-    else if(expectedType == DAVNames.xsFloat)
-    {
-      if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
-    }
-    else if(expectedType == DAVNames.xsDecimal)
-    {
-      if(value is double || value is float || value is decimal || IsInteger(value))
-      {
-        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-      }
-    }
-    else if(expectedType == DAVNames.xsUInt)
-    {
-      return (uint)ValidateUnsignedInteger(property, value, uint.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsShort)
-    {
-      return (short)ValidateSignedInteger(property, value, short.MinValue, short.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsUShort)
-    {
-      return (ushort)ValidateUnsignedInteger(property, value, ushort.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsUByte)
-    {
-      return (byte)ValidateUnsignedInteger(property, value, byte.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsSByte)
-    {
-      return (sbyte)ValidateSignedInteger(property, value, sbyte.MinValue, sbyte.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsDuration)
-    {
-      if(value is XmlDuration || value is TimeSpan) return value;
-    }
-    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
-    {
-      if(value is byte[]) return value;
-    }
-    else
-    {
-      return value; // we don't know how to validate it, so assume it's valid
-    }
-
-    throw new ContractViolationException(property + " is expected to be of type " + expectedType.ToString() + " but was of type " +
-                                         value.GetType().FullName);
+    try { return DAVUtility.ValidatePropertyValue(property, value, expectedType); }
+    catch(ArgumentException ex) { throw new ContractViolationException(ex.Message); }
   }
 
   static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
@@ -1038,6 +853,15 @@ public sealed class PropFindValue
   public PropFindValue(ConditionCode errorStatus)
   {
     Status = errorStatus;
+  }
+
+  /// <summary>Initializes a new <see cref="PropFindValue"/> with the XML element to be sent to the client. Note that the XML element
+  /// may be rewritten when output to avoid conflicting namespace prefixes with the rest of the response.
+  /// </summary>
+  public PropFindValue(XmlElement element)
+  {
+    if(element == null) throw new ArgumentNullException();
+    Value = element;
   }
 
   /// <summary>Initializes a new <see cref="PropFindValue"/> based on the property's value. The type of the value will be inferred. If you
@@ -1068,7 +892,7 @@ public sealed class PropFindValue
   {
     Type        = type;
     Value       = value;
-    Language    = string.IsNullOrEmpty(language) ? null : language;
+    Language    = StringUtility.MakeNullIfEmpty(language);
   }
 
   /// <summary>Gets the language of the value in <c>xml:lang</c> format, or null if no language is defined.</summary>
@@ -1082,7 +906,7 @@ public sealed class PropFindValue
   /// <summary>Gets the <c>xsi:type</c> of the property element, or null if no type was declared.</summary>
   public XmlQualifiedName Type { get; private set; }
 
-  /// <summary>Gets the value of the </summary>
+  /// <summary>Gets the value of the property.</summary>
   public object Value { get; private set; }
 
   internal bool InferType { get; private set; }

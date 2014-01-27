@@ -47,32 +47,13 @@ public sealed class AuthorizationFilterCollection : CustomElementCollection<Auth
 
 #region AuthorizationFilterElement
 /// <summary>Implements a <see cref="ConfigurationElement"/> representing an <see cref="IAuthorizationFilter"/>.</summary>
-public sealed class AuthorizationFilterElement : ConfigurationElement
+public sealed class AuthorizationFilterElement : TypeElementBase<IAuthorizationFilter>
 {
-  /// <summary>Initializes a new <see cref="AuthorizationFilterElement"/>.</summary>
-  public AuthorizationFilterElement()
-  {
-    Parameters = new ParameterCollection();
-  }
-
-  /// <summary>Gets a collection of additional parameters for the <see cref="IAuthorizationFilter"/>.</summary>
-  public ParameterCollection Parameters
-  {
-    get; private set;
-  }
-
   /// <summary>Gets the type implementing the <see cref="IAuthorizationFilter"/> interface, used restrict requests to resources.</summary>
   [ConfigurationProperty("type"), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(IAuthorizationFilter))]
   public Type Type
   {
-    get { return (Type)this["type"]; }
-  }
-
-  /// <inheritdoc/>
-  protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
-  {
-    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to filter instances
-    return true;
+    get { return InnerType; }
   }
 }
 #endregion
@@ -219,6 +200,13 @@ public sealed class LocationElement : ConfigurationElement
   /// <summary>Gets a collection of additional parameters for the <see cref="IWebDAVService"/>.</summary>
   public ParameterCollection Parameters { get; private set; }
 
+  /// <summary>Gets the <see cref="PropertyStoreElement"/> describing the default <see cref="IPropertyStore"/> to be used by the location.</summary>
+  [ConfigurationProperty("propertyStore")]
+  public PropertyStoreElement PropertyStore
+  {
+    get { return (PropertyStoreElement)this["propertyStore"]; }
+  }
+
   /// <summary>Gets whether the location should serve OPTIONS requests to the root of the server even if it would not normally serve the
   /// root. This option is provided as a workaround for WebDAV clients that incorrectly submit OPTIONS requests to the root of the server.
   /// </summary>
@@ -248,33 +236,13 @@ public sealed class LocationElement : ConfigurationElement
 
 #region LockManagerElement
 /// <summary>Implements a <see cref="ConfigurationElement"/> that specifies the <see cref="ILockManager"/> to use for the WebDAV server.</summary>
-public sealed class LockManagerElement : ConfigurationElement
+public sealed class LockManagerElement : TypeElementBase<ILockManager>
 {
-  /// <summary>Initializes a new <see cref="LockManagerElement"/>.</summary>
-  public LockManagerElement()
-  {
-    Parameters = new ParameterCollection();
-  }
-
-  /// <summary>Gets a collection of additional parameters for the <see cref="ILockManager"/>.</summary>
-  public ParameterCollection Parameters
-  {
-    get;
-    private set;
-  }
-
   /// <summary>Gets the type implementing the <see cref="ILockManager"/> interface.</summary>
-  [ConfigurationProperty("type", IsRequired=true), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(ILockManager))]
+  [ConfigurationProperty("type"), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(ILockManager))]
   public Type Type
   {
-    get { return (Type)this["type"]; }
-  }
-
-  /// <inheritdoc/>
-  protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
-  {
-    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to filter instances
-    return true;
+    get { return InnerType; }
   }
 }
 #endregion
@@ -297,6 +265,47 @@ public sealed class ParameterCollection : AccessLimitedDictionaryBase<string, st
   internal void Set(string key, string value)
   {
     Items[key] = value;
+  }
+}
+#endregion
+
+#region PropertyStoreElement
+/// <summary>Implements a <see cref="ConfigurationElement"/> representing an <see cref="IPropertyStore"/>.</summary>
+public sealed class PropertyStoreElement : TypeElementBase<IPropertyStore>
+{
+  /// <summary>Gets the type implementing the <see cref="IPropertyStore"/> interface.</summary>
+  [ConfigurationProperty("type"), TypeConverter(typeof(TypeNameConverter)), SubclassTypeValidator(typeof(IPropertyStore))]
+  public Type Type
+  {
+    get { return InnerType; }
+  }
+}
+#endregion
+
+#region TypeElementBase
+/// <summary>Provides a base class for implementing a <see cref="ConfigurationElement"/> representing an a type that can accept parameters.</summary>
+public abstract class TypeElementBase<T> : ConfigurationElement
+{
+  /// <summary>Initializes a new <see cref="TypeElementBase{T}"/>.</summary>
+  public TypeElementBase()
+  {
+    Parameters = new ParameterCollection();
+  }
+
+  /// <summary>Gets a collection of additional parameters for the type.</summary>
+  public ParameterCollection Parameters { get; private set; }
+
+  /// <summary>Returns the configured type.</summary>
+  protected internal Type InnerType
+  {
+    get { return (Type)this["type"]; }
+  }
+
+  /// <inheritdoc/>
+  protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
+  {
+    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters
+    return true;
   }
 }
 #endregion
@@ -326,6 +335,15 @@ public sealed class WebDAVServerSection : ConfigurationSection
     get { return (LockManagerElement)this["davLockManager"]; }
   }
 
+  /// <summary>Gets the <see cref="PropertyStoreElement"/> describing the default <see cref="IPropertyStore"/> to be used by the WebDAV
+  /// server.
+  /// </summary>
+  [ConfigurationProperty("propertyStore")]
+  public PropertyStoreElement PropertyStore
+  {
+    get { return (PropertyStoreElement)this["propertyStore"]; }
+  }
+
   /// <summary>Gets whether to show potentially sensitive error messages when exceptions occur.</summary>
   [ConfigurationProperty("showSensitiveErrors", DefaultValue=false), TypeConverter(typeof(BooleanConverter))]
   public bool ShowSensitiveErrors
@@ -333,7 +351,9 @@ public sealed class WebDAVServerSection : ConfigurationSection
     get { return (bool)this["showSensitiveErrors"]; }
   }
 
-  /// <summary>Gets the <see cref="WebDAVServerSection"/> containing the WebDAV configuration.</summary>
+  /// <summary>Gets the <see cref="WebDAVServerSection"/> containing the WebDAV configuration, or null if no WebDAV configuration section
+  /// exists.
+  /// </summary>
   public static WebDAVServerSection Get()
   {
     return ConfigurationManager.GetSection("AdamMil.WebDAV/server") as WebDAVServerSection;

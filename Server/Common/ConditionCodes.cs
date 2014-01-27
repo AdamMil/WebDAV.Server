@@ -67,6 +67,12 @@ public class ConditionCode
     get { return StatusCode >= 400 && StatusCode < 500; }
   }
 
+  /// <summary>Gets whether the <see cref="StatusCode"/> is a 4xx or 5xx error code.</summary>
+  public bool IsError
+  {
+    get { return StatusCode >= 400 && StatusCode < 600; }
+  }
+
   /// <summary>Gets whether the <see cref="StatusCode"/> is a 1xx information code.</summary>
   public bool IsInformational
   {
