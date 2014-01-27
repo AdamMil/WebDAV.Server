@@ -28,8 +28,9 @@ using System.Web;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
+using AdamMil.WebDAV.Server.Configuration;
 
-// TODO: move DAVUtility to the AdamMil.WebDAV namespace so it can be used by clients?
+// TODO: add or find xml types for guid and other common types that aren't in xs:
 
 namespace AdamMil.WebDAV.Server
 {
@@ -204,6 +205,14 @@ public static class DAVUtility
     return statusMessages.TryGetValue(httpStatusCode);
   }
 
+  /// <summary>Determines whether the given name belongs to the WebDAV namespace and therefore indicates a name used or reserved by the
+  /// WebDAV standard.
+  /// </summary>
+  public static bool IsDAVName(XmlQualifiedName name)
+  {
+    return name.Namespace.OrdinalEquals(DAVNames.DAV);
+  }
+
   /// <summary>Returns a random MIME boundary.</summary>
   internal static string CreateMimeBoundary()
   {
@@ -274,6 +283,45 @@ public static class DAVUtility
     return lastSlash == -1 ? "" : lastSlash == 0 ? "/" : path.Substring(0, lastSlash+slashOffset);
   }
 
+  /// <summary>Gets the XML Schema type name (e.g. xsi:string) representing the type of the given value, or null if the type cannot be
+  /// determined.
+  /// </summary>
+  internal static XmlQualifiedName GetXsiType(object value)
+  {
+    XmlQualifiedName type = null;
+    if(value != null)
+    {
+      switch(Type.GetTypeCode(value.GetType()))
+      {
+        case TypeCode.Boolean: type = DAVNames.xsBoolean; break;
+        case TypeCode.Byte: type = DAVNames.xsUByte; break;
+        case TypeCode.Char: case TypeCode.String: type = DAVNames.xsString; break;
+        case TypeCode.DateTime:
+        {
+          DateTime dateTime = (DateTime)value;
+          type = dateTime.Kind == DateTimeKind.Unspecified && dateTime.TimeOfDay.Ticks == 0 ? DAVNames.xsDate : DAVNames.xsDateTime;
+          break;
+        }
+        case TypeCode.Decimal: type = DAVNames.xsDecimal; break;
+        case TypeCode.Double: type = DAVNames.xsDouble; break;
+        case TypeCode.Int16: type = DAVNames.xsShort; break;
+        case TypeCode.Int32: type = DAVNames.xsInt; break;
+        case TypeCode.Int64: type = DAVNames.xsLong; break;
+        case TypeCode.SByte: type = DAVNames.xsSByte; break;
+        case TypeCode.Single: type = DAVNames.xsFloat; break;
+        case TypeCode.UInt16: type = DAVNames.xsUShort; break;
+        case TypeCode.UInt32: type = DAVNames.xsUInt; break;
+        case TypeCode.UInt64: type = DAVNames.xsULong; break;
+        case TypeCode.Object:
+          if(value is DateTimeOffset) type = DAVNames.xsDateTime;
+          else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
+          else if(value is byte[]) type = DAVNames.xsB64Binary;
+          break;
+      }
+    }
+    return type;
+  }
+
   /// <summary>Encodes an ASCII string as an RFC 2616 <c>quoted-string</c> if it has any characters that need encoding.</summary>
   internal static string HeaderEncode(string ascii)
   {
@@ -292,10 +340,60 @@ public static class DAVUtility
 
     return ascii;
   }
+  internal static uint ParseConfigParameter(ParameterCollection parameters, string paramName, uint defaultValue)
+  {
+    return ParseConfigParameter(parameters, paramName, defaultValue, 0, 0);
+  }
+
+  internal static uint ParseConfigParameter(ParameterCollection parameters, string paramName, uint defaultValue, uint minValue, uint maxValue)
+  {
+    uint value = defaultValue;
+    string str = parameters.TryGetValue(paramName);
+    if(!string.IsNullOrEmpty(str))
+    {
+      if(!InvariantCultureUtility.TryParse(str, out value))
+      {
+        throw new ArgumentException("The " + paramName + " value \"" + str + "\" is not a valid integer or is out of range.");
+      }
+      else if(value < minValue || maxValue != 0 && value > maxValue)
+      {
+        throw new ArgumentException("The " + paramName + " value \"" + str + "\" is out of range. It must be at least " +
+                                    minValue.ToStringInvariant() +
+                                    (maxValue == 0 ? null : " and at most " + maxValue.ToStringInvariant()) + ".");
+      }
+    }
+    return value;
+  }
 
   internal static string[] ParseHttpTokenList(string headerString)
   {
     return headerString == null ? null : headerString.Split(',', s => s.Trim(), StringSplitOptions.RemoveEmptyEntries);
+  }
+
+  internal static object ParseXmlValue(string text, XmlQualifiedName type)
+  {
+    object value;
+    if(string.IsNullOrEmpty(text)) value = null;
+    else if(type == DAVNames.xsString) value = text;
+    else if(type == DAVNames.xsDateTime || type == DAVNames.xsDate) value = XmlUtility.ParseDateTime(text);
+    else if(type == DAVNames.xsInt) value = XmlConvert.ToInt32(text);
+    else if(type == DAVNames.xsULong) value = XmlConvert.ToUInt64(text);
+    else if(type == DAVNames.xsLong) value = XmlConvert.ToInt64(text);
+    else if(type == DAVNames.xsBoolean) value = XmlConvert.ToBoolean(text);
+    else if(type == DAVNames.xsUri) value = new Uri(text, UriKind.RelativeOrAbsolute);
+    else if(type == DAVNames.xsDouble) value = XmlConvert.ToDouble(text);
+    else if(type == DAVNames.xsFloat) value = XmlConvert.ToSingle(text);
+    else if(type == DAVNames.xsDecimal) value = XmlConvert.ToDecimal(text);
+    else if(type == DAVNames.xsUInt) value = XmlConvert.ToUInt32(text);
+    else if(type == DAVNames.xsShort) value = XmlConvert.ToInt16(text);
+    else if(type == DAVNames.xsUShort) value = XmlConvert.ToUInt16(text);
+    else if(type == DAVNames.xsUByte) value = XmlConvert.ToByte(text);
+    else if(type == DAVNames.xsSByte) value = XmlConvert.ToSByte(text);
+    else if(type == DAVNames.xsDuration) value = XmlDuration.Parse(text);
+    else if(type == DAVNames.xsB64Binary) value = Convert.FromBase64String(text);
+    else if(type == DAVNames.xsHexBinary) value = BinaryUtility.ParseHex(text, true);
+    else value = null;
+    return value;
   }
 
   /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
@@ -393,6 +491,101 @@ public static class DAVUtility
     return value.Substring(start, length);
   }
 
+  internal static void ValidateAbsolutePath(string absolutePath)
+  {
+    if(absolutePath == null) throw new ArgumentNullException();
+    if(absolutePath.Length == 0 || absolutePath[0] != '/') throw new ArgumentException("The given path is not absolute.");
+  }
+
+  internal static object ValidatePropertyValue(XmlQualifiedName propertyName, object value, XmlQualifiedName expectedType)
+  {
+    if(value == null || expectedType == null)
+    {
+      return value;
+    }
+    else if(expectedType == DAVNames.xsString)
+    {
+      if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
+      return value;
+    }
+    if(expectedType == DAVNames.xsDateTime || expectedType == DAVNames.xsDate)
+    {
+      if(value is DateTime || value is DateTimeOffset) return value;
+    }
+    else if(expectedType == DAVNames.xsInt)
+    {
+      return (int)ValidateSignedInteger(propertyName, value, int.MinValue, int.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsULong)
+    {
+      return ValidateUnsignedInteger(propertyName, value, ulong.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsLong)
+    {
+      return ValidateSignedInteger(propertyName, value, long.MinValue, long.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsBoolean)
+    {
+      if(value is bool) return value;
+    }
+    else if(expectedType == DAVNames.xsUri)
+    {
+      if(value is Uri) return value;
+      Uri uri;
+      if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
+    }
+    else if(expectedType == DAVNames.xsDouble)
+    {
+      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+    }
+    else if(expectedType == DAVNames.xsFloat)
+    {
+      if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+    }
+    else if(expectedType == DAVNames.xsDecimal)
+    {
+      if(value is double || value is float || value is decimal || IsInteger(value))
+      {
+        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+      }
+    }
+    else if(expectedType == DAVNames.xsUInt)
+    {
+      return (uint)ValidateUnsignedInteger(propertyName, value, uint.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsShort)
+    {
+      return (short)ValidateSignedInteger(propertyName, value, short.MinValue, short.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsUShort)
+    {
+      return (ushort)ValidateUnsignedInteger(propertyName, value, ushort.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsUByte)
+    {
+      return (byte)ValidateUnsignedInteger(propertyName, value, byte.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsSByte)
+    {
+      return (sbyte)ValidateSignedInteger(propertyName, value, sbyte.MinValue, sbyte.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsDuration)
+    {
+      if(value is XmlDuration || value is TimeSpan) return value;
+    }
+    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
+    {
+      if(value is byte[]) return value;
+    }
+    else
+    {
+      return value; // we don't know how to validate it, so assume it's valid
+    }
+
+    throw new ArgumentException(propertyName.ToString() + " is expected to be of type " + expectedType.ToString() + " but was of type " +
+                                value.GetType().FullName);
+  }
+
   /// <summary>Ensures that the given path has a trailing slash if it's not an empty string. Empty strings will be returned as-is, to
   /// avoid converting relative paths to absolute paths.
   /// </summary>
@@ -448,6 +641,136 @@ public static class DAVUtility
   static bool CanIncludeBody(int statusCode)
   {
     return statusCode != (int)HttpStatusCode.NoContent && statusCode != (int)HttpStatusCode.NotModified;
+  }
+
+  static bool IsInteger(object value)
+  {
+    switch(Type.GetTypeCode(value.GetType()))
+    {
+      case TypeCode.Byte: case TypeCode.Int16: case TypeCode.Int32: case TypeCode.Int64: case TypeCode.SByte: case TypeCode.UInt16:
+      case TypeCode.UInt32: case TypeCode.UInt64:
+        return true;
+      case TypeCode.Decimal:
+      {
+        decimal d = (decimal)value;
+        return d == decimal.Truncate(d);
+      }
+      case TypeCode.Double:
+      {
+        double d = (double)value;
+        return d == Math.Truncate(d);
+      }
+      case TypeCode.Single:
+      {
+        float d = (float)value;
+        return d == Math.Truncate(d);
+      }
+      default: return false;
+    }
+  }
+
+  static long ValidateSignedInteger(XmlQualifiedName propertyName, object value, long min, long max)
+  {
+    long intValue;
+    try
+    {
+      switch(Type.GetTypeCode(value.GetType()))
+      {
+        case TypeCode.Decimal:
+        {
+          decimal d = (decimal)value, trunc = decimal.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = decimal.ToInt64(trunc);
+          break;
+        }
+        case TypeCode.Double:
+        {
+          double d = (double)value, trunc = Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((long)trunc);
+          break;
+        }
+        case TypeCode.Int16: intValue = (short)value; break;
+        case TypeCode.Int32: intValue = (int)value; break;
+        case TypeCode.Int64: intValue = (long)value; break;
+        case TypeCode.SByte: intValue = (sbyte)value; break;
+        case TypeCode.Single:
+        {
+          float d =  (float)value, trunc = (float)Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((long)trunc);
+          break;
+        }
+        case TypeCode.UInt16: intValue = (ushort)value; break;
+        case TypeCode.UInt32: intValue = (uint)value; break;
+        case TypeCode.UInt64:
+        {
+          ulong v = (ulong)value;
+          if(v > (ulong)long.MaxValue) goto failed;
+          else intValue = (long)v;
+          break;
+        }
+        default: goto failed;
+      }
+
+      if(intValue >= min && intValue <= max) return intValue;
+    }
+    catch(OverflowException)
+    {
+    }
+
+    failed:
+    throw new ArgumentException(propertyName.ToString() + " was expected to be an integer between " + min.ToStringInvariant() +
+                                " and " + max.ToStringInvariant() + " (inclusive), but was " + value.ToString());
+  }
+
+  static ulong ValidateUnsignedInteger(XmlQualifiedName propertyName, object value, ulong max)
+  {
+    ulong intValue;
+    try
+    {
+      switch(Type.GetTypeCode(value.GetType()))
+      {
+        case TypeCode.Decimal:
+        {
+          decimal d = (decimal)value, trunc = decimal.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = decimal.ToUInt64(trunc);
+          break;
+        }
+        case TypeCode.Double:
+        {
+          double d = (double)value, trunc = Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((ulong)trunc);
+          break;
+        }
+        case TypeCode.Int16: intValue = checked((ulong)(short)value); break;
+        case TypeCode.Int32: intValue = checked((ulong)(int)value); break;
+        case TypeCode.Int64: intValue = checked((ulong)(long)value); break;
+        case TypeCode.SByte: intValue = checked((ulong)(sbyte)value); break;
+        case TypeCode.Single:
+        {
+          float d =  (float)value, trunc = (float)Math.Truncate(d);
+          if(d != trunc) goto failed;
+          else intValue = checked((ulong)trunc);
+          break;
+        }
+        case TypeCode.UInt16: intValue = (ushort)value; break;
+        case TypeCode.UInt32: intValue = (uint)value; break;
+        case TypeCode.UInt64: intValue = (ulong)value; break;
+        default: goto failed;
+      }
+
+      if(intValue <= max) return intValue;
+    }
+    catch(OverflowException)
+    {
+    }
+
+    failed:
+    throw new ArgumentException(propertyName.ToString() + " was expected to be an integer between 0 and " + max.ToStringInvariant() +
+                                " (inclusive), but was " + value.ToString());
   }
 
   static readonly Dictionary<int, string> statusMessages = new Dictionary<int, string>()
@@ -573,7 +896,6 @@ public sealed class EntityTag : IElementValue
 }
 #endregion
 
-// TODO: make these public?
 #region HttpHeaders
 static class HttpHeaders
 {

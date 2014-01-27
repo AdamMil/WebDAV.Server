@@ -28,7 +28,7 @@ namespace AdamMil.WebDAV.Server
 /// <remarks>Before implementing a WebDAV resource, it is strongly recommended that be familiar with the WebDAV specification as outlined
 /// in RFC 4918 and the HTTP specification as outline in RFC 2616.
 /// </remarks>
-public interface IWebDAVResource : ISupportAuthorization
+public interface IWebDAVResource
 {
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CanonicalPath/node()" />
   string CanonicalPath { get; }
@@ -65,6 +65,9 @@ public interface IWebDAVResource : ISupportAuthorization
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
   void Put(PutRequest request);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
+  bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, out bool denyExistence);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
   void Unlock(UnlockRequest request);
@@ -170,9 +173,9 @@ public abstract class WebDAVResource : IWebDAVResource
     request.Status = new ConditionCode(HttpStatusCode.Conflict, "The resource is not locked (because it does not support locking).");
   }
 
-  /// <include file="documentation.xml" path="/DAV/ISupportAuthorization/ShouldDenyAccess/node()" />
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
   /// <remarks>The default implementation always grants access to the resource.</remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, out bool denyExistence)
+  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, out bool denyExistence)
   {
     denyExistence = false;
     return false;

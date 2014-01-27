@@ -43,6 +43,8 @@
         is to be associated with the lock.
       </param>
       <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
       <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
       <exception cref="LockLimitReachedException">Thrown if adding the lock would cause a lock limit to be exceeded.</exception>
     </AddLock>
@@ -54,6 +56,8 @@
         True if the lock would apply recursively to all descendant resources as well, or false if it would only
         apply to the resource named by <paramref name="absolutePath"/>.
       </param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="type"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
     </GetConflictingLocks>
     <GetLock>
       <summary>Returns the <see cref="ActiveLock"/> with the specified lock token and path, or null if no matching lock exists.</summary>
@@ -61,6 +65,8 @@
       <param name="absolutePath">If specified, the lock must also contain the given path within its scope. If null, only the lock token
       must match. This should be the absolute, canonical path to a resource.
       </param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="lockToken"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is specified but not absolute.</exception>
     </GetLock>
     <GetLocks>
       <summary>Returns the locks at, above, and/or below a resource in the URL hierarchy.</summary>
@@ -74,6 +80,8 @@
         locks directly applied to descendant resources will be included in the list. All locks will be filtered through
         <paramref name="filter"/> if <paramref name="filter"/> is not null.
       </returns>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
     </GetLocks>
     <RefreshLock>
       <summary>Refreshes the given lock timeout. Returns true if the lock timeout was refreshed and false if it was not.</summary>
@@ -86,9 +94,11 @@
         The lock manager is not required to refresh any lock. False may be returned if the lock manager declines to refresh the
         lock, or if the lock does not exist in the lock manager.
       </remarks>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="activeLock"/> is null.</exception>
     </RefreshLock>
     <RemoveLock>
       <summary>Removes the given lock. Returns true if the lock was removed and false if the lock did not exist in the lock manager.</summary>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="activeLock"/> is null.</exception>
     </RemoveLock>
     <RemoveLocks>
       <summary>Removes all locks at (and possibly below) a resource in the URL hierarchy. Returns true if the locks were removed
@@ -100,26 +110,50 @@
         If <paramref name="removal"/> is <see cref="LockRemoval.RequireEmpty"/> and descendant locks exist, no locks are removed and false
         is returned. Otherwise, all locks are removed and true is returned.
       </returns>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
     </RemoveLocks>
   </ILockManager>
 
-  <ISupportAuthorization>
-    <ShouldDenyAccess>
-      <summary>Determines whether the user making a request should be denied access to resource named in the request.</summary>
-      <param name="context">
-        The <see cref="WebDAVContext"/> in which the request is executing.
+  <IPropertyStore>
+    <ClearProperties>
+      <summary>Removes all dead properties associated with a resource.</summary>
+      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be removed.</param>
+      <param name="recursive">
+        If true, the properties of descendant resources will be cleared as well. This parameter should be true unless it is impossible for
+        the resource to have descendants.
       </param>
-      <param name="denyExistence">
-        If the user is to be denied access, this variable receives a value that indicates whether the WebDAV
-        service should deny the existence of the resource requested by the user by pretending that it was not found. If the user is allowed
-        access, the value of thihs variable is ignored.
-      </param>
-      <returns>
-        True if the user should be denied access, or false if the user may be permitted access. The user will be allowed access only
-        if all calls to <c>ShouldDenyAccess</c> return false.
-      </returns>
-    </ShouldDenyAccess>
-  </ISupportAuthorization>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+    </ClearProperties>
+    <GetProperties>
+      <summary>Returns all dead properties associated with a resource.</summary>
+      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be returned.</param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+    </GetProperties>
+    <RemoveProperties>
+      <summary>Returns all dead properties associated with a resource.</summary>
+      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be removed.</param>
+      <param name="propertyNames">A set of property names to remove.</param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="propertyNames"/> is null.</exception>
+      <exception cref="ArgumentException">
+        Thrown if <paramref name="absolutePath"/> is not absolute or if <paramref name="propertyNames"/> contains a null reference.
+      </exception>
+    </RemoveProperties>
+    <SetProperties>
+      <summary>
+        Associates dead properties with a resource. This method will overwrite existing properties with the same name, but other
+        existing properties will not be removed.
+      </summary>
+      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be set.</param>
+      <param name="properties">A collection of dead properties to add.</param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="properties"/> is null.</exception>
+      <exception cref="ArgumentException">
+        Thrown if <paramref name="absolutePath"/> is not absolute or if <paramref name="properties"/> contains a null value.
+      </exception>
+    </SetProperties>
+  </IPropertyStore>
   
   <IWebDAVResource>
     <CanonicalPath>
@@ -196,6 +230,22 @@
     <Put>
       <summary>Executes a <see cref="PutRequest"/>. See the <see cref="PutRequest"/> documentation for details on how to service it.</summary>
     </Put>
+    <ShouldDenyAccess>
+      <summary>Determines whether the user making a request should be denied access to a resource related to the request.</summary>
+      <param name="context">The <see cref="WebDAVContext"/> in which the request is executing.</param>
+      <param name="service">The <see cref="IWebDAVService"/> containing the resource. This is not necessarily the same as
+        <see cref="WebDAVContext.Service"/>.
+      </param>
+      <param name="denyExistence">
+        If the user is to be denied access, this variable should receive a value that indicates whether the
+        WebDAV service should deny the existence of the resource requested by the user by pretending that it was not found. If the user is
+        allowed access, the value of this variable is ignored.
+      </param>
+      <returns>
+        True if the user should be denied access, or false if the user may be permitted access. The user will be allowed access only
+        if all calls to <c>ShouldDenyAccess</c> return false.
+      </returns>
+    </ShouldDenyAccess>
     <Unlock>
       <summary>Executes an <see cref="UnlockRequest"/>. See the <see cref="UnlockRequest"/> documentation for details on how to service it.</summary>
     </Unlock>
@@ -334,17 +384,21 @@
       <summary>Called after a lock has been added to the lock manager.</summary>
       <param name="newLock">The new lock.</param>
       <remarks>
-        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
-        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        <note type="caution">
+          The lock manager remains locked while this method is called, so the method should not perform slow operations such
+          as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        </note>
       </remarks>
     </OnLockAdded>
     <OnLockRemoved>
       <summary>Called after a lock has been removed from the lock manager.</summary>
       <param name="lockObject">The lock that was removed.</param>
       <remarks>
-        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
-        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously. This method may be
-        called any time an expired lock is discovered and removed, including during calls to methods such as
+        <note type="caution">
+          The lock manager remains locked while this method is called, so the method should not perform slow operations such
+          as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        </note>
+        This method may be called any time an expired lock is discovered and removed, including during calls to methods such as
         <see cref="LockManager.GetAllLocks"/>. The implementation of <see cref="OnLockRemoved"/> must therefore be reentrant if it calls
         any lock manager methods that access locks.
       </remarks>
@@ -353,12 +407,36 @@
       <summary>Called after a lock has been updated by the lock manager, usually to refresh it.</summary>
       <param name="lockObject">The lock that was updated.</param>
       <remarks>
-        Note that the lock manager remains locked while this method is called, so the method should not perform slow operations such
-        as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        <note type="caution">
+          The lock manager remains locked while this method is called, so the method should not perform slow operations such
+          as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        </note>
       </remarks>
     </OnLockUpdated>
   </LockManager>
 
+  <PropertyStore>
+    <Dispose>
+      <summary>Called to dispose the property store.</summary>
+      <param name="manualDispose">False if the method was called from the finalizer and true if not.</param>
+      <remarks>This method should be overriden by derived property stores to flush property data to persistent storage.</remarks>
+    </Dispose>
+    <OnPropertiesChanged>
+      <summary>Called when a resources's properties have changed.</summary>
+      <param name="absolutePath">The absolute path to the resource.</param>
+      <param name="newProperties">
+        The dictionary containing the resource's new property set, or null if all of the resource's properties
+        were removed. This dictionary should not be modified.
+      </param>
+      <remarks>
+        <note type="caution">
+          The lock manager remains locked while this method is called, so the method should not perform slow operations such
+          as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
+        </note>
+      </remarks>      
+    </OnPropertiesChanged>
+  </PropertyStore>
+  
   <WebDAVContext>
     <OpenRequestBody>
       <summary>
@@ -391,19 +469,11 @@
         <see cref="IWebDAVResource"/>. Returns true if the URL could be successfully resolved into an <see cref="IWebDAVResource"/>, and
         false otherwise. (Note that even if the method returns false, variables besides <paramref name="resource"/> may still be set.)
       </summary>
-      <param name="context">
-        The <see cref="WebDAVContext"/> representing the request.
-      </param>
+      <param name="context">The <see cref="WebDAVContext"/> in which the request is being executed.</param>
       <param name="uri">
         A <see cref="Uri"/> to resolve. This can either be an absolute URI (i.e. a URI with a scheme and authority) or a
         relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
         authority of the request URI will be used.
-      </param>
-      <param name="performAccessChecks">
-        If true, authorization checks will be performed against the resource. If access is denied, the
-        resource will not be resolved. Note that authorization checks may consider details of the request, such as the HTTP method, when
-        deciding whether to grant or deny access. If you are resolving a resource for purposes other than performing the request HTTP
-        method (for instance, if you only want to validate an <c>If</c> header), it may be better to skip the access checks.
       </param>
       <param name="service">
         A variable that will receive the <see cref="IWebDAVService"/> corresponding to the <paramref name="uri"/>, or
@@ -413,11 +483,32 @@
       <param name="resource">
         A variable that will receive the <see cref="IWebDAVResource"/> corresponding to the <paramref name="uri"/>.
       </param>
+      <param name="serviceRoot">
+        A variable that will receive the absolute path to the <paramref name="service"/> root. This variable will
+        be valid whenever <paramref name="service"/> is not null.
+      </param>
+      <param name="relativePath">
+        A variable that will receive the path to the resource named by the <paramref name="uri"/>, relative to
+        the <paramref name="serviceRoot"/>. This variable will be valid whenever <paramref name="service"/> is not null.
+      </param>
       <remarks>
         If the <see cref="IWebDAVService.IsReusable"/> property of the returned <see cref="IWebDAVService"/> is false, you should dispose
         it if it implements <see cref="IDisposable"/>.
       </remarks>
     </ResolveUri>
+
+    <ShouldDenyAccess>
+      <summary>
+        Determines whether the user should be denied access to the resource at the given <see cref="Uri"/>. If the URI does not map
+        to a resource, this method will return false.
+      </summary>
+      <param name="context">The <see cref="WebDAVContext"/> in which the request is being executed.</param>
+      <param name="uri">
+        A <see cref="Uri"/> identifying a resource. This can either be an absolute URI (i.e. a URI with a scheme and
+        authority) or a relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is
+        relative, the authority of the request URI will be used.
+      </param>
+    </ShouldDenyAccess>
   </WebDAVModule>
   
   <WebDAVRequest>
@@ -524,7 +615,7 @@
         child collection, the member name should end with a trailing slash.
       </param>
       <param name="getChildren">
-        Given a value representing a resource, returns the values representing the resource's children, if any. If
+        Given a value representing a resource and its path, returns the values representing the resource's children, if any. If
         null, the root resource will be processed as though it was a non-collection resource. It is valid for the delegate to return null
         for non-collection resources, as a null return will be interpreted to mean that the resource has no children.
       </param>

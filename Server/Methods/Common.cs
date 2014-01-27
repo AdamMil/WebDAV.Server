@@ -323,13 +323,8 @@ public abstract class WebDAVRequest
         }
         else
         {
-          IWebDAVService service;
-          IWebDAVResource resource;
-          if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource))
-          {
-            metadata = resource.GetEntityMetadata(clause.ChecksEntityTag());
-          }
-          if(service != null && !service.IsReusable) Utility.Dispose(service);
+          IWebDAVResource resource = WebDAVModule.ResolveUri(Context, clause.ResourceTagUri);
+          if(resource != null) metadata = resource.GetEntityMetadata(clause.ChecksEntityTag());
         }
 
         foreach(IfList list in clause.Lists)
@@ -462,7 +457,7 @@ public abstract class WebDAVRequest
 
     if(absolutePath == null)
     {
-      if(service != null) throw new ArgumentException("If 'absolutePath' is null, 'service' must also be null.");
+      if(service != null) throw new ArgumentException("If absolutePath is null, service must also be null.");
       absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
     }
 

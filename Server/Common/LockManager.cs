@@ -34,7 +34,7 @@ using BinaryWriter = AdamMil.IO.BinaryWriter;
 // TODO: add some helper methods somewhere to encapsulate common lock-related actions like getting the locks on a resource (e.g. the
 // request.Context.LockManager.GetLocks(request.Context.ServiceRoot + CanonicalPath, true, false, null) bit)
 // TODO: we may want FileLockManager to just clobber the file if it's invalid, possibly with an option to enable this. that way, a
-// corrupt lock file (e.g. due to a sudden shutdown) won't stop the server from working
+// corrupt lock file (e.g. due to a sudden shutdown) won't stop the server from working. ditto for FilePropertyStore
 
 namespace AdamMil.WebDAV.Server
 {
@@ -68,7 +68,7 @@ public sealed class ActiveLock : IElementValue
     if(string.IsNullOrEmpty(lockToken)) throw new ArgumentException("A lock token is required.");
 
     absoluteLockRoot = DAVUtility.RemoveTrailingSlash(absoluteLockRoot);
-    LockManager.ValidateAbsolutePath(absoluteLockRoot);
+    DAVUtility.ValidateAbsolutePath(absoluteLockRoot);
 
     Path  = absoluteLockRoot;
     Token = lockToken;
@@ -78,10 +78,10 @@ public sealed class ActiveLock : IElementValue
     if(ownerData != null)
     {
       if(!ownerData.HasName(DAVNames.owner)) throw new ArgumentException("The owner data must be a DAV:owner element.");
-      _owner = ownerData.Extract();
+      owner = ownerData.Extract();
     }
 
-    if(serverData != null) _serverData = serverData.Extract();
+    if(serverData != null) serverData = serverData.Extract();
 
     CreationTime = creationTime.Kind == DateTimeKind.Local ?
       creationTime.ToUniversalTime() : DateTime.SpecifyKind(creationTime, DateTimeKind.Utc);
@@ -106,8 +106,8 @@ public sealed class ActiveLock : IElementValue
     Timeout     = reader.ReadEncodedUInt32();
     Token       = reader.ReadStringWithLength();
     Type        = LockType.Load(reader);
-    _owner      = ReadXmlData(reader);
-    _serverData = ReadXmlData(reader);
+    owner       = ReadXmlData(reader);
+    serverData  = ReadXmlData(reader);
   }
 
   /// <summary>Gets the time when the lock was originally created, in UTC.</summary>
@@ -140,7 +140,7 @@ public sealed class ActiveLock : IElementValue
   /// </summary>
   public XmlElement GetOwnerData()
   {
-    return _owner == null ? null : (XmlElement)_owner.Clone();
+    return owner == null ? null : (XmlElement)owner.Extract();
   }
 
   /// <summary>Returns arbitrary information associated with the lock by the server. If null, no server information was associated with the
@@ -148,7 +148,7 @@ public sealed class ActiveLock : IElementValue
   /// </summary>
   public XmlElement GetServerData()
   {
-    return _serverData == null ? null : (XmlElement)_serverData.Clone();
+    return serverData == null ? null : (XmlElement)serverData.Extract();
   }
 
   /// <summary>Gets whether the given absolute path is within the scope of the lock.</summary>
@@ -156,7 +156,7 @@ public sealed class ActiveLock : IElementValue
   {
     if(absolutePath == null) throw new ArgumentNullException();
     absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
-    LockManager.ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateAbsolutePath(absolutePath);
     return Path.OrdinalEquals(absolutePath) ||
            Recursive && absolutePath.StartsWith(Path, StringComparison.Ordinal) && absolutePath[Path.Length] == '/';
   }
@@ -176,8 +176,8 @@ public sealed class ActiveLock : IElementValue
     writer.WriteEncoded(Timeout);
     writer.WriteStringWithLength(Token);
     Type.Save(writer);
-    WriteXmlData(writer, _owner);
-    WriteXmlData(writer, _serverData);
+    WriteXmlData(writer, owner);
+    WriteXmlData(writer, serverData);
   }
 
   /// <inheritdoc/>
@@ -215,7 +215,7 @@ public sealed class ActiveLock : IElementValue
     writer.WriteEmptyElement(Type.Type);
     writer.WriteEndElement(); // locktype
     writer.WriteElementString(DAVNames.depth, Recursive ? "infinity" : "0");
-    if(_owner != null) writer.WriteNode(_owner.CreateNavigator(), false);
+    if(owner != null) writer.WriteNode(owner.CreateNavigator(), false);
     if(ExpirationTime.HasValue)
     {
       double dsecs = (ExpirationTime.Value - DateTime.UtcNow).TotalSeconds;
@@ -235,7 +235,7 @@ public sealed class ActiveLock : IElementValue
   }
   #endregion
 
-  XmlElement _owner, _serverData;
+  XmlElement owner, serverData;
 
   static XmlElement ReadXmlData(BinaryReader reader)
   {
@@ -399,8 +399,8 @@ public sealed class LockType : IElementValue
 #endregion
 
 #region ILockManager
-/// <summary>Represents a container for the resource locks within a WebDAV service.</summary>
-public interface ILockManager : IDisposable
+/// <summary>Defines a container for the resource locks within a WebDAV service.</summary>
+public interface ILockManager
 {
   /// <include file="documentation.xml" path="/DAV/ILockManager/AddLock/node()" />
   ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData,
@@ -421,14 +421,13 @@ public interface ILockManager : IDisposable
 #endregion
 
 #region LockManager
-/// <summary>Provides a base class for implementing lock managers. The <see cref="LockManager"/> class maintains an in-memory
-/// representation of the locks for a WebDAV service. Derived classes are responsible for saving and loading the locks to and from
-/// persistent storage.
+/// <summary>Provides a base class for implementing lock managers. This class maintains an in-memory representation of the locks for a
+/// WebDAV service. Derived classes are responsible for saving and loading the locks to and from persistent storage.
 /// </summary>
-public abstract class LockManager : ILockManager
+public abstract class LockManager : IDisposable, ILockManager
 {
   /// <summary>Initializes a new <see cref="LockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
-  /// <remarks>The <see cref="FileLockManager"/> supports the following parameters:
+  /// <remarks>All types derived from <see cref="LockManager"/> support the following parameters:
   /// <list type="table">
   ///   <listheader>
   ///     <term>Parameter</term>
@@ -467,10 +466,10 @@ public abstract class LockManager : ILockManager
   {
     if(parameters == null) throw new ArgumentNullException();
 
-    DefaultTimeout     = ParseParameter(parameters, "defaultTimeout", 0);
-    MaximumLocks       = ParseParameter(parameters, "maximumLocks", 0);
-    MaximumLocksPerUrl = ParseParameter(parameters, "maximumLocksPerUrl", 0);
-    MaximumTimeout     = ParseParameter(parameters, "maximumTimeout", 0);
+    DefaultTimeout     = DAVUtility.ParseConfigParameter(parameters, "defaultTimeout", 0);
+    MaximumLocks       = DAVUtility.ParseConfigParameter(parameters, "maximumLocks", 0);
+    MaximumLocksPerUrl = DAVUtility.ParseConfigParameter(parameters, "maximumLocksPerUrl", 0);
+    MaximumTimeout     = DAVUtility.ParseConfigParameter(parameters, "maximumTimeout", 0);
   }
 
   /// <summary>Finalizes the <see cref="LockManager"/> by calling <see cref="Dispose(bool)"/>.</summary>
@@ -500,7 +499,7 @@ public abstract class LockManager : ILockManager
   public ActiveLock AddLock(string absolutePath, LockType type, bool recursive, uint? timeoutSeconds, XmlElement ownerData,
                             XmlElement serverData)
   {
-    ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateAbsolutePath(absolutePath);
     if(type == null) throw new ArgumentNullException();
     AssertNotDisposed();
     absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
@@ -532,14 +531,14 @@ public abstract class LockManager : ILockManager
   public void Dispose()
   {
     Dispose(true);
-    GC.SuppressFinalize(this);
     disposed = true;
+    GC.SuppressFinalize(this);
   }
 
   /// <include file="documentation.xml" path="/DAV/ILockManager/GetConflictingLocks/node()" />
   public IList<ActiveLock> GetConflictingLocks(string absolutePath, LockType type, bool recursive)
   {
-    ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateAbsolutePath(absolutePath);
     if(type == null) throw new ArgumentNullException();
     AssertNotDisposed();
     List<ActiveLock> conflictingLocks = new List<ActiveLock>();
@@ -572,7 +571,7 @@ public abstract class LockManager : ILockManager
   public IList<ActiveLock> GetLocks(string absolutePath, bool includeInheritedLocks, bool includeDescendantLocks,
                                     Predicate<ActiveLock> filter)
   {
-    ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateAbsolutePath(absolutePath);
     AssertNotDisposed();
     List<ActiveLock> activeLocks = new List<ActiveLock>();
     string path = DAVUtility.RemoveTrailingSlash(absolutePath);
@@ -745,37 +744,6 @@ public abstract class LockManager : ILockManager
   /// <include file="documentation.xml" path="/DAV/LockManager/OnLockUpdated/node()" />
   protected abstract void OnLockUpdated(ActiveLock lockObject);
 
-  internal static uint ParseParameter(ParameterCollection parameters, string paramName, uint defaultValue)
-  {
-    return ParseParameter(parameters, paramName, defaultValue, 0, 0);
-  }
-
-  internal static uint ParseParameter(ParameterCollection parameters, string paramName, uint defaultValue, uint minValue, uint maxValue)
-  {
-    uint value = defaultValue;
-    string str = parameters.TryGetValue(paramName);
-    if(!string.IsNullOrEmpty(str))
-    {
-      if(!InvariantCultureUtility.TryParse(str, out value))
-      {
-        throw new ArgumentException("The " + paramName + " value \"" + str + "\" is not a valid integer or is out of range.");
-      }
-      else if(value < minValue || maxValue != 0 && value > maxValue)
-      {
-        throw new ArgumentException("The " + paramName + " value \"" + str + "\" is out of range. It must be at least " +
-                                    minValue.ToStringInvariant() +
-                                    (maxValue == 0 ? null : " and at most " + maxValue.ToStringInvariant()) + ".");
-      }
-    }
-    return value;
-  }
-
-  internal static void ValidateAbsolutePath(string absolutePath)
-  {
-    if(absolutePath == null) throw new ArgumentNullException();
-    if(absolutePath.Length == 0 || absolutePath[0] != '/') throw new ArgumentException("The given path is not absolute.");
-  }
-
   /// <summary>Throws an exception if the lock manager has been disposed.</summary>
   void AssertNotDisposed()
   {
@@ -855,7 +823,7 @@ public abstract class LockManager : ILockManager
 public class FileLockManager : LockManager
 {
   /// <summary>Initializes a new <see cref="FileLockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
-  /// <remarks>The <see cref="FileLockManager"/> supports the following parameters:
+  /// <remarks>In addition to the parameters accepted by <see cref="LockManager"/>, <see cref="FileLockManager"/> supports the following:
   /// <list type="table">
   ///   <listheader>
   ///     <term>Parameter</term>
@@ -886,7 +854,7 @@ public class FileLockManager : LockManager
     string value = parameters.TryGetValue("revertToSelf");
     bool revertToSelf = string.IsNullOrEmpty(value) || XmlConvert.ToBoolean(value);
 
-    writeInterval = (int)ParseParameter(parameters, "writeInterval", 60, 1, int.MaxValue/1000) * 1000;
+    writeInterval = (int)DAVUtility.ParseConfigParameter(parameters, "writeInterval", 60, 1, int.MaxValue/1000) * 1000;
 
     value = parameters.TryGetValue("lockFile");
     if(string.IsNullOrEmpty(value)) throw new ArgumentException("The lockFile attribute is required for the FileLockManager.");
@@ -1029,7 +997,7 @@ public class FileLockManager : LockManager
           byte[] magic = new byte[]
           {
             unchecked((byte)MagicNumber),     unchecked((byte)(MagicNumber>>8)),
-            unchecked((byte)MagicNumber>>16), unchecked((byte)(MagicNumber>>24)), 0
+            unchecked((byte)MagicNumber>>16), unchecked((byte)(MagicNumber>>24)), 0 // version 0
           };
           file.Write(magic);
           using(BinaryWriter writer = new BinaryWriter(new GZipStream(file, CompressionMode.Compress, true)))
@@ -1058,6 +1026,7 @@ public class FileLockManager : LockManager
 public class MemoryLockManager : LockManager
 {
   /// <summary>Initializes a new <see cref="MemoryLockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
+  /// <remarks><see cref="MemoryLockManager"/> allows the standard parameters accepted by <see cref="LockManager"/>.</remarks>
   public MemoryLockManager(ParameterCollection parameters) : base(parameters) { }
 
   /// <include file="documentation.xml" path="/DAV/LockManager/OnLockAdded/node()" />

@@ -36,16 +36,17 @@ namespace AdamMil.WebDAV.Server
 public sealed class WebDAVContext : IDisposable
 {
   internal WebDAVContext(IWebDAVService service, string serviceRootPath, string requestPath, HttpApplication app,
-                         ILockManager lockManager, Configuration config)
+                         ILockManager lockManager, IPropertyStore propertyStore, Configuration config)
   {
-    Service     = service;
-    ServiceRoot = serviceRootPath;
-    RequestPath = requestPath;
-    Application = app;
-    Request     = app.Request;
-    Response    = app.Response;
-    LockManager = lockManager;
-    Settings    = config;
+    Service       = service;
+    ServiceRoot   = serviceRootPath;
+    RequestPath   = requestPath;
+    Application   = app;
+    Request       = app.Request;
+    Response      = app.Response;
+    LockManager   = lockManager;
+    PropertyStore = propertyStore is DisablePropertyStore ? null : propertyStore; // DisablePropertyStore disallows dead property setting
+    Settings      = config;
   }
 
   #region Configuration
@@ -64,6 +65,9 @@ public sealed class WebDAVContext : IDisposable
 
   /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request, or null if no lock manager is configured.</summary>
   public ILockManager LockManager { get; private set; }
+
+  /// <summary>Gets the default <see cref="IPropertyStore"/> to be used with the request, or null if no property store is configured.</summary>
+  public IPropertyStore PropertyStore { get; private set; }
 
   /// <summary>Gets the <see cref="HttpRequest"/> associated with the WebDAV request.</summary>
   public HttpRequest Request { get; private set; }
@@ -133,10 +137,11 @@ public sealed class WebDAVContext : IDisposable
   /// <summary>Returns a <see cref="MultiStatusResponse"/> object that writes a 207 Multi-Status response to the client.</summary>
   /// <param name="namespaces">A set of XML namespaces used within the response. These namespaces will be given prefixes defined on the
   /// root element of the response, making the namespaces prefixes available throughout the response. The DAV: namespace is always defined
-  /// as the default namespace in the response, and need not be named explicitly. If null, no additional namespaces will be defined. The
-  /// prefixes allocated during this method are the single letters 'a' through 'z', and prefixes of the form "ns30" where "30" can be
-  /// replaced by any positive integer. If you define your own namespace prefixes within the response, be careful not to use prefixes that
-  /// would clash in incompatible ways.
+  /// as the default namespace in the response, and need not be provided explicitly. If null, no additional namespaces will be defined. The
+  /// prefixes allocated during this method are "xs" and "xsi" for XML Schema and XML Schema Instance respectively, the single letters 'a'
+  /// through 'z' for the first 26 namespaces, and prefixes of the form "nsX" where "X" can be replaced by any positive integer for the
+  /// rest. If you define your own namespace prefixes within the response, be careful not to use prefixes that would clash in incompatible
+  /// ways.
   /// </param>
   /// <remarks>The <see cref="MultiStatusResponse"/> object returned must be disposed to complete the response. The best practice is to use
   /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response does not terminate the web request.
@@ -306,8 +311,7 @@ public sealed class WebDAVContext : IDisposable
 
     Response.ContentEncoding   = System.Text.Encoding.UTF8;
     Response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
-    // TODO: remove indentation unless we can easily preserve whitespace in property values
-    return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, Indent = true, IndentChars = "\t" });
+    return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, IndentChars = "\t" });
   }
 
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>

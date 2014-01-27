@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
+using System;
 
 // TODO: add processing examples and documentation
 
@@ -39,6 +40,38 @@ public class DeleteRequest : WebDAVRequest
   /// </summary>
   public FailedResourceCollection FailedMembers { get; private set; }
 
+  /// <summary>Completes processing of a standard <c>DELETE</c> request for an existing resource. This does not delete the resource, but
+  /// does remove the resource's properties and locks. This method is intended to be called after the deletion was successfully performed.
+  /// </summary>
+  /// <param name="recursive">If true, locks and properties will be removed recursively. You should pass true if the resource is a
+  /// directory and false if not.
+  /// </param>
+  public void PostProcessRequest(bool recursive)
+  {
+    PostProcessRequest(null, recursive);
+  }
+
+  /// <summary>Completes processing of a standard <c>DELETE</c> request for an existing resource. This does not delete the resource, but
+  /// does remove the resource's properties and locks. This method is intended to be called after the deletion was successfully performed.
+  /// </summary>
+  /// <param name="absolutePath">The absolute, canonical path to the resource that was deleted.</param>
+  /// <param name="recursive">If true, locks and properties will be removed recursively. You should pass true if the resource is a
+  /// directory and false if not.
+  /// </param>
+  public void PostProcessRequest(string absolutePath, bool recursive)
+  {
+    if(absolutePath == null)
+    {
+      if(Context.RequestResource == null) throw new ArgumentException("A path must be provided if there is no request resource.");
+      absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
+    }
+    if(Context.PropertyStore != null) Context.PropertyStore.ClearProperties(absolutePath, recursive);
+    if(Context.LockManager != null)
+    {
+      Context.LockManager.RemoveLocks(absolutePath, recursive ? LockRemoval.Recursive : LockRemoval.Nonrecursive);
+    }
+  }
+
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
   /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and on descendant resources.</remarks>
   protected override ConditionCode CheckSubmittedLockTokens()
@@ -49,8 +82,7 @@ public class DeleteRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
-    // require recursive DELETE requests, as per section 9.6.1 of RFC 4918
-    if(Depth != Depth.SelfAndDescendants)
+    if(Depth != Depth.SelfAndDescendants) // require recursive DELETE requests, as per section 9.6.1 of RFC 4918
     {
       throw Exceptions.BadRequest("The Depth header must be infinity or unspecified for DELETE requests.");
     }

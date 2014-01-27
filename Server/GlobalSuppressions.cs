@@ -77,7 +77,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1034:NestedTypesShouldNotBeVisible", Scope="type", Target="AdamMil.WebDAV.Server.GetOrHeadRequest+IndexItem")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1721:PropertyNamesShouldNotMatchGetMethods", Scope="member", Target="AdamMil.WebDAV.Server.GetOrHeadRequest+IndexItem.#Type")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1059:MembersShouldNotExposeCertainConcreteTypes", MessageId="System.Xml.XmlNode", Scope="member", Target="AdamMil.WebDAV.Server.ILockManager.#AddLock(System.String,AdamMil.WebDAV.Server.LockType,System.Boolean,System.Nullable`1<System.UInt32>,System.Xml.XmlElement)")]
-[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1021:AvoidOutParameters", MessageId="1#", Scope="member", Target="AdamMil.WebDAV.Server.ISupportAuthorization.#ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,System.Boolean&)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1059:MembersShouldNotExposeCertainConcreteTypes", MessageId="System.Xml.XmlNode", Scope="member", Target="AdamMil.WebDAV.Server.LockRequest.#OwnerData")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1062:Validate arguments of public methods", MessageId="0", Scope="member", Target="AdamMil.WebDAV.Server.LockTokenSubmittedConditionCode.#.ctor(System.String[])")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security", "CA2104:DoNotDeclareReadOnlyMutableReferenceTypes", Scope="member", Target="AdamMil.WebDAV.Server.LockType.#ExclusiveWrite")]
@@ -129,5 +128,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1062:Validate arguments of public methods", MessageId="0", Scope="member", Target="AdamMil.WebDAV.Server.OptionsRequest.#.ctor(AdamMil.WebDAV.Server.WebDAVContext)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1062:Validate arguments of public methods", MessageId="0", Scope="member", Target="AdamMil.WebDAV.Server.PutRequest.#.ctor(AdamMil.WebDAV.Server.WebDAVContext)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1062:Validate arguments of public methods", MessageId="0", Scope="member", Target="AdamMil.WebDAV.Server.UnlockRequest.#.ctor(AdamMil.WebDAV.Server.WebDAVContext)")]
+[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2213:DisposableFieldsShouldBeDisposed", MessageId="timer", Scope="member", Target="AdamMil.WebDAV.Server.FilePropertyStore.#Dispose(System.Boolean)")]
 
 #endif

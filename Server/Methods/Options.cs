@@ -141,7 +141,6 @@ public class OptionsRequest : SimpleRequest
   /// Lock support will be reported in the <c>DAV</c> header. This property is ignored if <see cref="IsDAVCompliant"/> is set to false.
   /// </para>
   /// </remarks>
-  // TODO: translate this documentation into API concepts after we've implemented locking
   public bool SupportsLocking { get; set; }
 
   /// <summary>Gets whether this <c>OPTIONS</c> request is out of the service's scope. This can only happen if the <c>serveRootOptions</c>

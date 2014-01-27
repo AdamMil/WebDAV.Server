@@ -6,7 +6,7 @@
   <!-- The AdamMil.WebDAV configuration must be in the AdamMil.WebDAV section. -->
   <configSections>
     <sectionGroup name="AdamMil.WebDAV">
-      <section name="server" type="AdamMil.WebDAV.Server.Configuration.WebDAVServerSection, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+      <section name="server" type="AdamMil.WebDAV.Server.Configuration.WebDAVServerSection, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     </sectionGroup>
   </configSections>
 
@@ -15,7 +15,7 @@
          system.web/httpModules instead.
     -->
     <modules>
-      <add name="AdamMil.WebDAV" type="AdamMil.WebDAV.Server.WebDAVModule, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5" />
+      <add name="AdamMil.WebDAV" type="AdamMil.WebDAV.Server.WebDAVModule, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     </modules>
   </system.webServer>
 
@@ -28,18 +28,18 @@
     <server enabled="true" showSensitiveErrors="false">
       <!-- The 'davLockManager' element configures the lock manager used for the WebDAV server. It should have a 'type' attribute set to
            the full type name of a class that implements the AdamMil.WebDAV.Server.ILockManager interface. The class must either have a public
-           default constructor or a constructor that accepts a AdamMil.WebDAV.Server.Configuration.ParameterCollection (allowing additional
+           default constructor or a constructor that accepts an AdamMil.WebDAV.Server.Configuration.ParameterCollection (allowing additional
            configuration attributes to be processed by the lock manager). If the element is omitted, no default lock manager will be
            available, disabling locking for most services. These are the built-in lock managers:
-           * AdamMil.WebDAV.Server.FileLockManager - A lock manager which stores the locks in a file on disk. It has these parameters:
+           * AdamMil.WebDAV.Server.FileLockManager - A lock manager that stores the locks in a file on disk. It has these parameters:
              o lockFile      - The path to the file in which the locks will be saved.
              o revertToSelf  - Boolean. Determines whether the lock manager will revert to the process identity before opening the file on
                                disk. This allows the file to be opened with the IIS process account, which is usually more privileged.
                                The default is true.
              o writeInterval - Positive integer. The number of seconds to wait before flushing pending changes to disk. The default is 60
                                and the maximum is 2147483.
-           * AdamMil.WebDAV.Server.MemoryLockManager - A lock manager which holds locks in memory while the service is running but does not
-                                                   persist them to any permanent storage device.
+           * AdamMil.WebDAV.Server.MemoryLockManager - A lock manager that holds locks in memory while the service is running but does not
+                                                       persist them to any permanent storage device.
            In addition to the manager-specific parameters mentioned above, all built-in lock managers support the following parameters:
            * defaultTimeout     - Nonnegative integer. The default lock timeout, in seconds, used when the client does not request a
                                   specific timeout. A value of zero means that locks do not time out by default. The default is zero.
@@ -50,8 +50,31 @@
            * maximumTimeout     - Nonnegative integer. The maximum lock timeout, in seconds. A value of zero indicates that there is no
                                   maximum. The default is zero.
       -->
-      <davLockManager type="AdamMil.WebDAV.Server.FileLockManager, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9f4da00116c38ec5"
+      <davLockManager type="AdamMil.WebDAV.Server.FileLockManager, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
                       lockFile="D:\data\webdav\locks" maximumLocksPerUrl="10" maximumTimeout="1209600" writeInterval="300" />
+      <!-- The 'propertyStore' element configures the default property store for the WebDAV server. (It is possible to override the default
+           using the 'propertyStore' child element of a location.) It should have a 'type' attribute set to the full type name of a class
+           that implements the AdamMil.WebDAV.Server.IPropertyStore interface. The class must either have a public default constructor or a
+           constructor that accepts an AdamMil.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration
+           attributes to be processed by the property store). If the element is omitted, no default property story will be available,
+           disabling dead properties on services and locations that don't specify their own property store. These are the built-in property
+           stores:
+           * AdamMil.WebDAV.Server.DisablePropertyStore - A property store that indicates to the WebDAV server that it should disable
+                                                          setting dead properties. This serves no purpose as a server-wide default, but may
+                                                          be useful below when configuring individual locations to override the server-wide
+                                                          default.
+           * AdamMil.WebDAV.Server.FilePropertyStore - A property store that stores properties in a file on disk. It has these parameters:
+             o propertyFile  - The path to the file in which the dead properties will be saved.
+             o revertToSelf  - Boolean. Determines whether the lock manager will revert to the process identity before opening the file on
+                               disk. This allows the file to be opened with the IIS process account, which is usually more privileged. The
+                               default is true.
+             o writeInterval - Positive integer. The number of seconds to wait before flushing pending changes to disk. The default is 60
+                               and the maximum is 2147483.
+           * AdamMil.WebDAV.Server.MemoryPropertyStore - A property store that stores properties in memory while the services is running
+                                                         but does not persist them to any permanent storage device.
+      -->
+      <propertyStore type="AdamMil.WebDAV.Server.FilePropertyStore, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
+                     propertyFile="D:\data\webdav\props" writeInterval="300" />
       <!-- The 'locations' collection defines the roots of WebDAV services within the URL space. -->
       <locations>
         <!-- A location is used to match request URIs against different WebDAV services. Multiple locations can match the same URI;
@@ -75,14 +98,14 @@
                            [2001:db8:85a3::8a2e:370:7334]/path/  - matches an IPv6 address
                            /webdav/                              - matches requests on any hostname, as long as the path is under /webdav/
                            www.example.com                       - matches all requests to www.example.com
-             * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, and
+             * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, but
                          they will not be processed by other locations in the list.
              * type      The full type name of a class that implements the AdamMil.WebDAV.Server.IWebDAVService interface. The class must
-                         either have a public default constructor or a constructor that accepts a
+                         either have a public default constructor or a constructor that accepts an
                          AdamMil.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration attributes to be processed
                          by the service). This attribute is required for enabled locations.
-             * caseSensitive      If true, path matches (but not hostname matches) will be done case sensitively. If false, case will be
-                                  ignored. The default is false.
+             * caseSensitive      If true, URI path matches (but not hostname matches) will be done case sensitively. If false, case will
+                                  be ignored. The default is false.
              * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
                                   requests to the root of the server and to the "*" URL. This option is provided as a workaround for
                                   WebDAV clients that incorrectly submit OPTIONS requests to the root of the server. Using this option is
@@ -90,10 +113,10 @@
                                   If this option is enabled, the service must be prepared to handle URLs outside its scope.
                                   The default is false.
              * <other>   Attributes not listed above will be collected and passed to the AdamMil.WebDAV.Server.IWebDAVService instance as
-                         parameters if it has a public constructor that accepts a AdamMil.WebDAV.Server.Configuration.ParameterCollection. Be
-                         aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
+                         parameters if it has a public constructor that accepts an AdamMil.WebDAV.Server.Configuration.ParameterCollection.
+                         Be aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
                          interpreted as a custom attribute and not the required "match" attribute.
-             The built-in WebDAV services are:
+             The built-in WebDAV service types are:
              * AdamMil.WebDAV.Server.FileSystemService - Serves files from the filesystem. Supports the following configuration attributes:
                o fsRoot   - Specifies the root within the filesystem from which files will be served. Effectively, this maps the service
                             root to the given filesystem root. If empty or omitted, all files on all drives will be served.
@@ -106,19 +129,24 @@
              param1="value1" param2="value2"> <!-- param1 and param2 are passed to YourWebDAV.ServiceProvider as parameters -->
           <!-- The 'authorization' collection defines authorization filters in addition to the authorization built into individual WebDAV
                 resources. This allows additional authorization to be layered on top of an existing WebDAV service provider in order to
-                deny access to resources that would otherwise be accessible. Authorization elements have the following attributes:
+                deny access to resources that would otherwise be accessible. A filter cannot grant access to resources that are otherwise
+                inaccessible. Authorization entries have the following attributes:
                 * type      The full type name of a class that implements the AdamMil.WebDAV.Server.IAuthorizationFilter interface. The class
-                            must either have a public default constructor or a constructor that accepts a
+                            must either have a public default constructor or a constructor that accepts an
                             AdamMil.WebDAV.Server.Configuration.ParameterCollection (allowing additional configuration parameters to be
                             processed by the filter). This attribute is required.
                 * <other>   Attributes not listed above will be collected and passed to the AdamMil.WebDAV.Server.IAuthorizationFilter instance
-                            if it has a public constructor that accepts a AdamMil.WebDAV.Server.Configuration.ParameterCollection.
+                            if it has a public constructor that accepts an AdamMil.WebDAV.Server.Configuration.ParameterCollection.
                             Be aware that attribute names are case-sensitive, so if you specify an attribute named "Type" it will be
                             interpreted as a custom attribute and not the required "type" attribute.
           -->
           <authorization>
             <add type="MyWebDAV.AuthFilter, MyWebDAV, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fedcba9876543210" />
           </authorization>
+          <!-- The 'propertyStore' element defines a property store for this particular location, overriding the global default. For
+               documentation, see the 'propertyStore' element above.
+          -->
+          <propertyStore type="AdamMil.WebDAV.Server.MemoryPropertyStore, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
         </add>
       </locations>
     </server>
