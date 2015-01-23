@@ -85,15 +85,15 @@
     <Content Include="documentation.xml" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Collections\AdamMil.Collections.csproj">
+    <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">
       <Project>{D9724C65-C54A-4671-BA0B-40B0B38464DD}</Project>
       <Name>AdamMil.Collections</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\..\IO\AdamMil.IO.csproj">
+    <ProjectReference Include="..\..\AdamMil.net\IO\AdamMil.IO.csproj">
       <Project>{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}</Project>
       <Name>AdamMil.IO</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\..\Utilities\AdamMil.Utilities.csproj">
+    <ProjectReference Include="..\..\AdamMil.net\Utilities\AdamMil.Utilities.csproj">
       <Project>{29134637-6D08-432C-8161-9DEEE13C955D}</Project>
       <Name>AdamMil.Utilities</Name>
     </ProjectReference>
