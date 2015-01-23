@@ -199,7 +199,9 @@ public static class DAVUtility
     return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false);
   }
 
-  /// <summary>Gets the canonical message corresponding to an HTTP status code, or the message for the given status code is unknown.</summary>
+  /// <summary>Gets the canonical message corresponding to an HTTP status code, or null if the message for the given status code is
+  /// unknown.
+  /// </summary>
   public static string GetStatusCodeMessage(int httpStatusCode)
   {
     return statusMessages.TryGetValue(httpStatusCode);
@@ -218,28 +220,32 @@ public static class DAVUtility
   {
     // technically, a MIME boundary must be guaranteed to not collide with any data in the message body, but that is unreasonably difficult
     // to ensure (i.e. MIME sucks!), so we'll use a random MIME boundary. MIME boundaries can be up to 69 characters in length, and we'll
-    // use all 69 characters to provide the lowest chance of a collision with any data in the message body (although even 16 characters
-    // would provide an insanely low chance of collision). we'll use a strong random number generator to provide us with random bytes.
-    // since there are 74 characters in the MIME boundary alphabet, each character requires log2(74) ~= 6.21 bits. each random byte
-    // provides us with 8 bits, so we need ceil(log2(74) / 8 * 69) = 54 total random bytes. we actually care about reducing the number of
-    // random bytes generated because we're using a cryptographic RNG and want to consume no more entropy from the system than is necessary
-    // (just in case entropy is actually consumed by the RNG)
-    const string Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',.()-=_+/?:"; // legal MIME boundary characters
+    // use all 69 characters to reduce the chance of a collision with any data in the message body (although even 25 characters selected
+    // randomly from the full boundary alphabet would provide a chance of collision on par with a random GUID, assuming a 100MB message).
+    // we'll use a strong random number generator to provide us with random bytes (largely to avoid duplicate boundary strings returned by
+    // poor time-based seed generation in the Random class if the method is called repeatedly in a short time period, and any theoretical
+    // attacks based on predicting boundary strings - not that i can think of any). we care about reducing the number of random bytes
+    // generated because we're using a cryptographic RNG and want to consume no more entropy from the system than is necessary (just in
+    // case entropy is actually consumed by the RNG, as it is in some systems). since there are 74 characters in the MIME boundary
+    // alphabet, each character requires log2(74) ~= 6.21 bits. each random byte provides us with 8 bits, so we need at least
+    // ceil(log2(74) / 8 * 69) = 54 random bytes, but since 74 is not a power of two, to do it properly we would have to treat the random
+    // bytes as a single 432-bit integer which we repeatedly divide by 74. this high-precision math is not difficult to do, but it seems
+    // like computational overkill. it is more than enough to use an alphabet of 64 characters and 6 bits per character, given the long
+    // length of the string we're generating
+    const string Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_+"; // subset of legal MIME boundary characters
     char[] chars = new char[69]; // 69 characters in the boundary
-    byte[] bytes = new byte[54]; // we'll need 54 random bytes
+    byte[] bytes = new byte[52]; // at 6 bits per character, we'll need ceil(69*6/8) = 52 random bytes
     System.Security.Cryptography.RandomNumberGenerator.Create().GetBytes(bytes);
-
-    for(int value=0, ci=0, bi=0, bits=0; ci < chars.Length; ci++)
+    for(int bitBuffer=0, bits=0, bi=0, ci=0; ci<chars.Length; ci++)
     {
-      if(bits < 621) // use a simple form of integer math to keep track of how many random bits we have (times 100). the accumulated error
-      {              // over the length of a MIME boundary is insignificant (but it would be significant if we only multiplied by 10)
-        value = value*74 + bytes[bi++];
-        bits += 800; // we received 8 new random bits
+      if(bits < 6)
+      {
+        bitBuffer = (bitBuffer << 16) | (bytes[bi++] << 8) | bytes[bi++]; // read 2 bytes at a time, 'cuz we can
+        bits     += 16;
       }
-
-      chars[ci] = Alphabet[value % 74];
-      value /= 74;
-      bits -= 621; // we consumed ~6.21 random bits
+      chars[ci] = Alphabet[bitBuffer & 63];
+      bitBuffer >>= 6;
+      bits       -= 6;
     }
     return new string(chars);
   }

@@ -192,7 +192,7 @@ public class GetOrHeadRequest : WebDAVRequest
   /// <summary>Gets whether the client has submitted a <c>HEAD</c> request rather than a <c>GET</c> request.</summary>
   public bool IsHeadRequest { get; private set; }
 
-  /// <summary>Returns an array of satisfiable byte ranges from the HTTP Range header, the order that they would be found in the entity
+  /// <summary>Returns an array of satisfiable byte ranges from the HTTP Range header, in the order that they would be found in the entity
   /// body, or null if no valid Range header was supplied by the client.
   /// </summary>
   /// <remarks>If the returned array has a length of zero, the range set was unsatisfiable, which requires a special kind of response.
