@@ -486,16 +486,6 @@ public class PropFindRequest : WebDAVRequest
       new PropFindValue(deadProperty.Value, deadProperty.Type, deadProperty.Language);
   }
 
-  static object GetPropertyValue(object value)
-  {
-    if(value != null)
-    {
-      Func<object> getter = value as Func<object>;
-      if(getter != null) value = getter();
-    }
-    return value;
-  }
-
   static void SetObjectValue(PropFindResource resource, XmlQualifiedName propertyName, object value)
   {
     resource.SetValue(propertyName, value);
@@ -640,6 +630,7 @@ public sealed class PropFindResource
   public void SetValue(XmlQualifiedName property, object value, string language)
   {
     XmlQualifiedName type = null;
+    value = GetPropertyValue(value);
     if(value != null && !builtInTypes.ContainsKey(property)) type = DAVUtility.GetXsiType(value);
     SetValueCore(property, value, type, language);
   }
@@ -656,6 +647,7 @@ public sealed class PropFindResource
   public void SetValue(XmlQualifiedName property, object value, XmlQualifiedName type, string language)
   {
     if(property == null) throw new ArgumentNullException();
+    value = GetPropertyValue(value);
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
     if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) && !builtInTypes.ContainsKey(property))
     {
@@ -827,6 +819,16 @@ public sealed class PropFindResource
     {
       if(child.NodeType == XmlNodeType.Element) AddElementNamespaces((XmlElement)child, namespaces);
     }
+  }
+
+  static object GetPropertyValue(object value)
+  {
+    if(value != null)
+    {
+      Func<object> getter = value as Func<object>;
+      if(getter != null) value = getter();
+    }
+    return value;
   }
 
   static object ValidatePropertyValue(XmlQualifiedName property, object value, XmlQualifiedName expectedType)

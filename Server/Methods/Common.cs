@@ -458,7 +458,7 @@ public abstract class WebDAVRequest
     if(absolutePath == null)
     {
       if(service != null) throw new ArgumentException("If absolutePath is null, service must also be null.");
-      absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
+      absolutePath = Context.ServiceRoot + (Context.RequestResource != null ? Context.RequestResource.CanonicalPath : Context.RequestPath);
     }
 
     if(Context.LockManager != null)
