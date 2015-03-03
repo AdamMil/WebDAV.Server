@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <appSettings>
+    <add key="ServerProgram" value="C:\Program Files\IIS Express\iisexpress.exe" />
+    <add key="Port" value="8080" />
+    <add key="KillServer" value="" /> <!-- specifies the name of the process (e.g. "iisexpress") to kill before starting tests -->
+    <!-- If omitted, uses default temp directory: <add key="TempDirectory" value="C:\path\to\temp" /> -->
+  </appSettings>
+</configuration>

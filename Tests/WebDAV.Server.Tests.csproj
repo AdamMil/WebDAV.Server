@@ -1,0 +1,89 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{153DA5D4-3D06-400E-B405-810E7B9BCBAE}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>WebDAV.Server.Tests</RootNamespace>
+    <AssemblyName>WebDAV.Server.Tests</AssemblyName>
+    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject />
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="nunit.framework, Version=2.6.3.13283, Culture=neutral, PublicKeyToken=96d09a1eb7f44a77, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Program Files (x86)\NUnit 2.6.3\bin\framework\nunit.framework.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.configuration" />
+    <Reference Include="System.Net" />
+    <Reference Include="System.Web" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Globals.cs" />
+    <Compile Include="Methods\Options.cs" />
+    <Compile Include="MimeReader.cs" />
+    <Compile Include="TestBase.cs" />
+    <Compile Include="TestHarness.cs" />
+    <Compile Include="Methods\GetOrHead.cs" />
+    <Compile Include="WebServer.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\AdamMil.net\IO\AdamMil.IO.csproj">
+      <Project>{ceb9bc77-b63f-40a1-bede-7c32e9b90d55}</Project>
+      <Name>AdamMil.IO</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\TestHelpers\AdamMil.TestHelpers.csproj">
+      <Project>{e755006a-eb9e-4a5a-9872-65a2c4737c20}</Project>
+      <Name>AdamMil.TestHelpers</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\Utilities\AdamMil.Utilities.csproj">
+      <Project>{29134637-6d08-432c-8161-9deee13c955d}</Project>
+      <Name>AdamMil.Utilities</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Server\WebDAV.Server.csproj">
+      <Project>{2c80b8ca-aa29-4f20-9225-fb77c46f9d32}</Project>
+      <Name>WebDAV.Server</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="App.config.sample" />
+    <None Include="WebFiles\applicationhost.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="WebFiles\web.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>

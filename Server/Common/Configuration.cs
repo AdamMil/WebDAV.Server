@@ -190,6 +190,22 @@ public sealed class LocationElement : ConfigurationElement
     get { return (bool)this["enabled"]; }
   }
 
+  /// <summary>Gets the unique, case-insensitive ID corresponding to this location. If null or empty, the ID should be computed based on
+  /// the <see cref="Match"/> pattern.
+  /// </summary>
+  [ConfigurationProperty("id")]
+  public string ID
+  {
+    get { return (string)this["id"]; }
+  }
+
+  /// <summary>Gets the <see cref="LockManagerElement"/> describing the default <see cref="ILockManager"/> to be used by the location.</summary>
+  [ConfigurationProperty("davLockManager")] // I wanted to call this "lockManager", but apparently names starting with "lock" are reserved
+  public LockManagerElement LockManager
+  {
+    get { return (LockManagerElement)this["davLockManager"]; }
+  }
+
   /// <summary>Gets a string matching request URIs, of the form [[scheme://](hostname|IP)[:port]][/path/]</summary>
   [ConfigurationProperty("match", IsKey=true, IsRequired=true), RegexStringValidator(MatchPattern)]
   public string Match
@@ -226,7 +242,7 @@ public sealed class LocationElement : ConfigurationElement
   /// <inheritdoc/>
   protected override bool OnDeserializeUnrecognizedAttribute(string name, string value)
   {
-    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to service instances
+    Parameters.Set(name, value); // save unrecognized attributes so we can pass them as parameters to objects
     return true;
   }
 

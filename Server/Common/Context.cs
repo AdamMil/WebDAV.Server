@@ -45,7 +45,7 @@ public sealed class WebDAVContext : IDisposable
     Request       = app.Request;
     Response      = app.Response;
     LockManager   = lockManager;
-    PropertyStore = propertyStore is DisablePropertyStore ? null : propertyStore; // DisablePropertyStore disallows dead property setting
+    PropertyStore = propertyStore;
     Settings      = config;
   }
 
@@ -63,6 +63,14 @@ public sealed class WebDAVContext : IDisposable
   }
   #endregion
 
+  /// <summary>Gets the <see cref="IWebDAVResource.CanonicalPath"/> of the <see cref="RequestResource"/> if it could be resolved, or
+  /// <see cref="RequestPath"/> otherwise.
+  /// </summary>
+  public string CanonicalPathIfKnown
+  {
+    get { return RequestResource != null ? RequestResource.CanonicalPath : RequestPath; }
+  }
+
   /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request, or null if no lock manager is configured.</summary>
   public ILockManager LockManager { get; private set; }
 
@@ -73,14 +81,14 @@ public sealed class WebDAVContext : IDisposable
   public HttpRequest Request { get; private set; }
 
   /// <summary>Gets the path of the request URL, relative to <see cref="ServiceRoot"/>. As a relative path, it will not contain a leading
-  /// slash.
+  /// slash. This might not be the canonical path to the resource.
   /// </summary>
   public string RequestPath { get; private set; }
 
-  /// <summary>Gets the <see cref="IWebDAVResource"/> mapped to the WebDAV request URI, or null if the resource has not yet been resolved
-  /// or the request was made to a URL that was not mapped to any resource.
+  /// <summary>Gets the <see cref="IWebDAVResource"/> mapped to the WebDAV request URI, or null if the request was made to a URL that was
+  /// not mapped to any resource in the <see cref="Service"/>.
   /// </summary>
-  public IWebDAVResource RequestResource { get; internal set; }
+  public IWebDAVResource RequestResource { get; private set; }
 
   /// <summary>Gets the <see cref="HttpResponse"/> associated with the WebDAV request. In general, you should not write directly to the
   /// response, but instead use the helper methods provided by the WebDAV framework, such as <see cref="OpenXmlResponse"/> and
@@ -96,6 +104,91 @@ public sealed class WebDAVContext : IDisposable
 
   /// <summary>Gets additional configuration settings for the WebDAV service in the current context.</summary>
   public Configuration Settings { get; private set; }
+
+  /// <summary>Chooses a <see cref="ContentEncoding"/> for the response based on the types supported by the client.</summary>
+  /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
+  /// it's preferred by the client. Otherwise, only the uncompressed <see cref="ContentEncoding.Identity"/> encoding can be chosen.
+  /// </param>
+  /// <param name="setHeader">If true, the <c>Content-Encoding</c> header will be set to the chosen encoding.</param>
+  public ContentEncoding ChooseResponseEncoding(bool enableCompression, bool setHeader)
+  {
+    // the identity encoding is assumed to always be available unless it's explicitly disallowed
+    ContentEncoding encoding = ContentEncoding.Identity;
+    string encodingName = "identity";
+
+    // parse the Accept-Encoding header so that we can encode the content appropriately (see RFC 7231 section 5.3.4)
+    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[DAVHeaders.AcceptEncoding]);
+    if(encodings != null)
+    {
+      List<Accept> acceptedEncodings = new List<Accept>();
+      int starIndex = -1; // the index of the * pseudo-encoding, or -1 if it was not submitted
+      for(int i=0; i<encodings.Length; i++)
+      {
+        Accept acceptable = new Accept(encodings[i].ToLowerInvariant());
+        if(acceptable.Name.OrdinalEquals("*")) starIndex = i;
+        acceptedEncodings.Add(acceptable);
+      }
+
+      // if the * encoding was given, expand it
+      if(starIndex != -1)
+      {
+        bool hasGzip = false, hasDeflate = false, hasIdentity = false;
+        foreach(Accept acceptable in acceptedEncodings)
+        {
+          if(!hasGzip && acceptable.Name.OrdinalEquals("gzip")) hasGzip = true;
+          else if(!hasDeflate && acceptable.Name.OrdinalEquals("deflate")) hasDeflate = true;
+          else if(!hasIdentity && acceptable.Name.OrdinalEquals("identity")) hasIdentity = true;
+        }
+
+        float preference = acceptedEncodings[starIndex].Preference;
+        if(enableCompression)
+        {
+          if(!hasGzip) acceptedEncodings.Add(new Accept("gzip", preference));
+          if(!hasDeflate) acceptedEncodings.Add(new Accept("deflate", preference));
+        }
+        if(!hasIdentity) acceptedEncodings.Add(new Accept("identity", preference));
+      }
+
+      // sort the encodings by preference, putting the most-preferred ones first
+      acceptedEncodings.Sort((a, b) =>
+      {
+        int cmp = b.Preference.CompareTo(a.Preference);
+        if(cmp == 0) cmp = GetDefaultPreference(b.Name).CompareTo(GetDefaultPreference(a.Name));
+        return cmp;
+      });
+
+      foreach(Accept acceptable in acceptedEncodings)
+      {
+        string name = acceptable.Name;
+        if(acceptable.Preference != 0) // if the encoding is allowed...
+        {
+          if(enableCompression && (name.OrdinalEquals("gzip") || name.OrdinalEquals("deflate")) || name.OrdinalEquals("identity"))
+          {
+            encodingName = name; // use it
+            break;
+          }
+        }
+        else if(name.OrdinalEquals("identity")) // otherwise, if identity is disallowed...
+        {
+          encodingName = null; // we can't use it
+          break;
+        }
+      }
+
+      if(encodingName == null)
+      {
+        throw new WebDAVException((int)HttpStatusCode.NotAcceptable,
+                                  "No content encoding supported by the server was acceptable to the client.");
+      }
+
+      if(encodingName.OrdinalEquals("gzip")) encoding = ContentEncoding.GZip;
+      else if(encodingName.OrdinalEquals("deflate")) encoding = ContentEncoding.Deflate;
+    }
+
+    if(setHeader) Response.SetContentEncodingHeader(encoding);
+
+    return encoding;
+  }
 
   /// <summary>Returns an <see cref="XmlDocument"/> containing the request body loaded as XML, or null if the body is empty.</summary>
   public XmlDocument LoadRequestXml()
@@ -149,8 +242,7 @@ public sealed class WebDAVContext : IDisposable
   public MultiStatusResponse OpenMultiStatusResponse(HashSet<string> namespaces)
   {
     // begin outputting a multistatus (HTTP 207) response as defined in RFC 4918
-    Response.StatusCode        = 207;
-    Response.StatusDescription = DAVUtility.GetStatusCodeMessage(207); // 207 is an extension, so set the description manually
+    Response.SetStatus(207);
     return new MultiStatusResponse(OpenXmlResponse(null), namespaces);
   }
 
@@ -167,7 +259,7 @@ public sealed class WebDAVContext : IDisposable
     bool wrappedStream = false;
 
     // process the Content-Encoding header so that we can decode the content appropriately
-    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[HttpHeaders.ContentEncoding]);
+    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[DAVHeaders.ContentEncoding]);
     if(encodings != null)
     {
       bool hadEncoding = false;
@@ -197,101 +289,18 @@ public sealed class WebDAVContext : IDisposable
     return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/node()" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression' and @name != 'buffered' and @name != 'encoding']" />
   public Stream OpenResponseBody()
   {
-    return OpenResponseBody(true);
+    return OpenResponseBody(true, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/node()" />
-  /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
-  /// it's preferred by the client. Otherwise, only the uncompressed <c>identity</c> encoding can be chosen.
-  /// </param>
-  public Stream OpenResponseBody(bool enableCompression)
+  public Stream OpenResponseBody(bool enableCompression, bool? buffered)
   {
-    Stream stream = Response.OutputStream;
-    bool wrappedStream = false;
-
-    // parse the Accept-Encoding header so that we can encode the content appropriately (see RFC 2616 section 14.3)
-    string[] encodings = DAVUtility.ParseHttpTokenList(Request.Headers[HttpHeaders.AcceptEncoding]);
-    if(encodings != null)
-    {
-      List<Accept> acceptedEncodings = new List<Accept>();
-      int starIndex = -1; // the index of the * pseudo-encoding, or -1 if it was not submitted
-      for(int i=0; i<encodings.Length; i++)
-      {
-        Accept acceptable = new Accept(encodings[i].ToLowerInvariant());
-        if(acceptable.Name.OrdinalEquals("*")) starIndex = i;
-        acceptedEncodings.Add(acceptable);
-      }
-
-      // if the * encoding was given, expand it
-      if(starIndex != -1)
-      {
-        bool hasGzip = false, hasDeflate = false, hasIdentity = false;
-        foreach(Accept acceptable in acceptedEncodings)
-        {
-          if(!hasGzip && acceptable.Name.OrdinalEquals("gzip")) hasGzip = true;
-          else if(!hasDeflate && acceptable.Name.OrdinalEquals("deflate")) hasDeflate = true;
-          else if(!hasIdentity && acceptable.Name.OrdinalEquals("identity")) hasIdentity = true;
-        }
-
-        float preference = acceptedEncodings[starIndex].Preference;
-        if(enableCompression)
-        {
-          if(!hasGzip) acceptedEncodings.Add(new Accept("gzip", preference));
-          if(!hasDeflate) acceptedEncodings.Add(new Accept("deflate", preference));
-        }
-        if(!hasIdentity) acceptedEncodings.Add(new Accept("identity", preference));
-      }
-
-      // sort the encodings by preference, putting the most-preferred ones first
-      acceptedEncodings.Sort((a, b) =>
-      {
-        int cmp = b.Preference.CompareTo(a.Preference);
-        if(cmp == 0) cmp = GetDefaultPreference(b.Name).CompareTo(GetDefaultPreference(a.Name));
-        return cmp;
-      });
-
-      string encoding = "identity"; // the identity encoding is assumed to always be available unless it's explicitly disallowed
-      foreach(Accept acceptable in acceptedEncodings)
-      {
-        string name = acceptable.Name;
-        if(acceptable.Preference != 0) // if the encoding is allowed...
-        {
-          if(enableCompression && (name.OrdinalEquals("gzip") || name.OrdinalEquals("deflate")) || name.OrdinalEquals("identity"))
-          {
-            encoding = name; // use it
-            break;
-          }
-        }
-        else if(name.OrdinalEquals("identity")) // otherwise, if identity is disallowed...
-        {
-          encoding = null; // we can't use it
-          break;
-        }
-      }
-
-      if(encoding == null)
-      {
-        throw new WebDAVException((int)HttpStatusCode.NotAcceptable,
-                                  "No content encoding supported by the server was acceptable to the client.");
-      }
-      else if(encoding.OrdinalEquals("gzip"))
-      {
-        stream = new GZipStream(stream, CompressionMode.Compress, true);
-        wrappedStream = true;
-      }
-      else if(encoding.OrdinalEquals("deflate"))
-      {
-        stream = new DeflateStream(stream, CompressionMode.Compress, true);
-        wrappedStream = true;
-      }
-
-      if(wrappedStream) Response.Headers[HttpHeaders.ContentEncoding] = encoding;
-    }
-
-    return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
+    ContentEncoding encoding = ChooseResponseEncoding(enableCompression, true); // this sets a header, so call it before changing buffering
+    if(buffered.HasValue) Response.BufferOutput = buffered.Value;
+    return DAVUtility.EncodeOutputStream(Response.OutputStream, encoding, true);
   }
 
   /// <summary>Returns an <see cref="XmlWriter"/> object that writes an XML response body to the client.</summary>
@@ -303,14 +312,9 @@ public sealed class WebDAVContext : IDisposable
   /// </remarks>
   public XmlWriter OpenXmlResponse(ConditionCode status)
   {
-    if(status != null)
-    {
-      Response.StatusCode        = status.StatusCode;
-      Response.StatusDescription = DAVUtility.GetStatusCodeMessage(status.StatusCode);
-    }
-
-    Response.ContentEncoding   = System.Text.Encoding.UTF8;
-    Response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
+    if(status != null) Response.SetStatus(status);
+    Response.ContentEncoding = System.Text.Encoding.UTF8;
+    Response.SetContentType("application/xml"); // media type specified by RFC 4918 section 8.2
     return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, IndentChars = "\t" });
   }
 
@@ -330,6 +334,12 @@ public sealed class WebDAVContext : IDisposable
   }
 
   internal HttpApplication Application { get; private set; }
+
+  /// <summary>Resolves <see cref="RequestPath"/> and sets <see cref="RequestResource"/>.</summary>
+  internal void ResolveResource()
+  {
+    RequestResource = Service.ResolveResource(this, RequestPath);
+  }
 
   /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
   /// be empty.

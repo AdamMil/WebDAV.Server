@@ -34,7 +34,7 @@ public class UnlockRequest : SimpleRequest
   public UnlockRequest(WebDAVContext context) : base(context)
   {
     // parse the Timeout header if specified
-    string value = context.Request.Headers[HttpHeaders.LockToken];
+    string value = context.Request.Headers[DAVHeaders.LockToken];
     if(value != null)
     {
       int start, length;
@@ -67,12 +67,7 @@ public class UnlockRequest : SimpleRequest
     }
 
     ActiveLock lockObject = null;
-    if(Context.LockManager != null)
-    {
-      string lockPath = Context.ServiceRoot + (Context.RequestResource == null ? Context.RequestPath
-                                                                               : Context.RequestResource.CanonicalPath);
-      lockObject = Context.LockManager.GetLock(LockToken, lockPath);
-    }
+    if(Context.LockManager != null) lockObject = Context.LockManager.GetLock(LockToken, Context.CanonicalPathIfKnown);
 
     if(lockObject == null) Status = ConditionCodes.LockTokenMatchesRequestUri409;
     else if(precondition != null) Status = precondition;

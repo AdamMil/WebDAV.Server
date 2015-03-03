@@ -19,7 +19,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Xml;
 using AdamMil.Collections;
@@ -178,17 +177,17 @@ public class PropPatchRequest : WebDAVRequest
   }
 
   /// <summary>Performs standard processing of a <c>PROPPATCH</c> request. Only dead properties outside the WebDAV namespace can be set.</summary>
-  /// <param name="absolutePath">The absolute, canonical path of the resource whose properties will be modified. If null, the path to the
+  /// <param name="canonicalPath">The canonical, relative path of the resource whose properties will be modified. If null, the path to the
   /// <see cref="WebDAVContext.RequestResource"/> will be used, if it's available. If null and the request resource is not available, an
   /// exception will be thrown.
   /// </param>
-  public void ProcessStandardRequest(string absolutePath)
+  public void ProcessStandardRequest(string canonicalPath)
   {
-    ProcessStandardRequest(absolutePath, null, null, null, null, null, null);
+    ProcessStandardRequest(canonicalPath, null, null, null, null, null, null);
   }
 
   /// <summary>Performs standard processing of a <c>PROPPATCH</c> request.</summary>
-  /// <param name="absolutePath">The absolute, canonical path of the resource whose properties will be modified. If null, the path to the
+  /// <param name="canonicalPath">The canonical, relative path of the resource whose properties will be modified. If null, the path to the
   /// <see cref="WebDAVContext.RequestResource"/> will be used, if it's available. If null and the request resource is not available, an
   /// exception will be thrown.
   /// </param>
@@ -228,14 +227,14 @@ public class PropPatchRequest : WebDAVRequest
   /// whose <paramref name="setProperty"/> and <paramref name="removeProperty"/> functions work transactionally, in which case
   /// <paramref name="applyChanges"/> provides the signal that the changes should be committed.
   /// </param>
-  public void ProcessStandardRequest(string absolutePath, HashSet<XmlQualifiedName> protectedProperties,
+  public void ProcessStandardRequest(string canonicalPath, HashSet<XmlQualifiedName> protectedProperties,
                                      Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
                                      Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
                                      Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> setProperty,
                                      Func<XmlQualifiedName,ConditionCode> removeProperty,
                                      Action applyChanges)
   {
-    if(absolutePath == null && Context.RequestResource == null)
+    if(canonicalPath == null && Context.RequestResource == null)
     {
       throw new ArgumentException("A path must be provided if there is no request resource.");
     }
@@ -281,7 +280,7 @@ public class PropPatchRequest : WebDAVRequest
 
     if(!hadError) // if the everything should be able to succeed...
     {
-      if(absolutePath == null) absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
+      if(canonicalPath == null) canonicalPath = Context.RequestResource.CanonicalPath;
       foreach(PropertyPatch patch in Patches) // try to do the actual work
       {
         // first, remove properties
@@ -301,7 +300,7 @@ public class PropPatchRequest : WebDAVRequest
         }
         if(deadPropsToRemove != null && Context.PropertyStore != null)
         {
-          Context.PropertyStore.RemoveProperties(absolutePath, deadPropsToRemove);
+          Context.PropertyStore.RemoveProperties(canonicalPath, deadPropsToRemove);
         }
 
         // then set new ones (although only one of Remove or Set will contain elements in a given patch)
@@ -319,7 +318,7 @@ public class PropPatchRequest : WebDAVRequest
             deadPropsToSet.Add(pair.Value.Property);
           }
         }
-        if(deadPropsToSet != null && Context.PropertyStore != null) Context.PropertyStore.SetProperties(absolutePath, deadPropsToSet);
+        if(deadPropsToSet != null && Context.PropertyStore != null) Context.PropertyStore.SetProperties(canonicalPath, deadPropsToSet);
 
         if(applyChanges != null) applyChanges();
       }

@@ -343,6 +343,9 @@ public static class ConditionCodes
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 200 OK status code.</summary>
   public static readonly ConditionCode OK = new ConditionCode(HttpStatusCode.OK);
 
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 206 Partial Content status code.</summary>
+  public static readonly ConditionCode PartialContent = new ConditionCode(HttpStatusCode.PartialContent);
+
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 412 Precondition Failed status code.</summary>
   public static readonly ConditionCode PreconditionFailed = new ConditionCode(HttpStatusCode.PreconditionFailed);
 

@@ -21,12 +21,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
 using System.Xml;
 using AdamMil.Collections;
+using AdamMil.IO;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
@@ -34,6 +36,19 @@ using AdamMil.WebDAV.Server.Configuration;
 
 namespace AdamMil.WebDAV.Server
 {
+
+#region ContentEncoding
+/// <summary>Represents a value from the <c>Content-Encoding</c> header.</summary>
+public enum ContentEncoding
+{
+  /// <summary>The <c>identity</c> encoding, which does not alter the output.</summary>
+  Identity=0,
+  /// <summary>The <c>gzip</c> encoding, which compresses the output using the gzip algorithm.</summary>
+  GZip,
+  /// <summary>The <c>deflate</c> encoding, which compresses the output using the deflate algorithm.</summary>
+  Deflate
+}
+#endregion
 
 #region ContentRange
 /// <summary>Represents a value from the HTTP <c>Content-Range</c> header.</summary>
@@ -143,6 +158,94 @@ public sealed class ContentRange
 }
 #endregion
 
+#region DAVHeaders
+/// <summary>Defines HTTP headers commonly used with WebDAV resources.</summary>
+public static class DAVHeaders
+{
+  /// <summary>The HTTP <c>Accept-Encoding</c> header, defined in RFC 7231 section 5.3.4.</summary>
+  public const string AcceptEncoding = "Accept-Encoding";
+  /// <summary>The HTTP <c>Accept-Ranges</c> header, defined in RFC 7233 section 2.3.</summary>
+  public const string AcceptRanges = "Accept-Ranges";
+  /// <summary>The HTTP <c>Allow</c> header, defined in RFC 7231 section 7.4.1.</summary>
+  public const string Allow = "Allow";
+  /// <summary>The HTTP <c>Content-Encoding</c> header, defined in RFC 7231 section 3.1.2.2.</summary>
+  public const string ContentEncoding = "Content-Encoding";
+  /// <summary>The HTTP <c>Content-Length</c> header, defined in RFC 7230 section 3.3.2.</summary>
+  public const string ContentLength = "Content-Length";
+  /// <summary>The HTTP <c>Content-Range</c> header, defined in RFC 7233 section 4.2.</summary>
+  public const string ContentRange = "Content-Range";
+  /// <summary>The HTTP <c>Content-Type</c> header, defined in RFC 7231 section 3.1.1.5.</summary>
+  public const string ContentType = "Content-Type";
+  /// <summary>The WebDAV <c>DAV</c> header, defined in RFC 4918 section 10.1.</summary>
+  public const string DAV = "DAV";
+  /// <summary>The WebDAV <c>Depth</c> header, defined in RFC 4918 section 10.2.</summary>
+  public const string Depth = "Depth";
+  /// <summary>The WebDAV <c>Destination</c> header, defined in RFC 4918 section 10.3.</summary>
+  public const string Destination = "Destination";
+  /// <summary>The HTTP <c>ETag</c> header, defined in RFC 7232 section 2.3.</summary>
+  public const string ETag = "ETag";
+  /// <summary>The WebDAV <c>If</c> header, defined in RFC 4918 section 10.4.</summary>
+  public const string If = "If";
+  /// <summary>The HTTP <c>If-Match</c> header, defined in RFC 7232 section 3.1.</summary>
+  public const string IfMatch = "If-Match";
+  /// <summary>The HTTP <c>If-Modified-Since</c> header, defined in RFC 7232 section 3.3.</summary>
+  public const string IfModifiedSince = "If-Modified-Since";
+  /// <summary>The HTTP <c>If-None-Match</c> header, defined in RFC 7232 section 3.2.</summary>
+  public const string IfNoneMatch = "If-None-Match";
+  /// <summary>The HTTP <c>If-Range</c> header, defined in RFC 7233 section 3.2.</summary>
+  public const string IfRange = "If-Range";
+  /// <summary>The HTTP <c>If-Unmodified-Since</c> header, defined in RFC 7232 section 3.4.</summary>
+  public const string IfUnmodifiedSince = "If-Unmodified-Since";
+  /// <summary>The HTTP <c>Last-Modified</c> header, defined in RFC 7232 section 2.2.</summary>
+  public const string LastModified = "Last-Modified";
+  /// <summary>The HTTP <c>Location</c> header, defined in RFC 7231 section 7.1.2.</summary>
+  public const string Location = "Location";
+  /// <summary>The WebDAV <c>Lock-Token</c> header, defined in RFC 4918 section 10.5.</summary>
+  public const string LockToken = "Lock-Token";
+  /// <summary>The WebDAV <c>Overwrite</c> header, defined in RFC 4918 section 10.6.</summary>
+  public const string Overwrite = "Overwrite";
+  /// <summary>The HTTP <c>Range</c> header, defined in RFC 7233 section 3.1.</summary>
+  public const string Range = "Range";
+  /// <summary>The WebDAV <c>Timeout</c> header, defined in RFC 4918 section 10.7.</summary>
+  public const string Timeout = "Timeout";
+}
+#endregion
+
+#region DAVMethods
+/// <summary>Defines HTTP methods (verbs) commonly used with WebDAV resources.</summary>
+public static class DAVMethods
+{
+  /// <summary>The WebDAV <c>COPY</c> verb, defined in RFC 4918 section 9.8.</summary>
+  public const string Copy = "COPY";
+  /// <summary>The HTTP <c>DELETE</c> verb, defined in RFC 7231 section 4.3.5.</summary>
+  public const string Delete = "DELETE";
+  /// <summary>The HTTP <c>GET</c> verb, defined in RFC 7231 section 4.3.1.</summary>
+  public const string Get = "GET";
+  /// <summary>The HTTP <c>HEAD</c> verb, defined in RFC 7231 section 4.3.2.</summary>
+  public const string Head = "HEAD";
+  /// <summary>The WebDAV <c>LOCK</c> verb, defined in RFC 4918 section 9.10.</summary>
+  public const string Lock = "LOCK";
+  /// <summary>The WebDAV <c>MKCOL</c> verb, defined in RFC 4918 section 9.3.</summary>
+  public const string MkCol = "MKCOL";
+  /// <summary>The WebDAV <c>MOVE</c> verb, defined in RFC 4918 section 9.9.</summary>
+  public const string Move = "MOVE";
+  /// <summary>The HTTP <c>OPTIONS</c> verb, defined in RFC 7231 section 4.3.6.</summary>
+  public const string Options = "OPTIONS";
+  /// <summary>The HTTP <c>POST</c> verb, defined in RFC 7231 section 4.3.3.</summary>
+  public const string Post = "POST";
+  /// <summary>The WebDAV <c>PROPFIND</c> verb, defined in RFC 4918 section 9.1.</summary>
+  public const string PropFind = "PROPFIND";
+  /// <summary>The WebDAV <c>PROPPATCH</c> verb, defined in RFC 4918 section 9.2.</summary>
+  public const string PropPatch = "PROPPATCH";
+  /// <summary>The HTTP <c>PUT</c> verb, defined in RFC 7231 section 4.3.4.</summary>
+  public const string Put = "PUT";
+  /// <summary>The HTTP <c>TRACE</c> verb, defined in RFC 7231 section 4.3.8.</summary>
+  public const string Trace = "TRACE";
+  /// <summary>The WebDAV <c>UNLOCK</c> verb, defined in RFC 4918 section 9.11.</summary>
+  public const string Unlock = "UNLOCK";
+}
+#endregion
+
 #region DAVUtility
 /// <summary>Contains useful utilities for DAV services.</summary>
 public static class DAVUtility
@@ -154,7 +257,7 @@ public static class DAVUtility
   /// </remarks>
   public static string CanonicalPathEncode(string path)
   {
-    if(path != null)
+    if(!string.IsNullOrEmpty(path))
     {
       for(int i=0; i<path.Length; i++)
       {
@@ -196,27 +299,11 @@ public static class DAVUtility
   {
     if(entityBody == null) throw new ArgumentNullException();
     if(rewindStream) entityBody.Position = 0;
-    return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false);
-  }
-
-  /// <summary>Gets the canonical message corresponding to an HTTP status code, or null if the message for the given status code is
-  /// unknown.
-  /// </summary>
-  public static string GetStatusCodeMessage(int httpStatusCode)
-  {
-    return statusMessages.TryGetValue(httpStatusCode);
-  }
-
-  /// <summary>Determines whether the given name belongs to the WebDAV namespace and therefore indicates a name used or reserved by the
-  /// WebDAV standard.
-  /// </summary>
-  public static bool IsDAVName(XmlQualifiedName name)
-  {
-    return name.Namespace.OrdinalEquals(DAVNames.DAV);
+    return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false, false);
   }
 
   /// <summary>Returns a random MIME boundary.</summary>
-  internal static string CreateMimeBoundary()
+  public static string CreateMimeBoundary()
   {
     // technically, a MIME boundary must be guaranteed to not collide with any data in the message body, but that is unreasonably difficult
     // to ensure (i.e. MIME sucks!), so we'll use a random MIME boundary. MIME boundaries can be up to 69 characters in length, and we'll
@@ -250,6 +337,118 @@ public static class DAVUtility
     return new string(chars);
   }
 
+  /// <summary>Wraps an output stream as necessary to apply a content encoding.</summary>
+  /// <param name="outputStream">The output stream.</param>
+  /// <param name="encoding">The encoding to apply to the stream.</param>
+  /// <param name="leaveOpen">If false, closing the wrapper will close <paramref name="outputStream"/>. If true, the output stream will
+  /// remain open after the wrapper is closed.
+  /// </param>
+  public static Stream EncodeOutputStream(Stream outputStream, ContentEncoding encoding, bool leaveOpen)
+  {
+    if(encoding == ContentEncoding.GZip) outputStream = new GZipStream(outputStream, CompressionMode.Compress, leaveOpen);
+    else if(encoding == ContentEncoding.Deflate) outputStream = new DeflateStream(outputStream, CompressionMode.Compress, leaveOpen);
+    else if(leaveOpen) outputStream = new DelegateStream(outputStream, false);
+    return outputStream;
+  }
+
+  /// <summary>Converts the given <see cref="DateTime"/> to UTC and truncates it to one-second precision as necessary. This produces a
+  /// <see cref="DateTime"/> value that can be compared with other <c>HTTP-date</c> values.
+  /// </summary>
+  public static DateTime GetHttpDate(DateTime dateTime)
+  {
+    // HTTP dates are in UTC, so convert the last modified time to UTC as well. also, round the timestamp down to the nearest second
+    // because HTTP dates only have one-second precision and DateTime.ToString("R") also truncates downward
+    if(dateTime.Kind == DateTimeKind.Local) dateTime = dateTime.ToUniversalTime();
+    long subsecondTicks = dateTime.Ticks % TimeSpan.TicksPerSecond;
+    if(subsecondTicks != 0) dateTime = dateTime.AddTicks(-subsecondTicks);
+    return dateTime;
+  }
+
+  /// <summary>Converts the given <see cref="DateTime"/> to an <c>HTTP-date</c> header value, which is used for headers like
+  /// <c>Last-Modified</c>, etc.
+  /// </summary>
+  public static string GetHttpDateHeader(DateTime dateTime)
+  {
+    return GetHttpDate(dateTime).ToString("R", CultureInfo.InvariantCulture);
+  }
+
+  /// <summary>Gets the canonical message corresponding to an HTTP status code, or null if the message for the given status code is
+  /// unknown.
+  /// </summary>
+  public static string GetStatusCodeMessage(int httpStatusCode)
+  {
+    return statusMessages.TryGetValue(httpStatusCode);
+  }
+
+  /// <summary>Determines whether the given name belongs to the WebDAV namespace and therefore indicates a name used or reserved by the
+  /// WebDAV standard.
+  /// </summary>
+  public static bool IsDAVName(XmlQualifiedName name)
+  {
+    return name.Namespace.OrdinalEquals(DAVNames.DAV);
+  }
+
+  /// <summary>Parses an <c>HTTP-date</c> value, as defined in RFC 7231 section 7.1.1.1.</summary>
+  public static DateTime ParseHttpDate(string value)
+  {
+    if(value == null) throw new ArgumentNullException();
+    DateTime datetime;
+    if(!TryParseHttpDate(value, out datetime)) throw new FormatException();
+    return datetime;
+  }
+
+  /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 7230
+  /// section 3.2.6.
+  /// </summary>
+  public static string QuoteString(string ascii)
+  {
+    if(ascii == null) throw new ArgumentNullException();
+    StringBuilder sb = new StringBuilder(ascii.Length + 20);
+    sb.Append('\"');
+    for(int i=0; i<ascii.Length; i++)
+    {
+      char c = ascii[i];
+      if(c < 32 && c != '\t' || c == '"' || c == '\\' || c == 0x7f) sb.Append('\\');
+      sb.Append(c);
+    }
+    sb.Append('"');
+    ascii = sb.ToString();
+    return ascii;
+  }
+
+  /// <summary>Attempts to parse an <c>HTTP-date</c> value, as defined in RFC 7231 section 7.1.1.1.</summary>
+  public static bool TryParseHttpDate(string value, out DateTime date)
+  {
+    Match m = value == null ? null : httpDateRe.Match(value);
+    if(m == null || !m.Success)
+    {
+      date = default(DateTime);
+      return false;
+    }
+
+    int year  = int.Parse(m.Groups["y"].Value, CultureInfo.InvariantCulture);
+    int month = months.IndexOf(m.Groups["mon"].Value) + 1;
+    int day   = int.Parse(m.Groups["d"].Value, CultureInfo.InvariantCulture);
+    int hour  = int.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture);
+    int min   = int.Parse(m.Groups["min"].Value, CultureInfo.InvariantCulture);
+    int sec   = int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture);
+
+    if(year < 100) // if we have a two-digit year...
+    {
+      int currentYear = DateTime.UtcNow.Year, century = currentYear - currentYear % 100;
+      year += century; // start by assuming it's within the same century
+      int difference = year - currentYear;
+      if(difference > 50) year -= 100; // if that would put it more than 50 years in the future, then assume it's actually in the past
+      else if(difference < -50) year += 100; // and if that would put it more than 50 years in the past, assume it's actually in the future
+      // (to be really correct we should also take into account months, days, etc. when checking if it'd be more than 50 years away, but
+      // that's not really worth the effort given that no HTTP/1.1-compliant system can generate a two-digit year anyway, and anybody using
+      // ancient or non-compliant software should be prepared to handle varying interpretations of two-digit years when they're ambiguous)
+    }
+
+    date = new DateTime(year, month, day, hour, min, sec, DateTimeKind.Utc); // all HTTP dates are in UTC
+    return true;
+  }
+
   /// <summary>Extracts an <see cref="XmlElement"/> into its own <see cref="XmlDocument"/>.</summary>
   internal static XmlElement Extract(this XmlElement element)
   {
@@ -263,17 +462,38 @@ public static class DAVUtility
     return element;
   }
 
-  /// <summary>Converts the given date time to UTC and truncates it to one-second precision as necessary. This produces a
-  /// <see cref="DateTime"/> value that can be compared with other <c>HTTP-date</c> values.
-  /// </summary>
-  internal static DateTime GetHttpDate(DateTime dateTime)
+  /// <summary>Uniquely encodes a string into a valid file name.</summary>
+  internal static string FileNameEncode(string str)
   {
-    // HTTP dates are in UTC, so convert the last modified time to UTC as well. also, round the timestamp down to the nearest second
-    // because HTTP dates only have one-second precision and DateTime.ToString("R") also truncates downward
-    if(dateTime.Kind == DateTimeKind.Local) dateTime = dateTime.ToUniversalTime();
-    long subsecondTicks = dateTime.Ticks % TimeSpan.TicksPerSecond;
-    if(subsecondTicks != 0) dateTime = dateTime.AddTicks(-subsecondTicks);
-    return dateTime;
+    if(!string.IsNullOrEmpty(str))
+    {
+      for(int i=0; i<str.Length; i++)
+      {
+        char c = str[i];
+        if(c == '%' || badFileNameChars.Contains(c))
+        {
+          StringBuilder sb = new StringBuilder(str.Length + 10);
+          sb.Append(str, 0, i);
+          while(true)
+          {
+            if(c == '%' || badFileNameChars.Contains(c))
+            {
+              sb.Append('%').Append(BinaryUtility.ToHexChar((byte)(c&15))).Append(BinaryUtility.ToHexChar((byte)((c>>4)&15)));
+            }
+            else
+            {
+              sb.Append(c);
+            }
+            if(++i == str.Length) break;
+            c = str[i];
+          }
+          str = sb.ToString();
+          break;
+        }
+      }
+    }
+
+    return str;
   }
 
   /// <summary>Returns the parent of the given path, or null if the path has no parent. This works with both absolute and relative paths,
@@ -328,24 +548,21 @@ public static class DAVUtility
     return type;
   }
 
-  /// <summary>Encodes an ASCII string as an RFC 2616 <c>quoted-string</c> if it has any characters that need encoding.</summary>
-  internal static string HeaderEncode(string ascii)
+  /// <summary>Determines whether the value is a token as defined by section 3.2.6 of RFC 7230.</summary>
+  internal static bool IsToken(string value)
   {
-    if(ascii != null)
+    for(int i=0; i<value.Length; i++)
     {
-      for(int i=0; i<ascii.Length; i++)
+      char c = value[i];
+      // control characters, spaces, and certain punctuation marks are illegal in tokens
+      if(c <= 32 || c >= 0x7f || (c < 'A' || c > 'z' || c > 'Z' && c < 'a') && Array.BinarySearch(illegalTokenChars, c) >= 0)
       {
-        char c = ascii[i];
-        if(c < 32 && c != '\t' || c == 0x7f)
-        {
-          ascii = QuoteString(ascii);
-          break;
-        }
+        return false;
       }
     }
-
-    return ascii;
+    return true;
   }
+
   internal static uint ParseConfigParameter(ParameterCollection parameters, string paramName, uint defaultValue)
   {
     return ParseConfigParameter(parameters, paramName, defaultValue, 0, 0);
@@ -402,60 +619,10 @@ public static class DAVUtility
     return value;
   }
 
-  /// <summary>Quotes an ASCII string (which must not be null) in accordance with the <c>quoted-string</c> format defined in RFC 2616.</summary>
-  internal static string QuoteString(string ascii)
-  {
-    if(ascii == null) throw new ArgumentNullException();
-    StringBuilder sb = new StringBuilder(ascii.Length + 20);
-    sb.Append('\"');
-    for(int i=0; i<ascii.Length; i++)
-    {
-      char c = ascii[i];
-      if(c < 32 && c != '\t' || c == '"' || c == '\\' || c == 0x7f) sb.Append('\\');
-      sb.Append(c);
-    }
-    sb.Append('"');
-    ascii = sb.ToString();
-    return ascii;
-  }
-
   internal static string RemoveTrailingSlash(string path)
   {
     if(path == null) throw new ArgumentNullException();
     return path.Length > 1 && path[path.Length-1] == '/' ? path.Substring(0, path.Length-1) : path;
-  }
-
-  /// <summary>Attempts to parse an <c>HTTP-date</c> value, as defined in RFC 2616 section 3.3.1.</summary>
-  internal static bool TryParseHttpDate(string value, out DateTime date)
-  {
-    Match m = httpDateRe.Match(value);
-    if(!m.Success)
-    {
-      date = default(DateTime);
-      return false;
-    }
-
-    int year  = int.Parse(m.Groups["y"].Value, CultureInfo.InvariantCulture);
-    int month = months.IndexOf(m.Groups["mon"].Value) + 1;
-    int day   = int.Parse(m.Groups["d"].Value, CultureInfo.InvariantCulture);
-    int hour  = int.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture);
-    int min   = int.Parse(m.Groups["min"].Value, CultureInfo.InvariantCulture);
-    int sec   = int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture);
-
-    if(year < 100) // if we have a two-digit year...
-    {
-      int currentYear = DateTime.UtcNow.Year, century = currentYear - currentYear % 100;
-      year += century; // start by assuming it's within the same century
-      int difference = year - currentYear;
-      if(difference > 50) year -= 100; // if that would put it more than 50 years in the future, then assume it's actually in the past
-      else if(difference < -50) year += 100; // and if that would put it more than 50 years in the past, assume it's actually in the future
-      // (to be really correct we should also take into account months, days, etc. when checking if it'd be more than 50 years away, but
-      // that's not really worth the effort given that no HTTP/1.1-compliant system can generate a two-digit year anyway, and anybody using
-      // ancient or non-compliant software should be prepared to handle varying interpretations of two-digit years when they're ambiguous)
-    }
-
-    date = new DateTime(year, month, day, hour, min, sec, DateTimeKind.Utc); // all HTTP dates are in UTC
-    return true;
   }
 
   /// <summary>Tries to parse a value which may be either an absolute URI or an absolute path.</summary>
@@ -501,6 +668,12 @@ public static class DAVUtility
   {
     if(absolutePath == null) throw new ArgumentNullException();
     if(absolutePath.Length == 0 || absolutePath[0] != '/') throw new ArgumentException("The given path is not absolute.");
+  }
+
+  internal static void ValidateRelativePath(string relativePath)
+  {
+    if(relativePath == null) throw new ArgumentNullException();
+    if(relativePath.Length != 0 && relativePath[0] == '/') throw new ArgumentException("The given path is not relative.");
   }
 
   internal static object ValidatePropertyValue(XmlQualifiedName propertyName, object value, XmlQualifiedName expectedType)
@@ -608,12 +781,12 @@ public static class DAVUtility
   {
     // we could apply logic here to filter out potentially sensitive error messages (e.g. for 5xx errors), but we won't because we trust
     // the callers to check the configuration settings
-    response.StatusCode        = httpStatusCode;
-    response.StatusDescription = DAVUtility.GetStatusCodeMessage(httpStatusCode);
+    response.SetStatus(httpStatusCode);
+
     // write a response body unless the status code disallows it
     if(CanIncludeBody(httpStatusCode))
     {
-      response.ContentType = "text/plain";
+      if(response.BufferOutput) response.SetContentType("text/plain");
       errorText = StringUtility.Combine(". ", response.StatusDescription, errorText);
       response.Write(string.Format(CultureInfo.InvariantCulture, "{0} {1}\n{2} {3}\n",
                                    request.HttpMethod, request.Url.AbsolutePath, httpStatusCode, errorText));
@@ -631,12 +804,11 @@ public static class DAVUtility
     }
     else // otherwise, the condition code has some structured XML data that we can insert into the response
     {
-      response.StatusCode        = code.StatusCode;
-      response.StatusDescription = DAVUtility.GetStatusCodeMessage(code.StatusCode);
+      response.SetStatus(code);
       if(CanIncludeBody(code.StatusCode))
       {
-        response.ContentEncoding   = System.Text.Encoding.UTF8;
-        response.ContentType       = "application/xml"; // media type specified by RFC 4918 section 8.2
+        response.ContentEncoding = System.Text.Encoding.UTF8;
+        response.SetContentType("application/xml"); // media type specified by RFC 4918 section 8.2
         XmlWriterSettings settings = new XmlWriterSettings() { CloseOutput = false, Indent = true, IndentChars = "\t" };
         using(XmlWriter writer = XmlWriter.Create(response.OutputStream, settings)) code.WriteErrorXml(writer);
       }
@@ -801,14 +973,22 @@ public static class DAVUtility
   const string rfc1123dateRe = wkdayRe + @", (?<d>\d\d) " + monthRe + @" (?<y>\d{4}) " + timeRe + " GMT";
   const string rfc850dateRe = @"(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, (?<d>\d\d)-" + monthRe + @"-(?<y>\d\d) " + timeRe + " GMT";
   const string ascdateRe = wkdayRe + " " + monthRe + @" (?<d>[\d ]\d) " + timeRe + @" (?<y>\d{4})";
+  static readonly char[] badFileNameChars = Path.GetInvalidFileNameChars();
   static readonly Regex httpDateRe = new Regex(@"^\s*(?:" + rfc1123dateRe + "|" + rfc850dateRe + "|" + ascdateRe + @")\s*$",
                                                RegexOptions.Compiled | RegexOptions.ECMAScript);
+  /// <summary>A list of printable characters that are not legal in tokens, sorted by ASCII value.</summary>
+  static readonly char[] illegalTokenChars = { '"', '(', ')', ',', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '{', '}', };
   static readonly string[] months = new string[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 }
 #endregion
 
 #region EntityTag
-/// <summary>Represents an HTTP entity tag. (See the description of entity tags in RFC 2616 for more details.)</summary>
+/// <summary>Represents an HTTP entity tag. (See the description of entity tags in RFC 7232 for more details.)</summary>
+/// <remarks>Note that the format of HTTP entity tags changed between RFC 2616 and RFC 7232. In the former, it was defined as an HTTP
+/// <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
+/// to be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters
+/// in entity tags to prevent clients written to the older standard from performing backslash unescaping.
+/// </remarks>
 public sealed class EntityTag : IElementValue
 {
   /// <summary>Initializes a new <see cref="EntityTag"/>.</summary>
@@ -820,30 +1000,34 @@ public sealed class EntityTag : IElementValue
   /// byte-for-byte identical. If true, this represents a weak entity tag, where entities may have the same tag as long as they could be
   /// swapped with no significant change in semantics.
   /// </param>
-  public EntityTag(string tag, bool isWeak)
-  {
-    if(tag == null) throw new ArgumentNullException();
-    Tag    = tag;
-    IsWeak = isWeak;
-  }
+  /// <remarks>Note that the format of HTTP entity tags changed between RFC 2616 and RFC 7232. In the former, it was defined as an HTTP
+  /// <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
+  /// to be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters
+  /// in entity tags to prevent clients written to the older standard from performing backslash unescaping.
+  /// </remarks>
+  public EntityTag(string tag, bool isWeak) : this(tag, isWeak, true) { }
 
   /// <summary>Initializes a new <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header.</summary>
   public EntityTag(string headerValue)
   {
     if(headerValue == null) throw new ArgumentNullException();
-    if(headerValue.Length < 2) throw new FormatException();
-    int start = 1;
-    char c = headerValue[0];
-    if(c == 'W') // if the value starts with W/, that indicates a weak entity tag
-    {
-      if(headerValue[1] != '/' || headerValue.Length < 4) throw new FormatException();
-      c = headerValue[2];
-      IsWeak = true;
-      start = 3;
-    }
+    string tag;
+    bool isWeak;
+    if(!TryParse(headerValue, out tag, out isWeak)) throw new ArgumentException();
+    Tag    = tag;
+    IsWeak = isWeak;
+  }
 
-    if(c != '"' || headerValue[headerValue.Length-1] != '"') throw new FormatException();
-    Tag = DAVUtility.UnquoteDecode(headerValue, start, headerValue.Length - start - 1);
+  internal EntityTag(string tag, bool isWeak, bool validate)
+  {
+    if(tag == null) throw new ArgumentNullException();
+    Tag    = tag;
+    IsWeak = isWeak;
+
+    if(validate && !IsValidTag(tag, 0, tag.Length))
+    {
+      throw new ArgumentException("Invalid entity tag (" + ToHeaderString() + "). See RFC 7232 section 2.3.");
+    }
   }
 
   /// <summary>Gets the entity tag string.</summary>
@@ -865,28 +1049,73 @@ public sealed class EntityTag : IElementValue
     return Tag.GetHashCode();
   }
 
-  /// <summary>Determines whether two entity tags are identical in every way. This is the strong comparison function defined by RFC 2616
-  /// section 13.3.3.
+  /// <summary>Determines whether two entity tags are identical in every way. This is the strong comparison function defined by RFC 7232
+  /// section 2.3.2.
   /// </summary>
   public bool StronglyEquals(EntityTag match)
   {
     return !IsWeak && match != null && !match.IsWeak && Tag.OrdinalEquals(match.Tag);
   }
 
-  /// <summary>Gets the value of the entity tag used within the HTTP <c>ETag</c> header as defined by RFC 2616 section 14.19.</summary>
+  /// <summary>Gets the value of the entity tag used within the HTTP <c>ETag</c> header as defined by RFC 7232 section 2.3.</summary>
   public string ToHeaderString()
   {
-    string value = DAVUtility.QuoteString(Tag);
-    if(IsWeak) value = "W/" + value;
-    return value;
+    return (IsWeak ? "W/" : null) + "\"" + Tag + "\"";
+  }
+
+  /// <inheritdoc/>
+  public override string ToString()
+  {
+    return ToHeaderString();
   }
 
   /// <summary>Determines whether two entity tags have identical tag strings. (The weakness flags don't have to match.) This is the weak
-  /// comparison function defined by RFC 2616 section 13.3.3.
+  /// comparison function defined by RFC 7232 section 2.3.2.
   /// </summary>
   public bool WeaklyEquals(EntityTag match)
   {
     return match != null && Tag.OrdinalEquals(match.Tag);
+  }
+
+  /// <summary>Attempts to parse an <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header. Returns null if the value
+  /// could not be successfully parsed.
+  /// </summary>
+  public static EntityTag TryParse(string headerValue)
+  {
+    string tag;
+    bool isWeak;
+    return TryParse(headerValue, out tag, out isWeak) ? new EntityTag(tag, isWeak, false) : null;
+  }
+
+  /// <summary>Attempts to parse an <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header. Returns true if the value
+  /// could be successfully parsed.
+  /// </summary>
+  public static bool TryParse(string headerValue, out EntityTag entityTag)
+  {
+    entityTag = TryParse(headerValue);
+    return entityTag != null;
+  }
+
+  internal static EntityTag TryParse(string value, ref int index, int endExclusive)
+  {
+    int i = index;
+    bool isWeak = false;
+    char c = value[i++];
+    if(c == 'W') // if the entity tag starts with W, that represents a weak tag
+    {
+      if(endExclusive - i < 2 || value[i++] != '/') return null; // W must be followed by a slash
+      c = value[i++]; // grab the first one, which should be a quotation mark
+      isWeak = true;
+    }
+    if(c != '"' || i == endExclusive) return null; // a double quote at the minimum must follow, so expect more characters
+
+    // find the end of the entity tag and add it to the list
+    int start = i;
+    i = value.IndexOf('"', i, endExclusive-i);
+    if(i == -1) return null;
+    index = i+1;
+
+    return IsValidTag(value, start, i) ? new EntityTag(value.Substring(start, i-start), isWeak, false) : null;
   }
 
   IEnumerable<string> IElementValue.GetNamespaces()
@@ -899,27 +1128,106 @@ public sealed class EntityTag : IElementValue
     if(writer == null) throw new ArgumentNullException();
     writer.WriteString(ToHeaderString());
   }
+
+  static bool IsValidTag(string str, int index, int endExclusive)
+  {
+    // in RFC 2616, the tag was defined as a quoted-string, and we would have used UnquoteDecode to decode it. RFC 7232 has changed the
+    // format of the entity tag to simply be any ASCII characters from 0x21 to 0xFF except 0x22 and 0x7F (i.e. all high ascii and all
+    // visible low ASCII except double-quote). effectively, this removed backslash escaping from the format
+    for(; index<endExclusive; index++)
+    {
+      char c = str[index];
+      if(c < 0x21 || c > 0xFF || c == '"' || c == 0x7F) return false;
+    }
+    return true;
+  }
+
+  static bool TryParse(string headerValue, out string tag, out bool isWeak)
+  {
+    tag    = null;
+    isWeak = false;
+
+    if(headerValue.Length < 2) return false;
+    int start = 1;
+    char c = headerValue[0];
+    if(c == 'W') // if the value starts with W/, that indicates a weak entity tag
+    {
+      if(headerValue[1] != '/' || headerValue.Length < 4) return false; // W must be followed by a slash
+      c = headerValue[2];
+      isWeak = true;
+      start = 3;
+    }
+
+    if(c != '"' || headerValue[headerValue.Length-1] != '"') return false;
+
+    if(!IsValidTag(headerValue, start, headerValue.Length-1)) return false;
+    tag = headerValue.Substring(start, headerValue.Length-1 - start);
+    return true;
+  }
 }
 #endregion
 
-#region HttpHeaders
-static class HttpHeaders
+#region HttpResponseExtensions
+/// <summary>Adds extensions to the <see cref="HttpResponse"/> type.</summary>
+public static class HttpResponseExtensions
 {
-  public const string AcceptEncoding = "Accept-Encoding", AcceptRanges = "Accept-Ranges", Allow = "Allow";
-  public const string ContentEncoding = "Content-Encoding", ContentLength = "Content-Length", ContentRange = "Content-Range";
-  public const string DAV = "DAV", Destination = "Destination", ETag = "ETag";
-  public const string If = "If", IfMatch = "If-Match", IfModifiedSince = "If-Modified-Since", IfNoneMatch = "If-None-Match";
-  public const string IfRange = "If-Range", IfUnmodifiedSince = "If-Unmodified-Since", LastModified = "Last-Modified";
-  public const string Location = "Location", LockToken = "Lock-Token", Overwrite = "Overwrite", Range = "Range", Timeout = "Timeout";
-}
-#endregion
+  /// <summary>Sets the HTTP <c>Content-Encoding</c> header. This is not the same as setting <see cref="HttpResponse.ContentEncoding"/>.</summary>
+  public static void SetContentEncodingHeader(this HttpResponse response, ContentEncoding encoding)
+  {
+    if(response == null) throw new ArgumentNullException();
 
-#region HttpMethods
-static class HttpMethods
-{
-  public const string Copy = "COPY", Delete = "DELETE", Get = "GET", Head = "HEAD", Lock = "LOCK", MkCol = "MKCOL", Move = "MOVE";
-  public const string Options = "OPTIONS", Post = "POST", PropFind = "PROPFIND", PropPatch = "PROPPATCH", Put = "PUT", Trace = "TRACE";
-  public const string Unlock = "UNLOCK";
+    string value;
+    switch(encoding)
+    {
+      case ContentEncoding.Deflate: value = "deflate"; break;
+      case ContentEncoding.GZip: value = "gzip"; break;
+      case ContentEncoding.Identity: value = null; break;
+      default: throw new ArgumentException("Unknown content encoding: " + encoding.ToString());
+    }
+
+    if(value == null) response.Headers.Remove(DAVHeaders.ContentEncoding);
+    else response.Headers[DAVHeaders.ContentEncoding] = value;
+  }
+
+  /// <summary>Sets the HTTP <c>Content-Type</c> header. This is preferred over simply setting <see cref="HttpResponse.ContentType"/>
+  /// because sometimes ASP.NET or IIS override that.
+  /// </summary>
+  public static void SetContentType(this HttpResponse response, string contentType)
+  {
+    if(response == null) throw new ArgumentNullException();
+    response.ContentType = contentType;
+    // sometimes ASP.NET ignores the value of ContentType and fails to set the Content-Type header, or sets it incorrectly. this happens
+    // when responding to HEAD requests, for instance. so we also have to mess with the response.Headers
+    if(string.IsNullOrEmpty(contentType)) response.Headers.Remove(DAVHeaders.ContentType);
+    else response.Headers[DAVHeaders.ContentType] = contentType;
+  }
+
+  /// <summary>Sets <see cref="HttpResponse.StatusCode"/> and <see cref="HttpResponse.StatusDescription"/> based on the given
+  /// <see cref="HttpStatusCode"/>.
+  /// </summary>
+  public static void SetStatus(this HttpResponse response, HttpStatusCode httpStatusCode)
+  {
+    SetStatus(response, (int)httpStatusCode);
+  }
+
+  /// <summary>Sets <see cref="HttpResponse.StatusCode"/> and <see cref="HttpResponse.StatusDescription"/> based on the given HTTP status
+  /// code.
+  /// </summary>
+  public static void SetStatus(this HttpResponse response, int httpStatusCode)
+  {
+    if(response == null) throw new ArgumentNullException();
+    response.StatusCode        = httpStatusCode;
+    response.StatusDescription = DAVUtility.GetStatusCodeMessage(httpStatusCode);
+  }
+
+  /// <summary>Sets <see cref="HttpResponse.StatusCode"/> and <see cref="HttpResponse.StatusDescription"/> based on the given
+  /// <see cref="ConditionCode"/>.
+  /// </summary>
+  public static void SetStatus(this HttpResponse response, ConditionCode conditionCode)
+  {
+    if(conditionCode == null) throw new ArgumentNullException();
+    response.SetStatus(conditionCode.StatusCode);
+  }
 }
 #endregion
 

@@ -28,7 +28,7 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents an <c>OPTIONS</c> request.</summary>
-/// <remarks>The <c>OPTIONS</c> request is described in section 9.2 of RFC 2616 and various sections (e.g. section 10.1) of RFC 4918.</remarks>
+/// <remarks>The <c>OPTIONS</c> request is described in section 4.3.7 of RFC 7231 and various sections (e.g. section 10.1) of RFC 4918.</remarks>
 public class OptionsRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="OptionsRequest"/> based on a new WebDAV request.</summary>
@@ -37,7 +37,7 @@ public class OptionsRequest : SimpleRequest
     AllowedMethods      = new AllowedMethodCollection(DefaultMethods);
     AllowPartialGet     = true;
     IsDAVCompliant      = true;
-    IsServerQuery       = string.Equals(context.Request.RawUrl, "*", StringComparison.Ordinal); // see RFC 2616 section 9.2
+    IsServerQuery       = string.Equals(context.Request.RawUrl, "*", StringComparison.Ordinal); // see RFC 7231 section 4.3.7
     SupportedExtensions = new SupportedExtensionCollection();
   }
 
@@ -66,7 +66,10 @@ public class OptionsRequest : SimpleRequest
     protected override bool AddItem(string item)
     {
       if(item == null) throw new ArgumentNullException();
-      if(!IsToken(item) && !IsCodedURL(item)) throw new ArgumentException("Extension strings must be HTTP token values or coded URLs.");
+      if(!DAVUtility.IsToken(item) && !IsCodedURL(item))
+      {
+        throw new ArgumentException("Extension strings must be HTTP token values or coded URLs.");
+      }
       return base.AddItem(item);
     }
 
@@ -81,20 +84,6 @@ public class OptionsRequest : SimpleRequest
       }
       return false;
     }
-
-    /// <summary>Determines whether the value is a token as defined by section 2.2 of RFC 2616.</summary>
-    static bool IsToken(string value)
-    {
-      for(int i=0; i<value.Length; i++)
-      {
-        char c = value[i];
-        if(c <= 32 || c >= 0x7f || Array.BinarySearch(illegalTokenChars, c) >= 0) return false;
-      }
-      return true;
-    }
-
-    /// <summary>A list of printable characters that are not legal in tokens, sorted by ASCII value.</summary>
-    static readonly char[] illegalTokenChars = { '"', '(', ')', ',', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '{', '}', };
   }
   #endregion
 
@@ -159,8 +148,8 @@ public class OptionsRequest : SimpleRequest
     // report support for encoded bodies and partial transfers (but only if the request is in the WebDAV service's scope)
     if(!OutOfScope)
     {
-      Context.Response.Headers[HttpHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
-      Context.Response.Headers[HttpHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 2616 section 14.5
+      Context.Response.Headers[DAVHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
+      Context.Response.Headers[DAVHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 7233 section 2.3
     }
 
     bool useEmptyResponseHack = false;
@@ -176,15 +165,15 @@ public class OptionsRequest : SimpleRequest
         if(IsDAVCompliant) // if the resource or service is DAV-compliant, report PROPFIND, PROPPATCH, COPY, MOVE, and MKCOL as well, as
         {                  // required by RFC 4918 (sections 9.1, 9.2, 9.3, 9.8, and 9.9)
           HashSet<string> set = new HashSet<string>(methods);
-          set.Add(HttpMethods.PropFind);
-          set.Add(HttpMethods.PropPatch);
-          set.Add(HttpMethods.Copy);
-          set.Add(HttpMethods.Move);
-          set.Add(HttpMethods.MkCol);
+          set.Add(DAVMethods.PropFind);
+          set.Add(DAVMethods.PropPatch);
+          set.Add(DAVMethods.Copy);
+          set.Add(DAVMethods.Move);
+          set.Add(DAVMethods.MkCol);
           if(SupportsLocking) // if the resource or service claims to support locking, then it must support LOCK and UNLOCK
           {
-            set.Add(HttpMethods.Lock);
-            set.Add(HttpMethods.Unlock);
+            set.Add(DAVMethods.Lock);
+            set.Add(DAVMethods.Unlock);
           }
           methods = set;
         }
@@ -195,7 +184,7 @@ public class OptionsRequest : SimpleRequest
           if(sb.Length != 0) sb.Append(", ");
           sb.Append(method);
         }
-        Context.Response.Headers[HttpHeaders.Allow] = sb.ToString();
+        Context.Response.Headers[DAVHeaders.Allow] = sb.ToString();
       }
 
       // get the level of DAV compliance and write the DAV header. we'll do this even if the request is out of scope. (in fact, writing
@@ -210,7 +199,7 @@ public class OptionsRequest : SimpleRequest
         {
           foreach(string extension in SupportedExtensions) sb.Append(", ").Append(extension);
         }
-        Context.Response.Headers[HttpHeaders.DAV] = sb.ToString();
+        Context.Response.Headers[DAVHeaders.DAV] = sb.ToString();
 
         // the Microsoft Web Folder client prefers to use the Frontend protocol so much that it may refuse to use WebDAV unless we
         // add a special header. it also fails to process 204 No Content responses correctly, so we'll use 200 OK instead
@@ -227,15 +216,8 @@ public class OptionsRequest : SimpleRequest
     // though, because we want to allow the service with authority over the request URL to have the final say in what gets written
     if(!OutOfScope)
     {
-      if(useEmptyResponseHack && Status != null && Status.IsSuccessful)
-      {
-        Context.Response.StatusCode        = Status.StatusCode;
-        Context.Response.StatusDescription = DAVUtility.GetStatusCodeMessage(Status.StatusCode);
-      }
-      else
-      {
-        base.WriteResponse();
-      }
+      if(useEmptyResponseHack && Status != null && Status.IsSuccessful) Context.Response.SetStatus(Status);
+      else base.WriteResponse();
     }
   }
 
@@ -248,7 +230,7 @@ public class OptionsRequest : SimpleRequest
     OutOfScope    = true;
   }
 
-  static readonly string[] DefaultMethods = new string[] { HttpMethods.Get, HttpMethods.Head, HttpMethods.Options, HttpMethods.Trace };
+  static readonly string[] DefaultMethods = new string[] { DAVMethods.Get, DAVMethods.Head, DAVMethods.Options, DAVMethods.Trace };
 }
 
 } // namespace AdamMil.WebDAV.Server

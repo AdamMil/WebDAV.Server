@@ -24,7 +24,7 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>POST</c> request.</summary>
-/// <remarks>The <c>POST</c> request is described in section 9.5 of RFC 4918 and section 9.5 of RFC 2616.</remarks>
+/// <remarks>The <c>POST</c> request is described in 4.3.3 of RFC 7231 and section 9.5 of RFC 4918.</remarks>
 public class PostRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="PostRequest"/> based on a new WebDAV request.</summary>

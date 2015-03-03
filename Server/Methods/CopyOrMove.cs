@@ -38,10 +38,10 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
     if(Depth == Depth.Unspecified) Depth = Depth.SelfAndDescendants; // RFC 4918 sections 9.8.3 and 9.9.3 require recursion as the default
 
     // parse the Overwrite header. (if it's missing, it must be treated as true, according to RFC 4918 section 10.6
-    Overwrite = !string.Equals(context.Request.Headers[HttpHeaders.Overwrite], "F", StringComparison.OrdinalIgnoreCase);
+    Overwrite = !string.Equals(context.Request.Headers[DAVHeaders.Overwrite], "F", StringComparison.OrdinalIgnoreCase);
 
     // parse the Destination header
-    string value = context.Request.Headers[HttpHeaders.Destination];
+    string value = context.Request.Headers[DAVHeaders.Destination];
     if(string.IsNullOrEmpty(value)) throw Exceptions.BadRequest("The Destination header was missing.");
     Uri destination;
     if(!DAVUtility.TryParseSimpleRef(value, out destination))
@@ -53,14 +53,19 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
     // resolve the destination URL to see which service it's under (if any), and see if we can resolve it to a specific resource there
     IWebDAVService destService;
     IWebDAVResource destResource;
+    ILockManager lockManager;
+    IPropertyStore propertyStore;
     string destServiceRoot, destPath;
-    if(WebDAVModule.ResolveUri(context, destination, out destService, out destResource, out destServiceRoot, out destPath))
+    bool accessDenied; // TODO: either expose this as a property or deny access immediately (?)
+    if(WebDAVModule.ResolveUri(context, destination, true, out destService, out destResource, out destServiceRoot, out destPath,
+                               out accessDenied, out lockManager, out propertyStore))
     {
       DestinationResource = destResource;
     }
     // destService and destServiceRoot may be set even if ResolveLocation returns false
     if(destService != null)
     {
+      DestinationLockManager = lockManager;
       DestinationPath        = destPath;
       DestinationService     = destServiceRoot.OrdinalEquals(Context.ServiceRoot) ? Context.Service : destService;
       DestinationServiceRoot = destServiceRoot;
@@ -73,6 +78,11 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   /// server, then it is easier to use <see cref="DestinationService"/> and <see cref="DestinationPath"/> instead.
   /// </summary>
   public Uri Destination { get; private set; }
+
+  /// <summary>Gets the <see cref="ILockManager"/> responsible for the <see cref="Destination"/>, if it could be resolved to a service
+  /// that supports locking within the WebDAV server.
+  /// </summary>
+  public ILockManager DestinationLockManager { get; private set; }
 
   /// <summary>Gets the destination path, relative to <see cref="DestinationServiceRoot"/>, if the <see cref="Destination"/> could be
   /// resolved to a service within the WebDAV server.
@@ -105,14 +115,14 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   /// <remarks><c>COPY</c> requests must be processed in accordance with RFC 4918 section 9.8.</remarks>
   public bool IsCopy
   {
-    get { return Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Copy); }
+    get { return Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Copy); }
   }
 
   /// <summary>Gets whether the request is a <c>MOVE</c> request.</summary>
   /// <remarks><c>MOVE</c> requests must be processed in accordance with RFC 4918 section 9.9.</remarks>
   public bool IsMove
   {
-    get { return Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Move); }
+    get { return Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Move); }
   }
 
   /// <summary>Gets whether overwriting mapped resources is allowed. If true, resources at the destination should be overwritten. (During
@@ -126,6 +136,10 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   public void Dispose()
   {
     Dispose(true);
+    if(DestinationService != null && DestinationService != Context.Service && !DestinationService.IsReusable)
+    {
+      Utility.Dispose(DestinationService);
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
@@ -135,7 +149,7 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
     ConditionCode code = IsMove ? CheckSubmittedLockTokens(LockType.ExclusiveWrite, IsMove, Depth != Depth.Self) : null;
     if(code == null && DestinationService != null)
     {
-      code = CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, true, DestinationServiceRoot + DestinationPath, DestinationService);
+      code = CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, true, DestinationPath, DestinationService);
     }
     return code;
   }

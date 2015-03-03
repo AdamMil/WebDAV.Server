@@ -19,13 +19,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: other stuff from DAV RFC section 4.3
+// TODO: other stuff from DAV RFC (4918) section 4.3
 
 namespace AdamMil.WebDAV.Server
 {
@@ -92,12 +91,12 @@ public enum PropFindFlags
   /// <summary>The values of the properties listed in <see cref="PropFindRequest.Properties"/> should be returned.</summary>
   None=0,
   /// <summary>If used in conjunction with <see cref="NamesOnly"/>, all property names should be returned. Otherwise, the values of the
-  /// the properties listed in <see cref="PropFindRequest.Properties"/> should be returned, along with all dead properties and all live
+  /// the properties listed in <see cref="PropFindRequest.Properties"/> should be returned, along with all dead properties, plus all live
   /// properties that are not too expensive to compute or transmit.
   /// </summary>
   IncludeAll=1,
   /// <summary>Indicates that only the names of properties (and their data types, if known) are to be returned. In particular, property
-  /// values must not be returned. If this flag is set, <see cref="PropFindRequest.Properties"/> will is guaranteed to be empty.
+  /// values must not be returned. If this flag is set, <see cref="PropFindRequest.Properties"/> is guaranteed to be empty.
   /// </summary>
   NamesOnly=2
 }
@@ -148,7 +147,7 @@ public class PropFindRequest : WebDAVRequest
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, properties, SetObjectValue);
+    AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetObjectValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
@@ -160,7 +159,7 @@ public class PropFindRequest : WebDAVRequest
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, properties, SetPropFindValue);
+    AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetPropFindValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
@@ -177,7 +176,8 @@ public class PropFindRequest : WebDAVRequest
                                         Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, SetObjectValue, Context.RequestPath, 0);
+    ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
+                           SetObjectValue, 0);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
@@ -192,7 +192,8 @@ public class PropFindRequest : WebDAVRequest
                                         Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, getMemberName, getProperties, getChildren, SetPropFindValue, Context.RequestPath, 0);
+    ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
+                           SetPropFindValue, 0);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -231,7 +232,7 @@ public class PropFindRequest : WebDAVRequest
         }
       }
 
-      // make sure there was exactly one query type specified
+      // make sure there was exactly one query type specified, and disallow requests for no properties
       if(!(allProp | prop | propName)) throw Exceptions.BadRequest("The type of query was not specified.");
       if((allProp ? 1 : 0) + (prop ? 1 : 0) + (propName ? 1 : 0) > 1) throw Exceptions.BadRequest("Multiple query types were specified.");
 
@@ -266,88 +267,98 @@ public class PropFindRequest : WebDAVRequest
         writer.WriteStartElement(DAVNames.response.Name);
         writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
 
-        // group the properties by condition code. (unspecified condition codes are assumed to be 200 OK)
-        valuesByStatus.Clear();
-        foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> pair in resource.properties)
-        {
-          valuesByStatus.Add(pair.Value == null ? ConditionCodes.OK : pair.Value.Code ?? ConditionCodes.OK, pair);
-        }
-
-        // then, output a <propstat> element for each status, containing the properties having that status
-        foreach(KeyValuePair<ConditionCode, List<KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>> spair in valuesByStatus)
+        if(resource.properties.Count == 0) // if the resource has no properties, quickly render an empty properties collection
         {
           writer.WriteStartElement(DAVNames.propstat.Name);
-
-          // output the properties
-          writer.WriteStartElement(DAVNames.prop.Name);
-          foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
+          writer.WriteEmptyElement(DAVNames.prop.Name);
+          response.WriteStatus(ConditionCodes.OK);
+          writer.WriteEndElement();
+        }
+        else
+        {
+          // group the properties by condition code. (unspecified condition codes are assumed to be 200 OK)
+          valuesByStatus.Clear();
+          foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> pair in resource.properties)
           {
-            XmlElement element = ppair.Value == null ? null : ppair.Value.Value as XmlElement;
-            if(element != null) // if we have to output a raw XML element...
-            {
-              WriteElement(response, element);
-            }
-            else // otherwise, we're outputting a value
-            {
-              writer.WriteStartElement(ppair.Key); // write the property name
-              if(ppair.Value != null) // if the property has a type or value or language...
-              {
-                // if the property has a type that should be reported, write it in an xsi:type attribute
-                XmlQualifiedName type = ppair.Value.Type;
-                if(type != null)
-                {
-                  writer.WriteAttributeString(DAVNames.xsiType,
-                                              StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
-                }
-
-                // if the property has a language, write it in an xml:lang attribute
-                if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
-
-                object value = ppair.Value.Value;
-                if(value != null) // if the property has a value...
-                {
-                  // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
-                  IElementValue elementValue = value as IElementValue;
-                  System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
-                  if(elementValue != null) // if the value implements IElementValue...
-                  {
-                    elementValue.WriteValue(writer, Context); // let IElementValue do the writing
-                  }
-                  else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
-                  {
-                    foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
-                  }
-                  else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
-                  {
-                    byte[] binaryValue = (byte[])value;
-                    if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
-                    else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
-                  }
-                  else if(type == DAVNames.xsDate) // if the type is xs:date, write only the date portions of any datetime values
-                  {
-                    if(value is DateTime) writer.WriteDate((DateTime)value);
-                    else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
-                    else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
-                  }
-                  else if(value is XmlDuration || value is Guid)
-                  {
-                    writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
-                  }
-                  else // in the general case, just use .WriteValue(object) to write the value appropriately
-                  {
-                    writer.WriteValue(value);
-                  }
-                }
-              }
-              writer.WriteEndElement(); // end property name (i.e. ppair.Key)
-            }
+            valuesByStatus.Add(pair.Value == null ? ConditionCodes.OK : pair.Value.Code ?? ConditionCodes.OK, pair);
           }
-          writer.WriteEndElement(); // </prop>
 
-          // now write the status for the aforementioned properties
-          response.WriteStatus(spair.Key);
+          // then, output a <propstat> element for each status, containing the properties having that status
+          foreach(KeyValuePair<ConditionCode, List<KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>> spair in valuesByStatus)
+          {
+            writer.WriteStartElement(DAVNames.propstat.Name);
 
-          writer.WriteEndElement(); // </propstat>
+            // output the properties
+            writer.WriteStartElement(DAVNames.prop.Name);
+            foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
+            {
+              XmlElement element = ppair.Value == null ? null : ppair.Value.Value as XmlElement;
+              if(element != null) // if we have to output a raw XML element...
+              {
+                WriteElement(response, element);
+              }
+              else // otherwise, we're outputting a value
+              {
+                writer.WriteStartElement(ppair.Key); // write the property name
+                if(ppair.Value != null) // if the property has a type or value or language...
+                {
+                  // if the property has a type that should be reported, write it in an xsi:type attribute
+                  XmlQualifiedName type = ppair.Value.Type;
+                  if(type != null)
+                  {
+                    writer.WriteAttributeString(DAVNames.xsiType,
+                                                StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
+                  }
+
+                  // if the property has a language, write it in an xml:lang attribute
+                  if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
+
+                  object value = ppair.Value.Value;
+                  if(value != null) // if the property has a value...
+                  {
+                    // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
+                    IElementValue elementValue = value as IElementValue;
+                    System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
+                    if(elementValue != null) // if the value implements IElementValue...
+                    {
+                      elementValue.WriteValue(writer, Context); // let IElementValue do the writing
+                    }
+                    else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
+                    {
+                      foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
+                    }
+                    else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
+                    {
+                      byte[] binaryValue = (byte[])value;
+                      if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
+                      else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
+                    }
+                    else if(type == DAVNames.xsDate) // if the type is xs:date, write only the date portions of any datetime values
+                    {
+                      if(value is DateTime) writer.WriteDate((DateTime)value);
+                      else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
+                      else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
+                    }
+                    else if(value is XmlDuration || value is Guid)
+                    {
+                      writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
+                    }
+                    else // in the general case, just use .WriteValue(object) to write the value appropriately
+                    {
+                      writer.WriteValue(value);
+                    }
+                  }
+                }
+                writer.WriteEndElement(); // end property name (i.e. ppair.Key)
+              }
+            }
+            writer.WriteEndElement(); // </prop>
+
+            // now write the status for the aforementioned properties
+            response.WriteStatus(spair.Key);
+
+            writer.WriteEndElement(); // </propstat>
+          }
         }
 
         writer.WriteEndElement(); // </response>
@@ -399,21 +410,20 @@ public class PropFindRequest : WebDAVRequest
   /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
   /// <see cref="Resources"/>.
   /// </summary>
-  void AddResource<V>(string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
+  void AddResource<V>(string requestPath, string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
                       Action<PropFindResource,XmlQualifiedName,V> setValue)
   {
-    PropFindResource resource = new PropFindResource(canonicalPath);
-    string absolutePath = Context.ServiceRoot + canonicalPath;
+    PropFindResource resource = new PropFindResource(requestPath);
     if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
     {
-      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(absolutePath).Keys);
+      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(canonicalPath).Keys);
       resource.SetNames(properties.Keys);
     }
     else // otherwise, the client wants property values
     {
       // collect the dead properties for the resource
       IDictionary<XmlQualifiedName,XmlProperty> deadProperties =
-        Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(absolutePath);
+        Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(canonicalPath);
 
       if(Properties.Count != 0) // if the client explicitly requested certain properties...
       {
@@ -456,26 +466,29 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
-  void ProcessStandardRequest<T,V>(T resource, Func<T, string> getCanonicalPath,
+  void ProcessStandardRequest<T,V>(T resource, string requestPath, string canonicalPath, Func<T, string> getMemberName,
                                    Func<T, string, IDictionary<XmlQualifiedName, V>> getProperties,
                                    Func<T, string, IEnumerable<T>> getChildren,
-                                   Action<PropFindResource,XmlQualifiedName,V> setValue, string davPath, int depth)
+                                   Action<PropFindResource,XmlQualifiedName,V> setValue, int depth)
   {
     // add the given resource, validating the return values from the delegates first
-    string name = getCanonicalPath(resource);
-    if(name == null) throw new ArgumentException("A member name was null.");
-    IDictionary<XmlQualifiedName,V> properties = getProperties(resource, davPath);
-    if(properties == null) throw new ArgumentException("The properties dictionary for " + name + " was null.");
-    davPath += name;
-    AddResource(davPath, properties, setValue);
+    IDictionary<XmlQualifiedName,V> properties = getProperties(resource, canonicalPath);
+    if(properties == null) throw new ArgumentException("The properties dictionary for " + requestPath + " was null.");
+    AddResource(requestPath, canonicalPath, properties, setValue);
 
     if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
     {
-      IEnumerable<T> children = getChildren(resource, davPath);
+      IEnumerable<T> children = getChildren(resource, canonicalPath);
       if(children != null)
       {
-        davPath = DAVUtility.WithTrailingSlash(davPath);
-        foreach(T child in children) ProcessStandardRequest(child, getCanonicalPath, getProperties, getChildren, setValue, davPath, depth+1);
+        requestPath   = DAVUtility.WithTrailingSlash(requestPath);
+        canonicalPath = DAVUtility.WithTrailingSlash(canonicalPath);
+        foreach(T child in children)
+        {
+          string name = getMemberName(child);
+          ProcessStandardRequest(child, requestPath + name, canonicalPath + name,
+                                 getMemberName, getProperties, getChildren, setValue, depth+1);
+        }
       }
     }
   }
@@ -681,8 +694,6 @@ public sealed class PropFindResource
   /// </summary>
   internal void Validate(PropFindRequest request, HashSet<string> namespaces)
   {
-    if(properties.Count == 0) throw new ContractViolationException("A PropFindResource must have at least one property.");
-
     // perform a more expensive check in debug mode to ensure that all requested properties were provided on all resources. (this helps
     // check whether the service is implemented correctly)
     #if DEBUG
