@@ -29,7 +29,6 @@ using AdamMil.IO;
 using AdamMil.Utilities;
 
 // TODO: add processing examples and documentation
-// TODO: it would be good to allow a compressed transfer encoding in WriteStandardResponse
 
 namespace AdamMil.WebDAV.Server
 {
@@ -39,15 +38,11 @@ namespace AdamMil.WebDAV.Server
 public struct ByteRange
 {
   /// <summary>Initializes a new <see cref="ByteRange"/> based on the given start and end positions.</summary>
-  public ByteRange(long start, long length)
-  {
-    if(start < 0 || length < 0 || (start + length) < 0) throw new ArgumentOutOfRangeException();
-    _start  = start;
-    _length = length;
-  }
+  public ByteRange(long start, long length) : this(start, length, true) { }
 
-  internal ByteRange(long start, long length, bool dummy)
+  internal ByteRange(long start, long length, bool validate)
   {
+    if(validate && (start < 0 || length < 0 || (start + length) < 0)) throw new ArgumentOutOfRangeException();
     _start  = start;
     _length = length;
   }
@@ -87,7 +82,7 @@ public struct ByteRange
   /// <inheritdoc/>
   public override string ToString()
   {
-    return Start.ToStringInvariant() + " + " + Length.ToStringInvariant();
+    return Start.ToStringInvariant() + " - " + End.ToStringInvariant() + " (" + Length.ToStringInvariant() + ")";
   }
 
   /// <summary>Gets the length the range, in bytes.</summary>
@@ -102,6 +97,12 @@ public struct ByteRange
     get { return _start; }
   }
 
+  /// <summary>Gets the exclusive end of the range, in bytes.</summary>
+  public long End
+  {
+    get { return Start + Length; }
+  }
+
   long _length, _start;
 }
 #endregion
@@ -114,7 +115,7 @@ public class GetOrHeadRequest : WebDAVRequest
   public GetOrHeadRequest(WebDAVContext context) : base(context)
   {
     // try to parse the HTTP Range header if it was specified
-    string rangeHeader = context.Request.Headers[HttpHeaders.Range];
+    string rangeHeader = context.Request.Headers[DAVHeaders.Range];
     if(!string.IsNullOrEmpty(rangeHeader))
     {
       Match m = reRanges.Match(rangeHeader);
@@ -130,31 +131,32 @@ public class GetOrHeadRequest : WebDAVRequest
           if(rangeString[0] == '-') // if it's a suffix range, it consists of a length taken from the end of the body
           {
             long length;
-            if(!InvariantCultureUtility.TryParse(rangeString.Substring(1), out length)) goto failed;
+            if(!InvariantCultureUtility.TryParse(rangeString, 1, rangeString.Length-1, out length)) goto failed;
             ranges[i] = new ByteRange(-1, length, false);
           }
           else // otherwise, it's a normal range taken from the beginning (and possibly extending to the end)
           {
             long start, end = -1;
             int dash = rangeString.IndexOf('-');
-            if(!InvariantCultureUtility.TryParse(rangeString.Substring(0, dash), out start) ||
-               dash < rangeString.Length-1 && (!InvariantCultureUtility.TryParse(rangeString.Substring(dash+1), out end) || end < start))
+            if(!InvariantCultureUtility.TryParse(rangeString, 0, dash, out start) ||
+               dash < rangeString.Length-1 &&
+               (!InvariantCultureUtility.TryParse(rangeString, dash+1, rangeString.Length-(dash+1), out end) || end < start))
             {
               goto failed;
             }
-            ranges[i] = new ByteRange(start, end == -1 ? -1 : end, false);
+            ranges[i] = new ByteRange(start, end == -1 ? -1 : end-start+1, false);
           }
         }
 
         this.ranges = ranges;
-        failed:; // if the Range header is syntatically invalid, RFC 2616 section 14.35.1 requires us to ignore it
+        failed:; // if we don't understand the Range header, RFC 7233 section 3.1 requires us to ignore it
       }
     }
 
     // if a valid Range header was given, try to parse the HTTP If-Range header too
     if(this.ranges != null)
     {
-      rangeHeader = Context.Request.Headers[HttpHeaders.IfRange];
+      rangeHeader = Context.Request.Headers[DAVHeaders.IfRange];
       if(!string.IsNullOrEmpty(rangeHeader))
       {
         rangeHeader = rangeHeader.Trim();
@@ -162,8 +164,9 @@ public class GetOrHeadRequest : WebDAVRequest
         {
           if(rangeHeader[0] == '"' || rangeHeader[0] == 'W' && rangeHeader[1] == '/') // it looks like an entity tag...
           {
-            try { IfRange = new EntityTag(rangeHeader); }
-            catch(FormatException) { }
+            EntityTag tag = EntityTag.TryParse(rangeHeader); // RFC 7233 3.2 disallows weak entity tags in If-Range
+            if(tag == null || tag.IsWeak) throw Exceptions.BadRequest("Invalid entity tag for If-Range header.");
+            IfRange = tag;
           }
           else // it doesn't look like an entity tag so it's assumed to be a date
           {
@@ -171,10 +174,12 @@ public class GetOrHeadRequest : WebDAVRequest
             if(DAVUtility.TryParseHttpDate(rangeHeader, out time)) IfRange = time;
           }
         }
+
+        if(IfRange == null && !string.IsNullOrEmpty(rangeHeader)) throw Exceptions.BadRequest("Invalid If-Range header.");
       }
     }
 
-    IsHeadRequest = context.Request.HttpMethod.OrdinalEquals(HttpMethods.Head);
+    IsHeadRequest = context.Request.HttpMethod.OrdinalEquals(DAVMethods.Head);
   }
 
   /// <summary>Gets the value parsed from the HTTP <c>If-Range</c> header. This is either null (if the header was unspecified or invalid)
@@ -196,7 +201,7 @@ public class GetOrHeadRequest : WebDAVRequest
   /// body, or null if no valid Range header was supplied by the client.
   /// </summary>
   /// <remarks>If the returned array has a length of zero, the range set was unsatisfiable, which requires a special kind of response.
-  /// If any case when an array is returned, you should reply in accordance with RFC 2616 sections 14.35, 14.16, and 19.2.
+  /// If any case when an array is returned, you should reply in accordance with RFC 7233 section 4.
   /// </remarks>
   public ByteRange[] GetByteRanges(long entityLength)
   {
@@ -209,7 +214,7 @@ public class GetOrHeadRequest : WebDAVRequest
     for(int i=0; i<ranges.Length; i++)
     {
       long start = ranges[i].Start, length = ranges[i].Length;
-      if(start < entityLength && (length != 0 || start != -1)) // if the range is satisfiable (as per RFC 2616 section 14.35.1)...
+      if(start < entityLength && (length != 0 || start != -1)) // if the range is satisfiable (as per RFC 7233 section 2.1)...
       {
         if(start == -1) // if it's a suffix range...
         {
@@ -219,9 +224,9 @@ public class GetOrHeadRequest : WebDAVRequest
         {
           length = entityLength - start; // compute the length
         }
-        else // otherwise it's a normal range and the 'length' variable is actually the end of the range (exclusive)
+        else // otherwise it's a normal range
         {
-          length = Math.Min(entityLength, length) - start + 1;
+          length = Math.Min(entityLength-start, length);
         }
         array[satisfiable++] = new ByteRange(start, length);
       }
@@ -235,10 +240,10 @@ public class GetOrHeadRequest : WebDAVRequest
       // range 0-1000. walk through the array with two pointers, 'w' (write) which points at the place we would write a newly merged range
       // and 'r' (read) which points to one we would merge array[w] with, where w < r. normally they are one apart (r-w == 1), but if we
       // merge any ranges, then a gap appears, and we have to shift items over
-      for(int r=1, w=0; r<satisfiable; w++,r++)
+      for(int r=1, w=0, count=satisfiable; r<count; w++,r++)
       {
         long end = array[w].Start + array[w].Length;
-        if(end >= array[r].Start) // if the ranges abut or overlap...
+        if(end >= array[r].Start - 125) // if the ranges abut or overlap or if the gap is smaller than the approximate per-range overhead..
         {
           array[w] = new ByteRange(array[w].Start, Math.Max(end, array[r].Start + array[r].Length) - array[w].Start); // merge them
           w--; // try merging this same range again
@@ -348,9 +353,10 @@ public class GetOrHeadRequest : WebDAVRequest
     string htmlPath = HttpUtility.HtmlEncode(Context.ServiceRoot + basePath);
 
     // create an HTML table
-    sb.Append("<html>\n<head><title>").Append(htmlPath)
-      .Append(" contents</title>\n<style>TD,TH { padding:2px 3px; }</style>\n</head>\n<body>\n<h2>").Append(htmlPath)
-      .Append("</h2>\n<table>\n<tr>");
+    sb.Append("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n");
+    sb.Append("<html>\n<head>\n<base href=\"").Append(htmlPath).Append("\" />\n<title>").Append(htmlPath).Append(" contents</title>\n");
+    sb.Append("<style type=\"text/css\">TD,TH { padding:2px 3px; font-family:monospace; text-align:left; }</style>\n</head>\n");
+    sb.Append("<body>\n<h3>").Append(htmlPath).Append("</h3>\n<table>\n<tr>");
 
     // add headers with links for sorting the table
     string[] headers = new string[] { "name", "Name", "type", "Type", "size", "Size", "date", "Modification Date" };
@@ -417,7 +423,8 @@ public class GetOrHeadRequest : WebDAVRequest
     {
       if(item == null) throw new ArgumentException("An item was null.");
       string encodedName = HttpUtility.HtmlEncode(item.Name), encodedType = HttpUtility.HtmlEncode(item.Type);
-      sb.Append("<tr><td><a href=\"").Append(basePath).Append(encodedName).Append("\">").Append(encodedName).Append("</a></td><td>")
+      string encodedUrl  = item.IsDirectory ? encodedName + "/" : encodedName;
+      sb.Append("<tr><td><a href=\"").Append(encodedUrl).Append("\">").Append(encodedName).Append("</a></td><td>")
         .Append(encodedType ?? (item.IsDirectory ? "&lt;DIR&gt;" : null)).Append("</td><td>")
         .Append(item.Size == -1 ? null : GetSizeString(item.Size)).Append("</td><td>")
         .Append(!item.LastModificationTime.HasValue ?
@@ -458,8 +465,8 @@ public class GetOrHeadRequest : WebDAVRequest
     if(entityBody == null) throw new ArgumentNullException();
     if(!entityBody.CanRead) throw new ArgumentException("The entity body cannot be read.");
 
-    // notify the client that we accept byte ranges in the Range header (see RFC 2616 section 14.5)
-    Context.Response.Headers[HttpHeaders.AcceptRanges] = "bytes";
+    // notify the client that we accept byte ranges in the Range header (see RFC 7233 section 2.3)
+    Context.Response.Headers[DAVHeaders.AcceptRanges] = "bytes";
 
     metadata = metadata == null ? new EntityMetadata() : metadata.Clone();
     if(!metadata.Length.HasValue && entityBody.CanSeek) metadata.Length = entityBody.Length;
@@ -467,8 +474,8 @@ public class GetOrHeadRequest : WebDAVRequest
     ByteRange[] ranges = metadata.Length.HasValue ? GetByteRanges(metadata.Length.Value) : null;
     if(ranges != null && ranges.Length == 0) // if a Ranges header was specified but unsatisfiable...
     {
-      // RFC 2616 section 14.16 says that a 416 response should include a Content-Range header giving the entity length (if known)
-      Context.Request.Headers[HttpHeaders.ContentRange] = new ContentRange(metadata.Length.Value).ToHeaderString();
+      // RFC 7233 section 4.4 says that a 416 response should include a Content-Range header giving the entity length (if known)
+      Context.Request.Headers[DAVHeaders.ContentRange] = new ContentRange(metadata.Length.Value).ToHeaderString();
       Status = ConditionCodes.RequestedRangeNotSatisfiable; // then it's an error
     }
     else
@@ -476,9 +483,9 @@ public class GetOrHeadRequest : WebDAVRequest
       // if no entity tag was provided and the stream is seekable, compute the entity tag using the default method
       if(metadata.EntityTag == null)
       {
-        if(!string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag])) // if an entity tag was set in the headers...
+        if(!string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.ETag])) // if an entity tag was set in the headers...
         {
-          metadata.EntityTag = new EntityTag(Context.Response.Headers[HttpHeaders.ETag]); // use that
+          metadata.EntityTag = new EntityTag(Context.Response.Headers[DAVHeaders.ETag]); // use that
         }
         else if(entityBody.CanSeek) // otherwise, if we can make a scan through the entity body...
         {
@@ -488,10 +495,10 @@ public class GetOrHeadRequest : WebDAVRequest
       }
 
       // if no last modified time was provided, try to take it from the header if set
-      if(!metadata.LastModifiedTime.HasValue && !string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.LastModified]))
+      if(!metadata.LastModifiedTime.HasValue && !string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.LastModified]))
       {
         DateTime time;
-        if(DAVUtility.TryParseHttpDate(Context.Response.Headers[HttpHeaders.LastModified], out time)) metadata.LastModifiedTime = time;
+        if(DAVUtility.TryParseHttpDate(Context.Response.Headers[DAVHeaders.LastModified], out time)) metadata.LastModifiedTime = time;
       }
 
       ConditionCode precondition = CheckPreconditions(metadata);
@@ -501,59 +508,97 @@ public class GetOrHeadRequest : WebDAVRequest
       }
       else
       {
-        if(metadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
+        if(metadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.ETag]))
         {
-          Context.Response.Headers[HttpHeaders.ETag] = metadata.EntityTag.ToHeaderString();
+          Context.Response.Headers[DAVHeaders.ETag] = metadata.EntityTag.ToHeaderString();
         }
         if(metadata.LastModifiedTime.HasValue)
         {
           DateTime lastModifiedTime = DAVUtility.GetHttpDate(metadata.LastModifiedTime.Value);
-          if(string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.LastModified]))
+          if(string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.LastModified]))
           {
-            Context.Response.Headers[HttpHeaders.LastModified] = lastModifiedTime.ToString("R", CultureInfo.InvariantCulture);
+            Context.Response.Headers[DAVHeaders.LastModified] = lastModifiedTime.ToString("R", CultureInfo.InvariantCulture);
           }
         }
 
         // if the If-Range header was sent but doesn't match the current entity body...
-        if(IfRange != null &&
-           (IfRange is EntityTag ? metadata.EntityTag == null || !metadata.EntityTag.Equals(IfRange)
-                                 : metadata.LastModifiedTime.HasValue && metadata.LastModifiedTime.Value > (DateTime)IfRange))
+        if(IfRange != null)
         {
-          ranges = null; // then send the entire entity to the client rather than only the requested range
+          EntityTag tag = IfRange as EntityTag;
+          if(tag != null ? !tag.StronglyEquals(metadata.EntityTag) // RFC 7233 section 3.2 requires an exact (strong) entity tag match
+                         : !metadata.LastModifiedTime.HasValue ||
+                           DAVUtility.GetHttpDate(metadata.LastModifiedTime.Value) != (DateTime)IfRange) // or an exact date match
+          {
+            ranges = null; // then send the entire entity to the client rather than only the requested range
+          }
         }
 
+        ContentEncoding contentEncoding = Context.ChooseResponseEncoding(metadata.Compressible, true);
+        bool sentBody = false;
         if(ranges != null && ranges.Length != 1) // if multiple ranges were specified, then we should send a multipart/byteranges response
         {
-          Context.Response.StatusCode = (int)HttpStatusCode.PartialContent;
-
-          if(IsHeadRequest) // if it's a HEAD request, then we can't actually send a body
+          Context.Response.SetStatus(ConditionCodes.PartialContent);
+          if(precondition != null || IsHeadRequest)
           {
-            Context.Response.ContentType = "multipart/byteranges";
+            Status = precondition;
+            Context.Response.SetContentType("multipart/byteranges");
           }
-          else
+
+          // if we need to send the Content-Length header and/or the body itself...
+          if(precondition == null && (!IsHeadRequest || contentEncoding == ContentEncoding.Identity))
           {
-            string boundary = DAVUtility.CreateMimeBoundary(), header = "\r\n--" + boundary + "\r\n";
-            if(!string.IsNullOrEmpty(metadata.MediaType))
+            // compute the MIME Content-Range headers all at once so we can compute the content length without creating the strings twice
+            string[] rangeHeaders = new string[ranges.Length];
+            for(int i=0; i<rangeHeaders.Length; i++)
             {
-              header += "Content-Type: " + DAVUtility.HeaderEncode(metadata.MediaType) + "\r\n";
+              rangeHeaders[i] = ranges[i].Start.ToStringInvariant() + "-" + (ranges[i].Start + ranges[i].Length - 1).ToStringInvariant() +
+                              "/" + metadata.Length.Value.ToStringInvariant() + "\r\n\r\n";
             }
-            header += "Content-range: bytes ";
 
-            Context.Response.ContentType = "multipart/byteranges; boundary=" + boundary;
-            Context.Response.BufferOutput = false;
-            long offset = 0;
-            for(int i=0; i<ranges.Length; i++)
+            // if the response is not compressed and this isn't a 304 Not Modified response (see expl. below), send the Content-Length header
+            if(contentEncoding == ContentEncoding.Identity)
             {
-              ByteRange range = ranges[i];
-
-              // write the MIME part for this range
-              Context.Response.Write(header);
-              Context.Response.Write(range.Start.ToStringInvariant() + "-" + (range.Start + range.Length - 1).ToStringInvariant() + "/" +
-                                     metadata.Length.Value.ToStringInvariant() + "\r\n\r\n");
-              WriteStreamRange(entityBody, range.Start - offset, range.Length);
-              if(!entityBody.CanSeek) offset = range.Start + range.Length;
+              const int BoundaryLength = 69; // the length of the boundary string returned by DAVUtility.CreateMimeBoundary()
+              int headerLength = BoundaryLength + 6 + DAVHeaders.ContentRange.Length + 8; // "\r\n--BOUNDARY\r\n...Content-Range: bytes "
+              if(!string.IsNullOrEmpty(metadata.MediaType)) headerLength += DAVHeaders.ContentType.Length + metadata.MediaType.Length + 4;
+              long contentLength = headerLength*ranges.Length-2 + BoundaryLength + 8; // the boundaries and footer ("\r\n--BOUNDARY--\r\n")
+              for(int i=0; i<ranges.Length; i++) contentLength += rangeHeaders[i].Length + ranges[i].Length;
+              Context.Response.Headers[DAVHeaders.ContentLength] = contentLength.ToStringInvariant();
             }
-            Context.Response.Write("\r\n--" + boundary + "--\r\n");
+
+            if(!IsHeadRequest) // if we need to send the body...
+            {
+              string boundary = DAVUtility.CreateMimeBoundary(), header = "\r\n--" + boundary + "\r\n";
+              if(!string.IsNullOrEmpty(metadata.MediaType))
+              {
+                header += DAVHeaders.ContentType + ": " + metadata.MediaType + "\r\n";
+              }
+              header += DAVHeaders.ContentRange + ": bytes ";
+              byte[] headerBytes = Encoding.ASCII.GetBytes(header);
+
+              Context.Response.SetContentType("multipart/byteranges; boundary=" + boundary);
+              using(Stream outputStream = Context.OpenResponseBody(metadata.Compressible, false))
+              {
+                // if we're not encoding the stream, pass Response.OutputStream to WriteStreamRange so it can use the WriteFile method
+                Stream stream = contentEncoding == ContentEncoding.Identity ? Context.Response.OutputStream : outputStream;
+
+                long offset = 0;
+                for(int i=0; i<ranges.Length; i++)
+                {
+                  ByteRange range = ranges[i];
+
+                  // write the MIME part for this range
+                  int skip = i == 0 ? 2 : 0; // skip the initial CRLF pair for the first chunk
+                  stream.Write(headerBytes, skip, headerBytes.Length-skip);
+                  WriteAsciiString(stream, rangeHeaders[i]);
+                  WriteStreamRange(stream, entityBody, range.Start - offset, range.Length);
+                  if(!entityBody.CanSeek) offset = range.Start + range.Length;
+                }
+                WriteAsciiString(stream, "\r\n--" + boundary + "--\r\n");
+              }
+
+              sentBody = true;
+            }
           }
         }
         else
@@ -565,60 +610,83 @@ public class GetOrHeadRequest : WebDAVRequest
             rangeLength = ranges[0].Length;
           }
 
-          Context.Response.ContentType = metadata.MediaType; // set ContentType even if mediaType is null to avoid the text/html default
-          bool shouldSendBody = !IsHeadRequest; // in general, we want to write the entity body unless it's a HEAD request
-          if(rangeStart == 0 && rangeLength == entityLength) // if we're sending the whole file, then we want to use a 200 OK response
+          Context.Response.SetContentType(metadata.MediaType); // set ContentType even if mediaType is null to avoid the text/html default
+          
+          // if the precondition is 304 Not Modified, we should return that instead as per the rules for invoking CheckPreconditions (i.e.
+          // we apply the status if we would normally return 200 OK). this applies even for 206 responses because the Range header is
+          // supposed to be ignored at the time we're checking preconditions as per RFC 7233 section 3.1. so, ignoring the Range header,
+          // the reply /would have been/ 200 OK, so we send the 304 Not Modified status for both full and partial gets
+          if(precondition != null)
           {
-            if(precondition != null) // however, if the precondition is 304 Not Modified, we should return that instead as per the rules
-            {                        // for invoking CheckPreconditions (i.e. we apply the status if we would normally return 200 OK)
-              Status = precondition;
-              shouldSendBody = false; // since we're returning the 304 Not Modified precondition status, we shouldn't send the entity body
-            }
-            else
+            Status = precondition;
+          }
+          else
+          {
+            // set the Content-Length header if we know the length. we don't do this for 304 Not Modified responses. while we are allowed
+            // to send the content length for 304 responses, several widely used clients fail to handle it correctly, so we won't
+            if(rangeLength != -1 && contentEncoding == ContentEncoding.Identity)
             {
-              if(rangeLength != -1) Context.Response.Headers[HttpHeaders.ContentLength] = rangeLength.ToStringInvariant();
-              Context.Response.StatusCode = (int)HttpStatusCode.OK;
+              Context.Response.Headers[DAVHeaders.ContentLength] = rangeLength.ToStringInvariant();
+            }
+
+            if(rangeStart == 0 && rangeLength == entityLength) // if we're sending the whole file, then we want to use a 200 OK response
+            {
+              Context.Response.SetStatus(ConditionCodes.OK);
+            }
+            else // otherwise, we're sending only a portion
+            {
+              Context.Response.SetStatus(ConditionCodes.PartialContent); // so use a 206 Partial Content response
+              // let the client know which part of the file was sent
+              Context.Response.Headers[DAVHeaders.ContentRange] = new ContentRange(rangeStart, rangeLength, entityLength).ToHeaderString();
+            }
+
+            if(!IsHeadRequest) // we want to write an entity body unless it's a HEAD request...
+            {
+              using(Stream outputStream = Context.OpenResponseBody(metadata.Compressible, false)) // this will use the contentEncoding above
+              {
+                // if we're not encoding the stream, pass Response.OutputStream to WriteStreamRange so it can use the WriteFile method
+                Stream stream = contentEncoding == ContentEncoding.Identity ? Context.Response.OutputStream : outputStream;
+                WriteStreamRange(stream, entityBody, rangeStart, rangeLength);
+              }
+              sentBody = true;
             }
           }
-          else // otherwise, we're sending only a portion
-          {
-            if(rangeLength != -1) Context.Response.Headers[HttpHeaders.ContentLength] = rangeLength.ToStringInvariant();
-            Context.Response.StatusCode = (int)HttpStatusCode.PartialContent; // so use a 206 Partial Content response
-            // let the client know which part of the file was sent
-            Context.Response.Headers[HttpHeaders.ContentRange] = new ContentRange(rangeStart, rangeLength, entityLength).ToHeaderString();
-          }
+        }
 
-          if(shouldSendBody)
-          {
-            Context.Response.BufferOutput = false;
-            WriteStreamRange(entityBody, rangeStart, rangeLength);
-          }
+        // if we didn't send a body and won't be sending one later (i.e. if this is a HEAD request or a 304 Not Modified response) and we
+        // didn't set a Content-Length header, then set an empty header in order to prevent IIS/ASP.NET from adding Content-Length: 0. the
+        // empty header won't actually be sent to the client.
+        if(!sentBody && Status == null && Context.Response.Headers[DAVHeaders.ContentLength] == null)
+        {
+          Context.Response.Headers[DAVHeaders.ContentLength] = "";
         }
       }
     }
   }
 
-  /// <summary>Copies a range of bytes from a stream to the HTTP response stream. Note that the behavior of this method differs depending
-  /// on whether the stream is seekable.
+  /// <summary>Copies a range of bytes from one stream to another. Note that this method interprets the <paramref name="offset"/> parameter
+  /// differently depending on whether the stream is seekable.
   /// </summary>
-  /// <param name="sourceStream">The stream whose contents will be written to the response.</param>
+  /// <param name="destStream">The stream into which <paramref name="sourceStream"/> will be written.</param>
+  /// <param name="sourceStream">The stream whose contents will be written to <paramref name="destStream"/>.</param>
   /// <param name="offset">If the stream is seekable, this represents the absolute position within the stream from which data will be
   /// copied. If the stream is not seekable, this represents the number of bytes to skip before beginning to copy data. If the stream is
   /// positioned at the beginning, the result is the same either way.
   /// </param>
   /// <param name="length">The number of bytes to copy from the stream, or -1 to copy the stream to the end.</param>
   /// <remarks>If you can easily supply a <see cref="FileStream"/> you should, since this method has especially efficient handling of
-  /// <see cref="FileStream"/> objects.
+  /// <see cref="FileStream"/> objects when writing directly to the response <see cref="HttpResponse.OutputStream"/>.
   /// </remarks>
-  public void WriteStreamRange(Stream sourceStream, long offset, long length)
+  public void WriteStreamRange(Stream destStream, Stream sourceStream, long offset, long length)
   {
-    if(sourceStream == null) throw new ArgumentNullException();
+    if(destStream == null || sourceStream == null) throw new ArgumentNullException();
     if(offset < 0 || length < -1) throw new ArgumentOutOfRangeException();
 
     if(sourceStream.CanSeek)
     {
+      // use the more efficient WriteFile method if we're writing directly to the response stream
       FileStream fileStream = sourceStream as FileStream;
-      if(fileStream != null)
+      if(fileStream != null && destStream == Context.Response.OutputStream)
       {
         Context.Response.WriteFile(fileStream.SafeFileHandle.DangerousGetHandle(), offset, length);
         return;
@@ -635,7 +703,7 @@ public class GetOrHeadRequest : WebDAVRequest
     sourceStream.Process(4096, true, (buffer, bytesInBuffer) =>
     {
       int bytesToWrite = (int)Math.Min(bytesInBuffer, length);
-      Context.Response.BinaryWrite(bytesToWrite == buffer.Length ? buffer : buffer.Trim(bytesToWrite));
+      destStream.Write(buffer, 0, bytesToWrite);
       if(length != -1) length -= bytesToWrite;
       return length != 0;
     });
@@ -669,13 +737,18 @@ public class GetOrHeadRequest : WebDAVRequest
   static string GetSizeString(long size)
   {
     const long KB = 1024, MB = KB*1024, GB = MB*1024, TB = GB*1024, PB = TB*1024, EB = PB*1024;
-    return size < KB ? size.ToStringInvariant() :
+    return size < KB ? size.ToStringInvariant() + " B" :
            size < MB ? (size / (double)KB).ToString("f2", CultureInfo.InvariantCulture) + " KiB" :
            size < GB ? (size / (double)MB).ToString("f2", CultureInfo.InvariantCulture) + " MiB" :
            size < TB ? (size / (double)GB).ToString("f2", CultureInfo.InvariantCulture) + " GiB" :
            size < PB ? (size / (double)TB).ToString("f2", CultureInfo.InvariantCulture) + " TiB" :
            size < EB ? (size / (double)PB).ToString("f2", CultureInfo.InvariantCulture) + " PiB" :
                        (size / (double)EB).ToString("f2", CultureInfo.InvariantCulture) + " EiB";
+  }
+
+  static void WriteAsciiString(Stream stream, string str)
+  {
+    stream.Write(Encoding.ASCII.GetBytes(str));
   }
 
   static readonly Regex reRanges =

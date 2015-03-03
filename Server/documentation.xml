@@ -24,11 +24,11 @@
   <ILockManager>
     <AddLock>
       <summary>Adds a new resource lock if no conflicting lock exists.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource to lock.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource to lock.</param>
       <param name="type">The type of lock to add.</param>
       <param name="recursive">
         True if the lock should apply recursively to all descendant resources as well, or false if it should only
-        apply to the resource named by <paramref name="absolutePath"/>.
+        apply to the resource named by <paramref name="canonicalPath"/>.
       </param>
       <param name="timeoutSeconds">
         The requested timeout before the lock expires, in seconds, or zero if the lock should not expire, or null to use the default
@@ -43,34 +43,34 @@
         is to be associated with the lock.
       </param>
       <returns>An <see cref="ActiveLock"/> object representing the newly-added lock.</returns>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
       <exception cref="LockConflictException">Thrown if there is a conflict with an existing lock.</exception>
       <exception cref="LockLimitReachedException">Thrown if adding the lock would cause a lock limit to be exceeded.</exception>
     </AddLock>
     <GetConflictingLocks>
       <summary>Returns a collection of existing locks that conflict with the given proposed lock.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource to propose to lock.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource to propose to lock.</param>
       <param name="type">The proposed type of lock to add.</param>
       <param name="recursive">
         True if the lock would apply recursively to all descendant resources as well, or false if it would only
-        apply to the resource named by <paramref name="absolutePath"/>.
+        apply to the resource named by <paramref name="canonicalPath"/>.
       </param>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="type"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> or <paramref name="type"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </GetConflictingLocks>
     <GetLock>
       <summary>Returns the <see cref="ActiveLock"/> with the specified lock token and path, or null if no matching lock exists.</summary>
       <param name="lockToken">The lock token of the lock to retrieve.</param>
-      <param name="absolutePath">If specified, the lock must also contain the given path within its scope. If null, only the lock token
-      must match. This should be the absolute, canonical path to a resource.
+      <param name="canonicalPath">If specified, the lock must also contain the given path within its scope. If null, only the lock token
+      must match. This should be the canonical, relative path to a resource.
       </param>
       <exception cref="ArgumentNullException">Thrown if <paramref name="lockToken"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is specified but not absolute.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is specified but not relative.</exception>
     </GetLock>
     <GetLocks>
       <summary>Returns the locks at, above, and/or below a resource in the URL hierarchy.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose locks will be returned.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource whose locks will be returned.</param>
       <param name="includeInheritedLocks">If true, locks inherited from ancestor resources will be returned.</param>
       <param name="includeDescendantLocks">If true, locks directly applied to descendant resources will be returned.</param>
       <param name="filter">If not null, only locks for which the filter predicate returns true will be returned from the method.</param>
@@ -80,8 +80,8 @@
         locks directly applied to descendant resources will be included in the list. All locks will be filtered through
         <paramref name="filter"/> if <paramref name="filter"/> is not null.
       </returns>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </GetLocks>
     <RefreshLock>
       <summary>Refreshes the given lock timeout. Returns true if the lock timeout was refreshed and false if it was not.</summary>
@@ -104,41 +104,41 @@
       <summary>Removes all locks at (and possibly below) a resource in the URL hierarchy. Returns true if the locks were removed
         successfully and false if the locks could not be removed.
       </summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose locks will be removed.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource whose locks will be removed.</param>
       <param name="removal">A <see cref="LockRemoval"/> value that specifies which locks will be removed.</param>
       <returns>
         If <paramref name="removal"/> is <see cref="LockRemoval.RequireEmpty"/> and descendant locks exist, no locks are removed and false
         is returned. Otherwise, all locks are removed and true is returned.
       </returns>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </RemoveLocks>
   </ILockManager>
 
   <IPropertyStore>
     <ClearProperties>
       <summary>Removes all dead properties associated with a resource.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be removed.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource whose properties will be removed.</param>
       <param name="recursive">
         If true, the properties of descendant resources will be cleared as well. This parameter should be true unless it is impossible for
         the resource to have descendants.
       </param>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </ClearProperties>
     <GetProperties>
       <summary>Returns all dead properties associated with a resource.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be returned.</param>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> is null.</exception>
-      <exception cref="ArgumentException">Thrown if <paramref name="absolutePath"/> is not absolute.</exception>
+      <param name="canonicalPath">The canonical, relative path to the resource whose properties will be returned.</param>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
+      <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </GetProperties>
     <RemoveProperties>
       <summary>Returns all dead properties associated with a resource.</summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be removed.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource whose properties will be removed.</param>
       <param name="propertyNames">A set of property names to remove.</param>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="propertyNames"/> is null.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> or <paramref name="propertyNames"/> is null.</exception>
       <exception cref="ArgumentException">
-        Thrown if <paramref name="absolutePath"/> is not absolute or if <paramref name="propertyNames"/> contains a null reference.
+        Thrown if <paramref name="canonicalPath"/> is not relative or if <paramref name="propertyNames"/> contains a null reference.
       </exception>
     </RemoveProperties>
     <SetProperties>
@@ -146,11 +146,11 @@
         Associates dead properties with a resource. This method will overwrite existing properties with the same name, but other
         existing properties will not be removed.
       </summary>
-      <param name="absolutePath">The absolute, canonical path to the resource whose properties will be set.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource whose properties will be set.</param>
       <param name="properties">A collection of dead properties to add.</param>
-      <exception cref="ArgumentNullException">Thrown if <paramref name="absolutePath"/> or <paramref name="properties"/> is null.</exception>
+      <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> or <paramref name="properties"/> is null.</exception>
       <exception cref="ArgumentException">
-        Thrown if <paramref name="absolutePath"/> is not absolute or if <paramref name="properties"/> contains a null value.
+        Thrown if <paramref name="canonicalPath"/> is not relative or if <paramref name="properties"/> contains a null value.
       </exception>
     </SetProperties>
   </IPropertyStore>
@@ -423,7 +423,7 @@
     </Dispose>
     <OnPropertiesChanged>
       <summary>Called when a resources's properties have changed.</summary>
-      <param name="absolutePath">The absolute path to the resource.</param>
+      <param name="canonicalPath">The canonical, relative path to the resource.</param>
       <param name="newProperties">
         The dictionary containing the resource's new property set, or null if all of the resource's properties
         were removed. This dictionary should not be modified.
@@ -454,10 +454,20 @@
         Returns the response stream after encoding it according to the <c>Accept-Encoding</c> header. The returned stream should be
         closed when you are done writing to it.
       </summary>
+      <param name="enableCompression">
+        Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
+        it's preferred by the client. Otherwise, only the uncompressed <c>identity</c> encoding can be chosen.
+      </param>
+      <param name="buffered">
+        If not null, the <see cref="HttpResponse.BufferOutput"/> property will be set to this value before the stream
+        is opened.
+      </param>
       <remarks>
         This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
         cause a <see cref="WebDAVException"/> to be thrown with a 406 Not Acceptable status. If you need to support additional content
-        encodings, you must do so yourself, using the <see cref="HttpResponse.OutputStream"/> directly.
+        encodings, you must do so yourself, using the <see cref="HttpResponse.OutputStream"/> directly. If you need to know the
+        <see cref="ContentEncoding"/> that was or would be used, call <see cref="ChooseResponseEncoding"/> while passing false to its
+        <c>setHeader</c> parameter.
       </remarks>
     </OpenResponseBody>
   </WebDAVContext>

@@ -114,9 +114,9 @@ public static class DAVNames
   /// </summary>
   public static readonly XmlQualifiedName displayname = new XmlQualifiedName("displayname", DAV);
   /// <summary>The <c>DAV:getcontentlanguage</c> property, which is a <see cref="string"/> property that describes the language(s) in which
-  /// the resource was created. The value must be in the format defined in section 14.12 of RFC 2616 (sample: <c>en, es</c>). The property
-  /// should not be protected and must be defined on any resource that returns a <c>Content-Language</c> header in response to a <c>GET</c>
-  /// request.
+  /// the resource was created. The value must be in the format defined in section 3.1.3.2 of RFC 7231 (sample: <c>en, es</c>). The
+  /// property should not be protected and must be defined on any resource that returns a <c>Content-Language</c> header in response to a
+  /// <c>GET</c> request.
   /// </summary>
   public static readonly XmlQualifiedName getcontentlanguage = new XmlQualifiedName("getcontentlanguage", DAV);
   /// <summary>The <c>DAV:getcontentlength</c> property, which is an unsigned integer (i.e. <see cref="uint"/> or <see cref="ulong"/>)
@@ -125,12 +125,12 @@ public static class DAVNames
   /// </summary>
   public static readonly XmlQualifiedName getcontentlength = new XmlQualifiedName("getcontentlength", DAV);
   /// <summary>The <c>DAV:getcontenttype</c> property, which is a <see cref="string"/> property that contains the media type of the
-  /// resource. The value must be in the format defined in section 14.17 of RFC 2616. The property may be protected and must be defined on
-  /// any DAV-compliant resource that returns a <c>Content-Type</c> header in response to a <c>GET</c> request.
+  /// resource. The value must be in the format defined in section 3.1.1.5 of RFC 7231. The property may be protected and must be defined
+  /// on any DAV-compliant resource that returns a <c>Content-Type</c> header in response to a <c>GET</c> request.
   /// </summary>
   public static readonly XmlQualifiedName getcontenttype = new XmlQualifiedName("getcontenttype", DAV);
   /// <summary>The <c>DAV:getetag</c> property, which is an <see cref="EntityTag"/> property that represents the state of a resource's
-  /// content. (See the description of entity tags in RFC 2616 for more details.) The property must be protected and must be defined on any
+  /// content. (See the description of entity tags in RFC 7232 for more details.) The property must be protected and must be defined on any
   /// DAV-compliant resource that returns an <c>ETag</c> header in response to any request.
   /// </summary>
   public static readonly XmlQualifiedName getetag = new XmlQualifiedName("getetag", DAV);

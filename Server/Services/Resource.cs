@@ -26,7 +26,7 @@ namespace AdamMil.WebDAV.Server
 #region IWebDAVResource
 /// <summary>Represents a DAV-compliant resource.</summary>
 /// <remarks>Before implementing a WebDAV resource, it is strongly recommended that be familiar with the WebDAV specification as outlined
-/// in RFC 4918 and the HTTP specification as outline in RFC 2616.
+/// in RFC 4918 and the HTTP specification as outlined in RFCs 7230 through 7235.
 /// </remarks>
 public interface IWebDAVResource
 {

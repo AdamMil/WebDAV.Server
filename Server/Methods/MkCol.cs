@@ -19,12 +19,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 // TODO: add processing examples and documentation
+// TODO: add support for extended MKCOL requests as described in RFC 5689. also update OPTIONS to report support for it
 
 namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>MKCOL</c> request.</summary>
-/// <remarks>The <c>MKCOL</c> request is described in section 9.3 of RFC 4918.</remarks>
+/// <remarks>The <c>MKCOL</c> request is described in section 9.3 of RFC 4918 and in RFC 5689.</remarks>
 public class MkColRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="MkColRequest"/> based on a new WebDAV request.</summary>

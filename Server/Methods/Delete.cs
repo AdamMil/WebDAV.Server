@@ -54,21 +54,21 @@ public class DeleteRequest : WebDAVRequest
   /// <summary>Completes processing of a standard <c>DELETE</c> request for an existing resource. This does not delete the resource, but
   /// does remove the resource's properties and locks. This method is intended to be called after the deletion was successfully performed.
   /// </summary>
-  /// <param name="absolutePath">The absolute, canonical path to the resource that was deleted.</param>
+  /// <param name="canonicalPath">The canonical, relative path to the resource that was deleted.</param>
   /// <param name="recursive">If true, locks and properties will be removed recursively. You should pass true if the resource is a
   /// directory and false if not.
   /// </param>
-  public void PostProcessRequest(string absolutePath, bool recursive)
+  public void PostProcessRequest(string canonicalPath, bool recursive)
   {
-    if(absolutePath == null)
+    if(canonicalPath == null)
     {
       if(Context.RequestResource == null) throw new ArgumentException("A path must be provided if there is no request resource.");
-      absolutePath = Context.ServiceRoot + Context.RequestResource.CanonicalPath;
+      canonicalPath = Context.RequestResource.CanonicalPath;
     }
-    if(Context.PropertyStore != null) Context.PropertyStore.ClearProperties(absolutePath, recursive);
+    if(Context.PropertyStore != null) Context.PropertyStore.ClearProperties(canonicalPath, recursive);
     if(Context.LockManager != null)
     {
-      Context.LockManager.RemoveLocks(absolutePath, recursive ? LockRemoval.Recursive : LockRemoval.Nonrecursive);
+      Context.LockManager.RemoveLocks(canonicalPath, recursive ? LockRemoval.Recursive : LockRemoval.Nonrecursive);
     }
   }
 

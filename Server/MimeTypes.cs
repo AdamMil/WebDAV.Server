@@ -409,14 +409,16 @@ static class MimeTypes
 		if(string.IsNullOrEmpty(fileName)) throw new ArgumentException();
 		fileName = Path.GetFileName(fileName).ToLowerInvariant();
 
-		for(int dotIndex = fileName.Length-1; ; dotIndex--)
+		for(int dotIndex = fileName.Length-1; dotIndex >= 0; dotIndex--)
 		{
 			dotIndex = fileName.LastIndexOf('.', dotIndex);
-			if(dotIndex == -1) return null;
+			if(dotIndex == -1) break;
 
 			string mimeType;
 			if(extToMime.TryGetValue(fileName.Substring(dotIndex+1), out mimeType)) return mimeType;
 		}
+
+    return null;
 	}
 
 	static void AddMimeMap(string mimeType, string extension)

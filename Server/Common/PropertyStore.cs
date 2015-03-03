@@ -241,13 +241,13 @@ public sealed class XmlProperty
 public interface IPropertyStore
 {
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/ClearProperties/node()" />
-  void ClearProperties(string absolutePath, bool recursive);
+  void ClearProperties(string canonicalPath, bool recursive);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/GetProperties/node()" />
-  IDictionary<XmlQualifiedName,XmlProperty> GetProperties(string absolutePath);
+  IDictionary<XmlQualifiedName,XmlProperty> GetProperties(string canonicalPath);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
-  void RemoveProperties(string absolutePath, IEnumerable<XmlQualifiedName> propertyNames);
+  void RemoveProperties(string canonicalPath, IEnumerable<XmlQualifiedName> propertyNames);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/SetProperties/node()" />
-  void SetProperties(string absolutePath, IEnumerable<XmlProperty> properties);
+  void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties);
 }
 #endregion
 
@@ -271,22 +271,22 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/ClearProperties/node()" />
-  public void ClearProperties(string absolutePath, bool recursive)
+  public void ClearProperties(string canonicalPath, bool recursive)
   {
-    DAVUtility.ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateRelativePath(canonicalPath);
     AssertNotDisposed();
-    absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+    canonicalPath = DAVUtility.RemoveTrailingSlash(canonicalPath);
     lock(this)
     {
-      if(propertiesByUrl.Remove(absolutePath)) OnPropertiesChanged(absolutePath, null);
+      if(propertiesByUrl.Remove(canonicalPath)) OnPropertiesChanged(canonicalPath, null);
 
       if(recursive)
       {
-        absolutePath = DAVUtility.WithTrailingSlash(absolutePath);
+        canonicalPath = DAVUtility.WithTrailingSlash(canonicalPath);
         List<string> deadUrls = new List<string>();
         foreach(string url in propertiesByUrl.Keys)
         {
-          if(url.StartsWith(absolutePath, StringComparison.Ordinal)) deadUrls.Add(url);
+          if(url.StartsWith(canonicalPath, StringComparison.Ordinal)) deadUrls.Add(url);
         }
         propertiesByUrl.RemoveRange(deadUrls);
       }
@@ -302,53 +302,53 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/GetProperties/node()" />
-  public IDictionary<XmlQualifiedName, XmlProperty> GetProperties(string absolutePath)
+  public IDictionary<XmlQualifiedName, XmlProperty> GetProperties(string canonicalPath)
   {
-    DAVUtility.ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateRelativePath(canonicalPath);
     AssertNotDisposed();
-    absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+    canonicalPath = DAVUtility.RemoveTrailingSlash(canonicalPath);
     Dictionary<XmlQualifiedName,XmlProperty> propDict;
     lock(this)
     {
-      if(propertiesByUrl.TryGetValue(absolutePath, out propDict)) propDict = new Dictionary<XmlQualifiedName, XmlProperty>(propDict);
+      if(propertiesByUrl.TryGetValue(canonicalPath, out propDict)) propDict = new Dictionary<XmlQualifiedName, XmlProperty>(propDict);
       else propDict = new Dictionary<XmlQualifiedName, XmlProperty>();
     }
     return propDict;
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
-  public void RemoveProperties(string absolutePath, IEnumerable<XmlQualifiedName> propertyNames)
+  public void RemoveProperties(string canonicalPath, IEnumerable<XmlQualifiedName> propertyNames)
   {
-    DAVUtility.ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateRelativePath(canonicalPath);
     if(propertyNames == null) throw new ArgumentNullException();
     AssertNotDisposed();
-    absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+    canonicalPath = DAVUtility.RemoveTrailingSlash(canonicalPath);
     lock(this)
     {
       Dictionary<XmlQualifiedName, XmlProperty> propDict;
-      if(propertiesByUrl.TryGetValue(absolutePath, out propDict))
+      if(propertiesByUrl.TryGetValue(canonicalPath, out propDict))
       {
         int count = propDict.Count;
         propDict.RemoveRange(propertyNames);
-        if(propDict.Count == 0) propertiesByUrl.Remove(absolutePath);
-        if(propDict.Count != count) OnPropertiesChanged(absolutePath, propDict.Count == 0 ? null : propDict);
+        if(propDict.Count == 0) propertiesByUrl.Remove(canonicalPath);
+        if(propDict.Count != count) OnPropertiesChanged(canonicalPath, propDict.Count == 0 ? null : propDict);
       }
     }
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/SetProperties/node()" />
-  public void SetProperties(string absolutePath, IEnumerable<XmlProperty> properties)
+  public void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties)
   {
-    DAVUtility.ValidateAbsolutePath(absolutePath);
+    DAVUtility.ValidateRelativePath(canonicalPath);
     if(properties == null) throw new ArgumentNullException();
     AssertNotDisposed();
-    absolutePath = DAVUtility.RemoveTrailingSlash(absolutePath);
+    canonicalPath = DAVUtility.RemoveTrailingSlash(canonicalPath);
     lock(this)
     {
       Dictionary<XmlQualifiedName,XmlProperty> propDict;
-      if(!propertiesByUrl.TryGetValue(absolutePath, out propDict))
+      if(!propertiesByUrl.TryGetValue(canonicalPath, out propDict))
       {
-        propertiesByUrl[absolutePath] = propDict = new Dictionary<XmlQualifiedName,XmlProperty>();
+        propertiesByUrl[canonicalPath] = propDict = new Dictionary<XmlQualifiedName,XmlProperty>();
       }
       bool changed = false;
       foreach(XmlProperty property in properties)
@@ -357,7 +357,7 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
         propDict[property.Name] = property;
         changed = true;
       }
-      if(changed) OnPropertiesChanged(absolutePath, propDict);
+      if(changed) OnPropertiesChanged(canonicalPath, propDict);
     }
   }
 
@@ -400,7 +400,7 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
   }
 
   /// <include file="documentation.xml" path="/DAV/PropertyStore/OnPropertiesChanged/node()" />
-  protected abstract void OnPropertiesChanged(string absolutePath, Dictionary<XmlQualifiedName, XmlProperty> newProperties);
+  protected abstract void OnPropertiesChanged(string canonicalPath, Dictionary<XmlQualifiedName, XmlProperty> newProperties);
 
   /// <summary>Throws an exception if the property store has been disposed.</summary>
   void AssertNotDisposed()
@@ -427,9 +427,18 @@ public class FilePropertyStore : PropertyStore
   ///     <description>Description</description>
   ///   </listheader>
   ///   <item>
+  ///     <term>propertyDir</term>
+  ///     <description>xs:string</description>
+  ///     <description>The full path to a directory in which the properties will be saved. This is only suitable for global property
+  ///       stores. Files will be created in the directory with names based on the location.
+  ///     </description>
+  ///   </item>
+  ///   <item>
   ///     <term>propertyFile</term>
   ///     <description>xs:string</description>
-  ///     <description>The full path to the file in which the properties will be saved.</description>
+  ///     <description>The full path to the file in which the properties will be saved. This is only suitable for property stores
+  ///       specified on a per-location basis.
+  ///     </description>
   ///   </item>
   ///   <item>
   ///     <term>revertToSelf</term>
@@ -445,15 +454,24 @@ public class FilePropertyStore : PropertyStore
   ///   </item>
   /// </list>
   /// </remarks>
-  public FilePropertyStore(ParameterCollection parameters) : base(parameters)
+  public FilePropertyStore(string locationId, ParameterCollection parameters) : base(parameters)
   {
+    if(locationId == null) throw new ArgumentNullException();
     string value = parameters.TryGetValue("revertToSelf");
     bool revertToSelf = string.IsNullOrEmpty(value) || XmlConvert.ToBoolean(value);
 
     writeInterval = (int)DAVUtility.ParseConfigParameter(parameters, "writeInterval", 60, 1, int.MaxValue/1000) * 1000;
 
     value = parameters.TryGetValue("propertyFile");
-    if(string.IsNullOrEmpty(value)) throw new ArgumentException("The propertyFile attribute is required for the FilePropertyStore.");
+    if(string.IsNullOrEmpty(value))
+    {
+      value = parameters.TryGetValue("propertyDir");
+      if(string.IsNullOrEmpty(value))
+      {
+        throw new ArgumentException("The propertyFile attribute is required for the FilePropertyStore.");
+      }
+      value = Path.Combine(value, DAVUtility.FileNameEncode(locationId) + "_props");
+    }
 
     FileStream file = null;
     Action openFile = delegate { file = new FileStream(value, FileMode.OpenOrCreate, FileAccess.ReadWrite); };
@@ -503,7 +521,7 @@ public class FilePropertyStore : PropertyStore
   }
 
   /// <include file="documentation.xml" path="/DAV/PropertyStore/OnPropertiesChanged/node()" />
-  protected override void OnPropertiesChanged(string absolutePath, Dictionary<XmlQualifiedName, XmlProperty> newProperties)
+  protected override void OnPropertiesChanged(string canonicalPath, Dictionary<XmlQualifiedName, XmlProperty> newProperties)
   {
     // OnPropertiesChanged() is always called from within a lock, so we don't need any locking semantics here
     if(!pendingWrite)
@@ -537,11 +555,11 @@ public class FilePropertyStore : PropertyStore
                 var resources = new MultiValuedDictionary<string, XmlProperty>();
                 while(resourceCount-- != 0)
                 {
-                  string absolutePath = reader.ReadStringWithLength();
+                  string canonicalPath = reader.ReadStringWithLength();
                   int propertyCount = (int)reader.ReadEncodedUInt32();
                   List<XmlProperty> properties = new List<XmlProperty>(propertyCount);
                   do properties.Add(new XmlProperty(reader)); while(--propertyCount != 0);
-                  resources.Add(absolutePath, properties);
+                  resources.Add(canonicalPath, properties);
                 }
                 LoadProperties(resources);
                 return;
@@ -619,9 +637,9 @@ public class FilePropertyStore : PropertyStore
 public class MemoryPropertyStore : PropertyStore
 {
   /// <summary>Initializes a new <see cref="MemoryPropertyStore"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
-  public MemoryPropertyStore(ParameterCollection parameters) : base(parameters) { }
+  public MemoryPropertyStore(string serviceId, ParameterCollection parameters) : base(parameters) { }
   /// <include file="documentation.xml" path="/DAV/PropertyStore/OnPropertiesChanged/node()" />
-  protected override void OnPropertiesChanged(string absolutePath, Dictionary<XmlQualifiedName, XmlProperty> newProperties) { }
+  protected override void OnPropertiesChanged(string canonicalPath, Dictionary<XmlQualifiedName, XmlProperty> newProperties) { }
 }
 #endregion
 
@@ -634,8 +652,8 @@ public class MemoryPropertyStore : PropertyStore
 /// </remarks>
 public sealed class DisablePropertyStore : MemoryPropertyStore
 {
-  /// <summary>Initializes a new <see cref="MemoryPropertyStore"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
-  public DisablePropertyStore(ParameterCollection parameters) : base(parameters) { }
+  /// <summary>Initializes a new <see cref="DisablePropertyStore"/>.</summary>
+  public DisablePropertyStore(string serviceId, ParameterCollection parameters) : base(serviceId, parameters) { }
 }
 #endregion
 

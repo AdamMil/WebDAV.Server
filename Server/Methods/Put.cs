@@ -29,7 +29,12 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>PUT</c> request.</summary>
-/// <remarks>The <c>PUT</c> request is described in section 9.7 of RFC 4918.</remarks>
+/// <remarks>The <c>PUT</c> request is described in section 4.3.4 of RFC 7231 and section 9.7 of RFC 4918.
+/// Note that this implementation supports partial PUTs using the <c>Content-Range</c> header, even though such requests are now disallowed
+/// by the latest HTTP specification in RFC 7231. The standard requires the server to reply with 400 Bad Request, but this implementation
+/// does not. If you require the standard-compliant behavior, you should override <see cref="WebDAVRequest.ParseRequest"/> and reply with
+/// 400 Bad Request if <see cref="ContentRange"/> is not null.
+/// </remarks>
 public class PutRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="PutRequest"/> based on a new WebDAV request.</summary>
@@ -37,9 +42,9 @@ public class PutRequest : SimpleRequest
   {
     // parse the Content-Range header if supplied by the client
     ContentRange range = null;
-    if(!string.IsNullOrEmpty(context.Request.Headers[HttpHeaders.ContentRange]))
+    if(!string.IsNullOrEmpty(context.Request.Headers[DAVHeaders.ContentRange]))
     {
-      range = ContentRange.TryParse(context.Request.Headers[HttpHeaders.ContentRange]);
+      range = ContentRange.TryParse(context.Request.Headers[DAVHeaders.ContentRange]);
       if(range == null) throw Exceptions.BadRequest("Invalid Content-Range header.");
       if(range.Start == -1 && range.TotalLength == -1) range = null; // treat useless values as though they weren't submitted at all
     }
@@ -121,18 +126,20 @@ public class PutRequest : SimpleRequest
       bool isPartialUpdate = false;
       if(ContentRange != null) // if the client requested a partial PUT and/or indicated knowledge of the entity length...
       {
-        // note that partial PUT support is not really specified or documented in the HTTP specification, but it seems like a fairly
+        // note that partial PUT support was never really specified or documented in the RFC 2616, but it seems like a fairly
         // straightforward extension/interpretation. however, i'm not 100% sure how error cases should be reported to the client. (for
         // instance, if partial PUTs are not allowed, what should we reply with? 416 Requested Range Not Satisfiable is for Range headers
         // rather than Content-Range headers and may cause the client to retry with another partial PUT, while 403 Forbidden or 501 Not
         // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope it works.)
         // TODO: do a bit more research on this. in particular, see if we can find and read some existing client and server code
+        // NOTE: partial PUTs are now explicitly disallowed by the latest HTTP specification (RFC 7231). technically we should stop
+        // supporting them, but they seem useful for a WebDAV server, so i'll keep the support in here for now
 
         // if the client indicated knowledge of the entity length but was incorrect...
         if(ContentRange.TotalLength != -1 && entityLength != -1 && ContentRange.TotalLength != entityLength)
         {
           // respond with a 416 Requested Range Not Satisfiable status that includes the correct entity length
-          Context.Response.Headers[HttpHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
+          Context.Response.Headers[DAVHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
           Status = ConditionCodes.RequestedRangeNotSatisfiable;
           return;
         }

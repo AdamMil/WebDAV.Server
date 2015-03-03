@@ -51,9 +51,16 @@ public class FileSystemService : WebDAVService
   ///     <description>Description</description>
   ///   </listheader>
   ///   <item>
+  ///     <term>allowInfinitePropFind</term>
+  ///     <description>xs:boolean</description>
+  ///     <description>Specifies whether the service allows infinite-depth PROPFIND queries. This may be disabled if clients can't be
+  ///       trusted to use them responsibly. The default is true.
+  ///     </description>
+  ///   </item>
+  ///   <item>
   ///     <term>caseSensitive</term>
   ///     <description>xs:boolean</description>
-  ///     <description>Determines whether URL resolution will perform case-sensitive matches against the file system. The default is true.</description>
+  ///     <description>Determines whether URL resolution will perform case-sensitive matches against the file system. The default is false.</description>
   ///   </item>
   ///   <item>
   ///     <term>fsRoot</term>
@@ -76,22 +83,25 @@ public class FileSystemService : WebDAVService
     if(parameters == null) throw new ArgumentNullException();
 
     string value = parameters.TryGetValue("caseSensitive");
-    CaseSensitive = string.IsNullOrEmpty(value) || XmlConvert.ToBoolean(value);
+    CaseSensitive = !string.IsNullOrEmpty(value) && XmlConvert.ToBoolean(value);
     comparison = CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+    value = parameters.TryGetValue("allowInfinitePropFind");
+    InfinitePropFind = string.IsNullOrEmpty(value) || XmlConvert.ToBoolean(value); 
 
     value = parameters.TryGetValue("writable");
     IsReadOnly = string.IsNullOrEmpty(value) || !XmlConvert.ToBoolean(value);
 
     RootPath = parameters.TryGetValue("fsRoot");
-    if(RootPath == null && (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX))
-    {
-      RootPath = "/"; // Unix-like operating systems don't have drives like Windows does, so we can just serve the root of the filesystem
-    }
+    if(RootPath == null && HasUnifiedFileSystem) RootPath = "/"; // for operating systems with unified file systems, just serve the root
     if(RootPath != null) RootPath = RootPath.Length == 0 ? null : PathUtility.NormalizePath(RootPath);
   }
 
   /// <summary>Gets whether URL resolution will perform case-sensitive matches against the file system.</summary>
   public bool CaseSensitive { get; private set; }
+
+  /// <summary>Gets whether infinite-depth PROPFIND queries are allowed.</summary>
+  public bool InfinitePropFind { get; private set; }
 
   /// <summary>Gets whether the service allows the creation, deletion, and modification of file system resources.</summary>
   public bool IsReadOnly { get; private set; }
@@ -116,8 +126,7 @@ public class FileSystemService : WebDAVService
     }
     else
     {
-      string lockPath = request.Context.ServiceRoot + request.Context.RequestPath;
-      CreateNewFile(request, s => request.ProcessStandardRequest(LockType.WriteLocks, lockPath, null, false));
+      CreateNewFile(request, s => request.ProcessStandardRequest(LockType.WriteLocks, request.Context.CanonicalPathIfKnown, null, false));
       if(request.Status == null || request.Status.IsSuccessful)
       {
         request.Status = ConditionCodes.Created; // then return 201 Created
@@ -190,7 +199,7 @@ public class FileSystemService : WebDAVService
       if(request.IsServerQuery ||
          request.Context.RequestPath.Length != 0 && request.Context.RequestPath[request.Context.RequestPath.Length-1] != '/')
       {
-        request.AllowedMethods.Add(HttpMethods.Put);
+        request.AllowedMethods.Add(DAVMethods.Put);
       }
       request.SupportsLocking = request.Context.LockManager != null;
     }
@@ -256,6 +265,12 @@ public class FileSystemService : WebDAVService
     }
   }
 
+  /// <summary>Computes an <see cref="EntityTag"/> for the given file.</summary>
+  internal static EntityTag ComputeEntityTag(FileInfo info)
+  {
+    using(FileStream stream = info.OpenRead()) return DAVUtility.ComputeEntityTag(stream);
+  }
+
   /// <summary>Returns a name for a drive. For instance, for <c>C:\</c>, it will return "C".</summary>
   /// <param name="drive"></param>
   /// <returns></returns>
@@ -313,9 +328,9 @@ public class FileSystemService : WebDAVService
               if(success) // if the request was successfully executed...
               {
                 // write the ETag and Last-Modified headers
-                request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
+                request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
                 stream.Close(); // close the file to ensure the last modified time gets updated
-                request.Context.Response.Headers[HttpHeaders.LastModified] =
+                request.Context.Response.Headers[DAVHeaders.LastModified] =
                     new FileInfo(path).LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
               }
             }
@@ -344,6 +359,9 @@ public class FileSystemService : WebDAVService
       throw Exceptions.BadRequest("It is illegal to use .. to access a parent directory in the request URL.");
     }
 
+    // normalize file names on case-insensitive file systems so that locking, etc. works properly regardless of case
+    if(!CaseSensitive) resourcePath = resourcePath.ToUpper();
+
     if(RootPath != null) // if we're serving a place on the filesystem...
     {
       return ResolveResource(RootPath, resourcePath, ""); // then resolve the request normally
@@ -362,26 +380,43 @@ public class FileSystemService : WebDAVService
 
       string canonicalDrivePath = DAVUtility.CanonicalPathEncode(GetDriveName(drive)) + "/";
       // if the root of the drive was requested, then we've got all the information needed to resolve the resource
-      if(string.IsNullOrEmpty(resourcePath)) return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly);
-      else return ResolveResource(drive.RootDirectory.FullName, resourcePath, canonicalDrivePath); // otherwise, resolve it normally
+      if(string.IsNullOrEmpty(resourcePath))
+      {
+        return new DirectoryResource(drive.RootDirectory, canonicalDrivePath, IsReadOnly, CaseSensitive, InfinitePropFind);
+      }
+      else
+      {
+        return ResolveResource(drive.RootDirectory.FullName, resourcePath, canonicalDrivePath); // otherwise, resolve it normally
+      }
     }
   }
 
   /// <summary>Performs the normal resolution algorithm for a request.</summary>
   /// <param name="fsRoot">A location on the filesystem from where to begin searching.</param>
-  /// <param name="resourcePath">The relative request path.</param>
+  /// <param name="resourcePath">The canonical relative request path.</param>
   /// <param name="davRoot">The canonical relative URL corresponding to <paramref name="fsRoot"/>.</param>
   IWebDAVResource ResolveResource(string fsRoot, string resourcePath, string davRoot)
   {
+    // turn C: into C:/, since C: refers to the current directory on the C drive
+    if(!HasUnifiedFileSystem && fsRoot[fsRoot.Length-1] == Path.VolumeSeparatorChar) fsRoot += new string(Path.DirectorySeparatorChar, 1);
     string combinedPath = Path.Combine(fsRoot, HttpUtility.UrlDecode(resourcePath)); // add the request path to the file system root
 
     DirectoryInfo directory = new DirectoryInfo(combinedPath); // the combined path names a directory, return a directory resource
-    if(directory.Exists) return new DirectoryResource(directory, davRoot + GetCanonicalPath(fsRoot, directory.FullName, true), IsReadOnly);
+    if(directory.Exists)
+    {
+      return new DirectoryResource(directory, davRoot + GetCanonicalPath(fsRoot, directory.FullName, true),
+                                   IsReadOnly, CaseSensitive, InfinitePropFind);
+    }
 
     FileInfo file = new FileInfo(combinedPath); // otherwise, if the combined path names a file, return a file resource
     if(file.Exists) return new FileResource(file, davRoot + GetCanonicalPath(fsRoot, file.FullName, false), IsReadOnly);
 
     return null;
+  }
+
+  static bool HasUnifiedFileSystem
+  {
+    get { return Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX; }
   }
 
   /// <summary>Returns the canonical relative path to a resource, given the full path to it and the full path to the file system root.</summary>
@@ -452,28 +487,56 @@ public abstract class FileSystemResource : WebDAVResource
   /// <summary>Gets whether the resource is read-only. If true, the resource must deny all requests to change it.</summary>
   protected bool IsReadOnly { get; private set; }
 
-  internal Dictionary<XmlQualifiedName, object> GetEntryProperties(WebDAVContext context, FileSystemInfo info, string canonicalPath)
+  internal Dictionary<XmlQualifiedName, object> GetEntryProperties(PropFindRequest request, FileSystemInfo info, string canonicalPath)
   {
     Dictionary<XmlQualifiedName, object> properties = new Dictionary<XmlQualifiedName, object>();
     properties.Add(DAVNames.displayname, info.Name);
     properties.Add(DAVNames.creationdate, new DateTimeOffset(info.CreationTime));
     properties.Add(DAVNames.getlastmodified, new DateTimeOffset(info.LastWriteTime));
-    if(!IsReadOnly && context.LockManager != null)
+    if(!IsReadOnly && request.Context.LockManager != null)
     {
-      Func<object> getLocks = () => context.LockManager.GetLocks(context.ServiceRoot + canonicalPath, true, false, null);
+      Func<object> getLocks = () => request.Context.LockManager.GetLocks(canonicalPath, true, false, null);
       properties.Add(DAVNames.lockdiscovery, getLocks);
       properties.Add(DAVNames.supportedlock, LockType.WriteLocks);
     }
     properties.Add(DAVNames.resourcetype, info is DirectoryInfo ? ResourceType.Collection : null);
 
     FileInfo fileInfo = info as FileInfo;
-    if(fileInfo != null) properties.Add(DAVNames.getcontentlength, (ulong)fileInfo.Length);
+    if(fileInfo != null)
+    {
+      string mimeType = MimeTypes.GuessMimeType(info.Name);
+      if(mimeType != null) properties.Add(DAVNames.getcontenttype, mimeType);
+
+      properties.Add(DAVNames.getcontentlength, (ulong)fileInfo.Length);
+
+      // we want to report the getetag property as being available in the list of all property names, but we don't want to actually compute
+      // it unless it's specifically requested
+      if(request.Flags == (PropFindFlags.IncludeAll|PropFindFlags.NamesOnly) || request.Properties.Contains(DAVNames.getetag))
+      {
+        EntityTag entityTag = null;
+        if((request.Flags & PropFindFlags.NamesOnly) == 0)
+        {
+          FileResource fileResource = this as FileResource;
+          if(fileResource != null && fileResource.Info == fileInfo) // use the potentially cached value if the info refers to this resource
+          {
+            entityTag = GetEntityMetadata(true).EntityTag;
+          }
+          else
+          {
+            try { entityTag = FileSystemService.ComputeEntityTag(fileInfo); }
+            catch { }
+          }
+        }
+
+        properties.Add(DAVNames.getetag, entityTag);
+      }
+    }
     return properties;
   }
 
-  internal Dictionary<XmlQualifiedName, object> TryGetEntryProperties(WebDAVContext context, FileSystemInfo info, string canonicalPath)
+  internal Dictionary<XmlQualifiedName, object> TryGetEntryProperties(PropFindRequest request, FileSystemInfo info, string canonicalPath)
   {
-    try { return GetEntryProperties(context, info, canonicalPath); }
+    try { return GetEntryProperties(request, info, canonicalPath); }
     catch(DirectoryNotFoundException) { }
     catch(FileNotFoundException) { }
     catch(UnauthorizedAccessException) { }
@@ -516,10 +579,15 @@ public class DirectoryResource : FileSystemResource
   /// details.
   /// </param>
   /// <param name="isReadOnly">Determines whether the directory resource is read-only. If true, it will deny all requests to change it.</param>
-  public DirectoryResource(DirectoryInfo info, string canonicalPath, bool isReadOnly) : base(canonicalPath, isReadOnly)
+  /// <param name="caseSensitive">This should be true if the file system is case-sensitive and false if not.</param>
+  /// <param name="allowInfinitePropFind">Determines whether the resource allows infinite-depth PROPFIND queries.</param>
+  public DirectoryResource(DirectoryInfo info, string canonicalPath, bool isReadOnly, bool caseSensitive, bool allowInfinitePropFind) :
+    base(canonicalPath, isReadOnly)
   {
     if(info == null) throw new ArgumentNullException();
     Info = info;
+    this.allowInfinitePropFind = allowInfinitePropFind;
+    this.caseSensitive = caseSensitive;
   }
 
   /// <summary>Gets the <see cref="DirectoryInfo"/> object representing the directory on the filesystem.</summary>
@@ -571,7 +639,7 @@ public class DirectoryResource : FileSystemResource
     if(request == null) throw new ArgumentNullException();
     if(!IsReadOnly)
     {
-      request.AllowedMethods.Add(HttpMethods.Delete); // writable directories can be deleted
+      request.AllowedMethods.Add(DAVMethods.Delete); // writable directories can be deleted
       request.SupportsLocking = request.Context.LockManager != null;
     }
   }
@@ -580,17 +648,28 @@ public class DirectoryResource : FileSystemResource
   public override void PropFind(PropFindRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    try
+
+    if(request.Depth == Depth.SelfAndDescendants && !allowInfinitePropFind)
     {
-      request.ProcessStandardRequest((FileSystemInfo)Info, info => info == Info ? "" : DAVUtility.CanonicalPathEncode(info.Name),
-                                     (info, path) => TryGetEntryProperties(request.Context, info, path),
-                                     (info, path) => TryGetEntryChildren(info));
+      request.Status = ConditionCodes.PropFindFiniteDepth;
     }
-    catch(Exception ex)
+    else
     {
-      request.Status = GetStatusFromException(request, ex);
+      try
+      {
+        request.ProcessStandardRequest(
+          (FileSystemInfo)Info, info => info == Info ? "" : DAVUtility.CanonicalPathEncode(caseSensitive ? info.Name : info.Name.ToUpper()),
+          (info, path) => TryGetEntryProperties(request, info, path),
+          (info, path) => TryGetEntryChildren(info));
+      }
+      catch(Exception ex)
+      {
+        request.Status = GetStatusFromException(request, ex);
+      }
     }
   }
+
+  readonly bool allowInfinitePropFind, caseSensitive;
 
   /// <summary>Attempts to recursively delete a directory. If anything goes wrong, appropriate error messages will be added to the request.</summary>
   /// <param name="request">The <see cref="DeleteRequest"/> that this method is serving.</param>
@@ -778,7 +857,7 @@ public class FileResource : FileSystemResource
     }
     if(includeEntityTag && metadata.EntityTag == null)
     {
-      try { using(FileStream stream = Info.OpenRead()) metadata.EntityTag = DAVUtility.ComputeEntityTag(stream); }
+      try { metadata.EntityTag = FileSystemService.ComputeEntityTag(Info); }
       catch(FileNotFoundException) { metadata = new EntityMetadata() { Exists = false }; }
     }
     return metadata.Clone(); // clone the metadata to prevent callers from mutating cached data
@@ -812,8 +891,8 @@ public class FileResource : FileSystemResource
     if(request == null) throw new ArgumentNullException();
     if(!IsReadOnly) // writable files can be deleted and modified
     {
-      request.AllowedMethods.Add(HttpMethods.Delete);
-      request.AllowedMethods.Add(HttpMethods.Put);
+      request.AllowedMethods.Add(DAVMethods.Delete);
+      request.AllowedMethods.Add(DAVMethods.Put);
       request.SupportsLocking = request.Context.LockManager != null;
     }
   }
@@ -822,7 +901,7 @@ public class FileResource : FileSystemResource
   public override void PropFind(PropFindRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    try { request.ProcessStandardRequest(GetEntryProperties(request.Context, Info, CanonicalPath)); }
+    try { request.ProcessStandardRequest(GetEntryProperties(request, Info, CanonicalPath)); }
     catch(Exception ex) { request.Status = GetStatusFromException(request, ex); }
   }
 
@@ -844,10 +923,10 @@ public class FileResource : FileSystemResource
           if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
           {
             // write the ETag and Last-Modified headers
-            request.Context.Response.Headers[HttpHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
+            request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
             stream.Close(); // close the file to ensure the last modified time gets updated
             Info.Refresh(); // refresh the last modified time
-            request.Context.Response.Headers[HttpHeaders.LastModified] = Info.LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
+            request.Context.Response.Headers[DAVHeaders.LastModified] = Info.LastWriteTimeUtc.ToString("R", CultureInfo.InvariantCulture);
           }
         }
       }
@@ -869,14 +948,19 @@ public class FileResource : FileSystemResource
 public class FileSystemRootResource : FileSystemResource
 {
   /// <summary>Initializes a new <see cref="FileSystemRootResource"/> at the root of the WebDAV service.</summary>
-  public FileSystemRootResource() : this("") { }
+  public FileSystemRootResource() : this("", true) { }
 
   /// <summary>Initializes a new <see cref="FileSystemRootResource"/>.</summary>
   /// <param name="canonicalPath">The canonical relative path to the resource. For a <see cref="FileSystemRootResource"/>, this is
   /// typically an empty string, to place the root resource at the root of the WebDAV service. See
   /// <see cref="IWebDAVResource.CanonicalPath"/> for details.
   /// </param>
-  public FileSystemRootResource(string canonicalPath) : base(canonicalPath, true) { }
+  /// <param name="allowInfinitePropFind">Determines whether the resource allows infinite-depth PROPFIND queries.</param>
+  public FileSystemRootResource(string canonicalPath, bool allowInfinitePropFind)
+    : base(canonicalPath, true)
+  {
+    this.allowInfinitePropFind = allowInfinitePropFind;
+  }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/GetEntityMetadata/node()" />
   public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
@@ -910,28 +994,36 @@ public class FileSystemRootResource : FileSystemResource
   public override void PropFind(PropFindRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    try
+
+    if(request.Depth == Depth.SelfAndDescendants && !allowInfinitePropFind)
     {
-      request.ProcessStandardRequest((FileSystemInfo)null, info => GetMemberName(info),
-                                     (info, path) => TryGetEntryProperties(request.Context, info, path),
-                                     (info, path) => TryGetEntryChildren(info));
+      request.Status = ConditionCodes.PropFindFiniteDepth;
     }
-    catch(Exception ex)
+    else
     {
-      request.Status = GetStatusFromException(request, ex);
+      try
+      {
+        request.ProcessStandardRequest((FileSystemInfo)null, info => GetMemberName(info),
+                                       (info, path) => TryGetEntryProperties(request, info, path),
+                                       (info, path) => TryGetEntryChildren(info));
+      }
+      catch(Exception ex)
+      {
+        request.Status = GetStatusFromException(request, ex);
+      }
     }
   }
 
-  new Dictionary<XmlQualifiedName, object> TryGetEntryProperties(WebDAVContext context, FileSystemInfo info, string canonicalPath)
+  new Dictionary<XmlQualifiedName, object> TryGetEntryProperties(PropFindRequest request, FileSystemInfo info, string canonicalPath)
   {
     if(info == null)
     {
       Dictionary<XmlQualifiedName, object> properties = new Dictionary<XmlQualifiedName, object>();
       properties.Add(DAVNames.displayname, "Root");
       properties.Add(DAVNames.resourcetype, ResourceType.Collection);
-      if(!IsReadOnly && context.LockManager != null)
+      if(!IsReadOnly && request.Context.LockManager != null)
       {
-        Func<object> getLocks = () => context.LockManager.GetLocks(context.ServiceRoot, true, false, null);
+        Func<object> getLocks = () => request.Context.LockManager.GetLocks("", true, false, null);
         properties.Add(DAVNames.supportedlock, LockType.WriteLocks);
         properties.Add(DAVNames.lockdiscovery, getLocks);
       }
@@ -939,9 +1031,11 @@ public class FileSystemRootResource : FileSystemResource
     }
     else
     {
-      return base.TryGetEntryProperties(context, info, canonicalPath);
+      return base.TryGetEntryProperties(request, info, canonicalPath);
     }
   }
+
+  readonly bool allowInfinitePropFind;
 
   static string GetMemberName(FileSystemInfo info)
   {

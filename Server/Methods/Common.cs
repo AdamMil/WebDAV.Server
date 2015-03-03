@@ -19,7 +19,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
@@ -51,10 +50,16 @@ public sealed class EntityMetadata
   /// <summary>Initializes a new <see cref="EntityMetadata"/> representing an existing resource.</summary>
   public EntityMetadata()
   {
-    Exists = true;
+    Compressible = true;
+    Exists       = true;
   }
 
-  /// <summary>Gets or sets the RFC 2616 entity tag of the entity body. In general, you should use
+  /// <summary>Gets or sets whether the entity is considered to be compressible. If true, the entity may be compressed when sent to the
+  /// client, if the client supports compression. If false, the entity will not be compressed when sent to the client. The default is true.
+  /// </summary>
+  public bool Compressible { get; set; }
+
+  /// <summary>Gets or sets the RFC 7232 entity tag of the entity body. In general, you should use
   /// <see cref="DAVUtility.ComputeEntityTag(System.IO.Stream)"/> to compute this, because all built-in entity tag computations are done
   /// using that method. If you want to use a different method, you will need to take care to calculate the entity tag yourself everywhere
   /// that the system would normally do it for you. This can be set to null if the entity tag cannot be computed.
@@ -82,7 +87,7 @@ public sealed class EntityMetadata
     }
   }
 
-  /// <summary>Gets or sets the RFC 2616 <c>media-type</c> of the entity body. This can be set to null if the media type is unknown.</summary>
+  /// <summary>Gets or sets the RFC 7231 <c>media-type</c> of the entity body. This can be set to null if the media type is unknown.</summary>
   public string MediaType { get; set; }
 
   /// <summary>Returns a copy of this <see cref="EntityMetadata"/> object.</summary>
@@ -90,7 +95,8 @@ public sealed class EntityMetadata
   {
     return new EntityMetadata()
     {
-      EntityTag = EntityTag, Exists = Exists, LastModifiedTime = LastModifiedTime, Length = _length, MediaType = MediaType
+      Compressible = Compressible, EntityTag = EntityTag, Exists = Exists, LastModifiedTime = LastModifiedTime, Length = _length,
+      MediaType = MediaType
     };
   }
 
@@ -180,7 +186,7 @@ public abstract class WebDAVRequest
     Context    = context;
     MethodName = context.Request.HttpMethod;
 
-    string value = context.Request.Headers["Depth"];
+    string value = context.Request.Headers[DAVHeaders.Depth];
     if(value != null)
     {
       if("0".OrdinalEquals(value)) Depth = Depth.Self;
@@ -189,20 +195,20 @@ public abstract class WebDAVRequest
       else throw Exceptions.BadRequest("The Depth header must be 0, 1, or infinity.");
     }
 
-    value = context.Request.Headers[HttpHeaders.IfMatch];
-    if(value != null) ifMatch = ParseIfMatch(value);
+    value = context.Request.Headers[DAVHeaders.IfMatch];
+    if(value != null) ifMatch = ParseIfMatch(value, DAVHeaders.IfMatch);
 
-    value = context.Request.Headers[HttpHeaders.IfNoneMatch];
-    if(value != null) ifNoneMatch = ParseIfMatch(value);
+    value = context.Request.Headers[DAVHeaders.IfNoneMatch];
+    if(value != null) ifNoneMatch = ParseIfMatch(value, DAVHeaders.IfNoneMatch);
 
-    value = context.Request.Headers[HttpHeaders.IfModifiedSince];
-    if(value != null) ifModifiedSince = ParseHttpDate(value);
+    value = context.Request.Headers[DAVHeaders.IfModifiedSince];
+    if(value != null) ifModifiedSince = ParseHttpDateHeader(value, DAVHeaders.IfModifiedSince);
 
-    value = context.Request.Headers[HttpHeaders.IfUnmodifiedSince];
-    if(value != null) ifUnmodifiedSince = ParseHttpDate(value);
+    value = context.Request.Headers[DAVHeaders.IfUnmodifiedSince];
+    if(value != null) ifUnmodifiedSince = ParseHttpDateHeader(value, DAVHeaders.IfUnmodifiedSince);
 
-    value = context.Request.Headers[HttpHeaders.If];
-    if(value != null) ifClauses = ParseIf(value);
+    value = context.Request.Headers[DAVHeaders.If];
+    if(value != null) ifClauses = ParseIfHeader(value, DAVHeaders.If);
   }
 
   /// <summary>Gets the <see cref="WebDAVContext"/> in which the request is being executed.</summary>
@@ -261,9 +267,11 @@ public abstract class WebDAVRequest
   /// </remarks>
   public ConditionCode CheckPreconditions(EntityMetadata requestMetadata)
   {
-    // RFC 2616 leaves the behavior undefined when If-* headers are mixed together, so we will implement it by requiring the request to
-    // pass all conditions and trying conditions that cause errors before those that cause redirections
-
+    // RFC 7232 section 6 defines the evaluation order when multiple conditions are mixed together, although it doesn't specify how the
+    // standard HTTP conditions should be combined with conditions from extensions such as WebDAV. the general idea, though, is to try
+    // conditions that cause 412 Precondition Failed responses before those that cause 304 Not Modified responses, which are before those
+    // that cause 206 Partial Content (handled in GetOrHeadRequest). so although we may not use the exact same steps as RFC 7232, the
+    // result should be the same
     if(ifMatch != null || ifNoneMatch != null)
     {
       // load the request metadata with the entity tag if we need it
@@ -273,13 +281,14 @@ public abstract class WebDAVRequest
         if(requestMetadata == null) requestMetadata = new EntityMetadata() { Exists = false };
       }
 
-      // as per RFC 2616 sections 14.24 and 14.26, if the entity exists, then the precondition fails if 1) If-None-Match = *, 2) If-Match
-      // doesn't match the entity tag, or 3) If-None-Match does match the entity tag and the method is not GET or HEAD. otherwise, if the
-      // entity doesn't exist, the precondition fails if If-Match was provided. if the entity exists and If-None-Match matches it and the
-      // method is GET or HEAD, 304 Not Modified should be returned instead. that is handled later
-      if(requestMetadata.Exists ? ifMatch != null && requestMetadata.EntityTag != null && !Matches(ifMatch, requestMetadata.EntityTag) ||
-                                  Matches(ifNoneMatch, requestMetadata.EntityTag) && !IsGetOrHead()
-                                : ifMatch != null)
+      // as per RFC 7232 sections 3.1, 3.2, and 6, if the entity exists, then the precondition fails if 1) If-None-Match = *, 2) If-Match
+      // doesn't strongly match the entity tag, or 3) If-None-Match (weakly) matches the entity tag and the method is not GET or HEAD.
+      // otherwise, if the entity doesn't exist, the precondition fails if If-Match was provided. if the entity exists and If-None-Match
+      // (weakly) matches it and the method is GET or HEAD, 304 Not Modified should be returned instead. that is handled later
+      if(requestMetadata.Exists ?
+            ifMatch != null && requestMetadata.EntityTag != null && !Matches(ifMatch, requestMetadata.EntityTag, true) ||
+            Matches(ifNoneMatch, requestMetadata.EntityTag, false) && !IsGetOrHead()
+          : ifMatch != null)
       {
         return ConditionCodes.PreconditionFailed;
       }
@@ -298,7 +307,7 @@ public abstract class WebDAVRequest
       {
         // convert the modification time to a value suitable for comparing with HTTP dates
         utcTime = DAVUtility.GetHttpDate(requestMetadata.LastModifiedTime.Value);
-        // as per RFC 2616 section 14.28, the precondition fails if the last modified date is after the If-Unmodified-Since date
+        // as per RFC 7232 section 3.4, the precondition fails if the last modified date is after the If-Unmodified-Since date
         if(ifUnmodifiedSince.HasValue && utcTime > ifUnmodifiedSince) return ConditionCodes.PreconditionFailed;
       }
     }
@@ -310,6 +319,8 @@ public abstract class WebDAVRequest
       foreach(TaggedIfLists clause in ifClauses)
       {
         EntityMetadata metadata = null;
+        ILockManager lockManager = null;
+        string canonicalPath;
         if(clause.ResourceTag == null || clause.ResourceTag.OrdinalEquals(Context.ServiceRoot + Context.RequestPath) ||
            clause.ResourceTag[0] != '/' && clause.ResourceTagUri.Equals(Context.Request.Url))
         {
@@ -319,12 +330,24 @@ public abstract class WebDAVRequest
             requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
           }
 
-          metadata = requestMetadata;
+          metadata      = requestMetadata;
+          lockManager   = Context.LockManager;
+          canonicalPath = Context.CanonicalPathIfKnown;
         }
         else
         {
-          IWebDAVResource resource = WebDAVModule.ResolveUri(Context, clause.ResourceTagUri);
-          if(resource != null) metadata = resource.GetEntityMetadata(clause.ChecksEntityTag());
+          IWebDAVResource resource;
+          IWebDAVService service;
+          string serviceRoot;
+          IPropertyStore propertyStore;
+          bool accessDenied;
+          if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource, out serviceRoot, out canonicalPath,
+                                     out accessDenied, out lockManager, out propertyStore))
+          {
+            canonicalPath = resource.CanonicalPath;
+            metadata      = resource.GetEntityMetadata(clause.ChecksEntityTag());
+          }
+          if(service != null && !service.IsReusable) Utility.Dispose(service);
         }
 
         foreach(IfList list in clause.Lists)
@@ -333,18 +356,13 @@ public abstract class WebDAVRequest
           foreach(IfCondition condition in list.Conditions)
           {
             bool match = false;
-            if(metadata != null)
+            if(condition.EntityTag != null)
             {
-              if(condition.EntityTag != null)
-              {
-                match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
-              }
-              else if(Context.LockManager != null)
-              {
-                string absolutePath = clause.ResourceTag == null ? null :
-                                      clause.ResourceTag[0] == '/' ? clause.ResourceTag : clause.ResourceTagUri.AbsolutePath;
-                match = Context.LockManager.GetLock(condition.LockToken, absolutePath) != null;
-              }
+              match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
+            }
+            else if(condition.LockToken != null)
+            {
+              match = lockManager != null && canonicalPath != null && lockManager.GetLock(condition.LockToken, canonicalPath) != null;
             }
 
             if(!match ^ condition.Negated)
@@ -373,20 +391,20 @@ public abstract class WebDAVRequest
 
     if(ifNoneMatch != null)
     {
-      // RFC 2616 section 14.26 says that if the entity exists and matches the If-None-Match header, and the request is GET or HEAD, then
-      // 304 Not Modified should be returned
-      if(requestMetadata.Exists && Matches(ifNoneMatch, requestMetadata.EntityTag) && IsGetOrHead())
+      // RFC 7232 section 3.2 says that if the entity exists and matches the If-None-Match header, and the request is GET or HEAD, then
+      // 304 Not Modified should be returned. it also says that we must use a weak comparison
+      if(requestMetadata.Exists && Matches(ifNoneMatch, requestMetadata.EntityTag, false) && IsGetOrHead())
       {
-        // section 14.26 also says that if we respond with 304 Not Modified, then we should also the matching ETag value
-        if(requestMetadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[HttpHeaders.ETag]))
+        // section 3.2 also says that if we respond with 304 Not Modified, then we should also the matching ETag value
+        if(requestMetadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.ETag]))
         {
-          Context.Response.Headers[HttpHeaders.ETag] = requestMetadata.EntityTag.ToHeaderString();
+          Context.Response.Headers[DAVHeaders.ETag] = requestMetadata.EntityTag.ToHeaderString();
         }
         return ConditionCodes.NotModified;
       }
     }
 
-    // as per RFC 2616 section 14.25, a 304 Not Modified response should be returned if 1) a GET request would normally be
+    // as per RFC 7232 section 3.2, a 304 Not Modified response should be returned if 1) a GET request would normally be
     // responded to with a 200 OK status (something we can't check here), and 2) the last modified time is not greater than
     // If-Modified-Since
     if(ifModifiedSince.HasValue && requestMetadata.LastModifiedTime.HasValue && utcTime <= ifModifiedSince)
@@ -435,30 +453,30 @@ public abstract class WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
-  /// <param name="absolutePath">The absolute path to the resource whose locks will be examined. The resource must be within the request
-  /// service (i.e. controlled by <see cref="WebDAVContext.Service"/>). If null, the request resource will be used.
+  /// <param name="canonicalPath">The canonical, relative path to the resource whose locks will be examined. The resource must be within
+  /// the request service (i.e. controlled by <see cref="WebDAVContext.Service"/>). If null, the request resource will be used.
   /// </param>
-  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants, string absolutePath)
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants, string canonicalPath)
   {
-    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, absolutePath, null);
+    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, canonicalPath, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
-  /// <param name="absolutePath">The absolute path to the resource whose locks will be examined. If null, the request resource will be
-  /// used and <paramref name="service"/> must also be null.
+  /// <param name="canonicalPath">The canonical, relative path to the resource whose locks will be examined. If null, the request resource
+  /// will be used and <paramref name="service"/> must also be null.
   /// </param>
   /// <param name="service">The <see cref="IWebDAVService"/> containing the resource whose locks will be examined. If null, the request
-  /// service will be used. If not null, <paramref name="absolutePath"/> cannot be null either.
+  /// service will be used. If not null, <paramref name="canonicalPath"/> cannot be null either.
   /// </param>
   protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants,
-                                                   string absolutePath, IWebDAVService service)
+                                                   string canonicalPath, IWebDAVService service)
   {
     if(lockType == null) throw new ArgumentNullException();
 
-    if(absolutePath == null)
+    if(canonicalPath == null)
     {
-      if(service != null) throw new ArgumentException("If absolutePath is null, service must also be null.");
-      absolutePath = Context.ServiceRoot + (Context.RequestResource != null ? Context.RequestResource.CanonicalPath : Context.RequestPath);
+      if(service != null) throw new ArgumentException("If canonicalPath is null, service must also be null.");
+      canonicalPath = Context.CanonicalPathIfKnown;
     }
 
     if(Context.LockManager != null)
@@ -469,14 +487,14 @@ public abstract class WebDAVRequest
 
       if(checkParent) // if we have to check the parent collection for a lock...
       {
-        string parentPath = DAVUtility.GetParentPath(absolutePath);
+        string parentPath = DAVUtility.GetParentPath(canonicalPath);
         if(parentPath != null) // if the resource has a parent...
         {
           IList<ActiveLock> locks = Context.LockManager.GetLocks(parentPath, true, false, filter);
           if(locks.Count != 0) // and the parent is locked...
           {
             ActiveLock lockObject = GetSubmittedLock(locks, submittedTokens); // see if a relevant token was submitted
-            if(lockObject == null) return new LockTokenSubmittedConditionCode(parentPath); // none was submitted, so that's an error
+            if(lockObject == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + parentPath); // error: none submitted
             if(lockObject.Recursive)
             {
               // if it's recursive and we know the implementation, we can avoid checking anything else because the built-in LockType class
@@ -491,11 +509,11 @@ public abstract class WebDAVRequest
       }
 
       // now check locks directly on the resource
-      IList<ActiveLock> directLocks = Context.LockManager.GetLocks(absolutePath, !checkParent, false, filter);
+      IList<ActiveLock> directLocks = Context.LockManager.GetLocks(canonicalPath, !checkParent, false, filter);
       if(directLocks.Count != 0)
       {
         ActiveLock lockObject = GetSubmittedLock(directLocks, submittedTokens); // see if a relevant token was submitted
-        if(lockObject == null) return new LockTokenSubmittedConditionCode(absolutePath); // none was submitted, so that's an error
+        if(lockObject == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + canonicalPath); // error: none submitted
         if(lockObject.Recursive && checkDescendants)
         {
           if(isBuiltInType) return null; // see above for a description of this code
@@ -506,7 +524,7 @@ public abstract class WebDAVRequest
       // now look at locks that are descendants of the resource
       if(checkDescendants)
       {
-        IList<ActiveLock> locks = Context.LockManager.GetLocks(absolutePath, false, true, filter);
+        IList<ActiveLock> locks = Context.LockManager.GetLocks(canonicalPath, false, true, filter);
         List<ActiveLock> descendantLocks;
         if(directLocks.Count == 0)
         {
@@ -517,7 +535,7 @@ public abstract class WebDAVRequest
           descendantLocks = new List<ActiveLock>(locks.Count);
           foreach(ActiveLock lockObject in locks)
           {
-            if(lockObject.Path.Length > absolutePath.Length) descendantLocks.Add(lockObject);
+            if(lockObject.Path.Length > canonicalPath.Length) descendantLocks.Add(lockObject);
           }
         }
 
@@ -609,20 +627,10 @@ public abstract class WebDAVRequest
   }
   #endregion
 
-  bool IsGetOrHead()
-  {
-    return Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Get) || Context.Request.HttpMethod.OrdinalEquals(HttpMethods.Head);
-  }
-
-  TaggedIfLists[] ifClauses;
-  EntityTag[] ifMatch, ifNoneMatch;
-  DateTime? ifModifiedSince, ifUnmodifiedSince;
-
   /// <summary>Checks the lock at the given index along with some or all of its descendants, and advances the index to the next unchecked
   /// lock.
   /// </summary>
-  static ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens,
-                                            Predicate<ActiveLock> filter)
+  ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens, Predicate<ActiveLock> filter)
   {
     // find the first lock that passes the filter
     int start = index;
@@ -662,7 +670,7 @@ public abstract class WebDAVRequest
       baseLock = GetSubmittedLock(baseLocks, submittedTokens);
     }
 
-    if(baseLock == null) return new LockTokenSubmittedConditionCode(basePath); // if the base lock wasn't submitted, return an error
+    if(baseLock == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + basePath); // error: base lock not submitted
 
     basePath = DAVUtility.WithTrailingSlash(basePath);
     if(baseLock.Recursive) // if the submitted lock was recursive...
@@ -687,6 +695,20 @@ public abstract class WebDAVRequest
     }
 
     return null;
+  }
+
+  bool IsGetOrHead()
+  {
+    return Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Get) || Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Head);
+  }
+
+  TaggedIfLists[] ifClauses;
+  EntityTag[] ifMatch, ifNoneMatch;
+  DateTime? ifModifiedSince, ifUnmodifiedSince;
+
+  static WebDAVException BadHeader(string headerName, int index, string error)
+  {
+    throw Exceptions.BadRequest("Invalid " + headerName + " header. Error near index " + index.ToStringInvariant() + ": " + error);
   }
 
   /// <summary>Combines two <see cref="Predicate{T}"/> of <see cref="ActiveLock"/> into a single predicate representing their conjunction.</summary>
@@ -717,51 +739,21 @@ public abstract class WebDAVRequest
   /// <summary>Determines whether the given entity tag matches the tags specified by the match array from the <c>If-Match</c> or
   /// <c>If-None-Match</c> headers.
   /// </summary>
-  static bool Matches(EntityTag[] matches, EntityTag entityTag)
+  static bool Matches(EntityTag[] matches, EntityTag entityTag, bool useStrongComparison)
   {
     if(matches == MatchAny) return true;
     if(matches != null && entityTag != null)
     {
       foreach(EntityTag match in matches)
       {
-        // RFC 2616 section 14.24 requires the strong match and 14.26 requires it for all requests except GET and HEAD. so we'll just do
-        // it all the time even though we could choose to use a weak match for GET/HEAD requests when checking If-None-Match
-        if(entityTag.StronglyEquals(match)) return true;
+        if(useStrongComparison ? entityTag.StronglyEquals(match) : entityTag.WeaklyEquals(match)) return true;
       }
     }
     return false;
   }
 
-  static EntityTag ParseEntityTag(string value, ref int index, int end)
-  {
-    int i = index;
-    bool isWeak = false;
-    char c = value[i++];
-    if(c == 'W') // if the entity tag starts with W, that represents a weak tag
-    {
-      if(end - i < 2 || value[i++] != '/') return null; // W must be followed by a slash
-      c = value[i++]; // grab the first one, which should be a quotation mark
-      isWeak = true;
-    }
-    if(c != '"' || i == end) return null; // a quoted string must follow, so expect more characters
-
-    // find the end of the entity tag and add it to the list
-    int start = i;
-    while(true)
-    {
-      c = value[i++];
-      if(c == '\\') i++;
-      else if(c == '"') break;
-      else if(i == end) return null;
-    }
-
-    index = i;
-    try { return new EntityTag(DAVUtility.UnquoteDecode(value, start, i-start-1), isWeak); }
-    catch(FormatException) { return null; }
-  }
-
   /// <summary>Parses the value of a WebDAV <c>If</c> header, as defined in RFC 4918 section 10.4.</summary>
-  static TaggedIfLists[] ParseIf(string value)
+  static TaggedIfLists[] ParseIfHeader(string value, string headerName)
   {
     List<TaggedIfLists> taggedLists = new List<TaggedIfLists>();
     List<IfList> lists = new List<IfList>();
@@ -773,20 +765,22 @@ public abstract class WebDAVRequest
       index = SkipWhitespace(value, index);
       if(index == value.Length) break;
 
+      Uri tagUri = null;
       string tag = null;
       if(value[index] == '<')
       {
         tag = ParseResourceTag(value, ref index);
-        if(tag == null) return null;
+        if(tag == null) throw BadHeader(headerName, index, "Invalid resource tag.");
+        if(!DAVUtility.TryParseSimpleRef(tag, out tagUri)) throw BadHeader(headerName, index, "Expected absolute URI or absolute path.");
       }
 
       lists.Clear();
       index = SkipWhitespace(value, index);
-      if(index == value.Length || value[index] != '(') return null;
+      if(index == value.Length || value[index] != '(') throw BadHeader(headerName, index, "Expected ')'.");
       do
       {
         index = SkipWhitespace(value, index+1);
-        if(index == value.Length) return null;
+        if(index == value.Length) throw BadHeader(headerName, index, "Expected conditions.");
         conditions.Clear();
 
         while(true)
@@ -795,22 +789,22 @@ public abstract class WebDAVRequest
           if(negated)
           {
             index = SkipWhitespace(value, index+4);
-            if(index == value.Length) return null;
+            if(index == value.Length) throw BadHeader(headerName, index, "Expected condition.");
           }
 
           if(value[index] == '<')
           {
             string lockToken = ParseResourceTag(value, ref index);
-            if(lockToken == null) return null;
+            if(lockToken == null) throw BadHeader(headerName, index, "Invalid lock token.");
             conditions.Add(new IfCondition(lockToken, negated));
           }
           else if(value[index] == '[')
           {
-            if(++index == value.Length) return null;
-            EntityTag entityTag = ParseEntityTag(value, ref index, value.Length);
-            if(entityTag == null) return null;
+            if(++index == value.Length) throw BadHeader(headerName, index, "Expected entity tag.");
+            EntityTag entityTag = EntityTag.TryParse(value, ref index, value.Length);
+            if(entityTag == null) throw BadHeader(headerName, index, "Invalid entity tag.");
             conditions.Add(new IfCondition(entityTag, negated));
-            if(index == value.Length || value[index++] != ']') return null;
+            if(index == value.Length || value[index++] != ']') throw BadHeader(headerName, index, "Expected ']'.");
           }
           else if(value[index] == ')')
           {
@@ -819,20 +813,18 @@ public abstract class WebDAVRequest
           }
           else
           {
-            return null;
+            throw BadHeader(headerName, index, "Unexpected character '" + value[index].ToString() + "'.");
           }
 
           index = SkipWhitespace(value, index);
         }
 
-        if(conditions.Count == 0) return null;
+        if(conditions.Count == 0) throw BadHeader(headerName, index, "Expected conditions.");
 
         lists.Add(new IfList(conditions.ToArray()));
         index = SkipWhitespace(value, index);
       } while(index < value.Length && value[index] == '(');
 
-      Uri tagUri = null;
-      if(tag != null && !DAVUtility.TryParseSimpleRef(tag, out tagUri)) return null;
       taggedLists.Add(new TaggedIfLists(tag, tagUri, lists.ToArray()));
     }
 
@@ -842,7 +834,7 @@ public abstract class WebDAVRequest
   /// <summary>Parses the value of an HTTP <c>If-Match</c> or <c>If-None-Match</c> header, which contains a comma-separated list of
   /// entity tags.
   /// </summary>
-  static EntityTag[] ParseIfMatch(string value)
+  static EntityTag[] ParseIfMatch(string value, string headerName)
   {
     int start, length;
     StringUtility.Trim(value, out start, out length);
@@ -855,24 +847,29 @@ public abstract class WebDAVRequest
     List<EntityTag> tags = new List<EntityTag>();
     for(int i = start, end = start + length; i < end; ) // for each entity tag
     {
-      EntityTag tag = ParseEntityTag(value, ref i, end);
-      if(tag == null) return null;
+      EntityTag tag = EntityTag.TryParse(value, ref i, end);
+      if(tag == null) throw BadHeader(headerName, i, "Invalid entity tag.");
+      tags.Add(tag);
 
       // now skip over a comma if there is one
       while(i < end && char.IsWhiteSpace(value[i])) i++;
       if(i < end)
       {
-        if(value[i++] != ',') return null;
+        if(value[i++] != ',') throw BadHeader(headerName, i, "Expected ','.");
         while(i < end && char.IsWhiteSpace(value[i])) i++;
       }
     }
     return tags.ToArray();
   }
 
-  static DateTime? ParseHttpDate(string value)
+  static DateTime ParseHttpDateHeader(string value, string headerName)
   {
     DateTime date;
-    return DAVUtility.TryParseHttpDate(value, out date) ? (DateTime?)date : null;
+    if(!DAVUtility.TryParseHttpDate(value, out date))
+    {
+      throw Exceptions.BadRequest("Invalid " + headerName + " header. Expected an HTTP datetime value.");
+    }
+    return date;
   }
 
   static string ParseResourceTag(string value, ref int index)

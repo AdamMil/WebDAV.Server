@@ -1,4 +1,3 @@
-﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebDAV.Server", "Server\WebDAV.Server.csproj", "{2C80B8CA-AA29-4F20-9225-FB77C46F9D32}"
@@ -8,6 +7,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.Collections", "..\AdamMil.net\Collections\AdamMil.Collections.csproj", "{D9724C65-C54A-4671-BA0B-40B0B38464DD}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.IO", "..\AdamMil.net\IO\AdamMil.IO.csproj", "{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebDAV.Server.Tests", "Tests\WebDAV.Server.Tests.csproj", "{153DA5D4-3D06-400E-B405-810E7B9BCBAE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.TestHelpers", "..\AdamMil.net\TestHelpers\AdamMil.TestHelpers.csproj", "{E755006A-EB9E-4A5A-9872-65A2C4737C20}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,6 +34,14 @@ Global
 		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}.Release|Any CPU.Build.0 = Release|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9BCBAE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9BCBAE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9BCBAE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9BCBAE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
