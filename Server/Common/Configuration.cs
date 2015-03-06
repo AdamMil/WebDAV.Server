@@ -21,7 +21,14 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Configuration;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Schema;
 using AdamMil.Collections;
+using AdamMil.Utilities;
+
+// TODO: perhaps we should add per-location MIME and compression maps
 
 namespace AdamMil.WebDAV.Server.Configuration
 {
@@ -58,10 +65,122 @@ public sealed class AuthorizationFilterElement : TypeElementBase<IAuthorizationF
 }
 #endregion
 
+#region CompressionMapCollection
+/// <summary>Implements a collection of <see cref="CompressionMapElement"/> objects.</summary>
+public sealed class CompressionMapCollection : CustomElementCollection<CompressionMapElement>
+{
+  /// <summary>Gets the name of the file from which the default elements should be taken. If null or empty, elements will be taken from an
+  /// internal MIME compression map.
+  /// </summary>
+  [ConfigurationProperty("defaultFile")]
+  public string DefaultFile
+  {
+    get { return (string)this["defaultFile"]; }
+  }
+
+  /// <inheritdoc/>
+  protected override CompressionMapElement CreateElement()
+  {
+    return new CompressionMapElement();
+  }
+
+  /// <inheritdoc/>
+  protected override object GetElementKey(CompressionMapElement element)
+  {
+    if(element == null) throw new ArgumentNullException();
+    return element.MimePattern;
+  }
+
+  /// <inheritdoc/>
+  protected override bool ThrowOnDuplicate
+  {
+    get { return false; } // allow the user to overwrite default mappings without removing them first
+  }
+
+  /// <inheritdoc/>
+  protected override void Init()
+  {
+    base.Init();
+
+    using(Stream schemaStream = DAVUtility.GetManifestResourceStream("Resources/Compression.xsd"))
+    {
+      XmlSchema schema = XmlSchema.Read(schemaStream, (o, e) =>
+      {
+        throw new ConfigurationErrorsException("Error reading default MIME compression map. " + e.Message, e.Exception);
+      });
+      Stream defaultStream = null;
+      try
+      {
+        if(!string.IsNullOrEmpty(DefaultFile)) defaultStream = File.OpenRead(DefaultFile);
+        else defaultStream = DAVUtility.GetManifestResourceStream("Resources/Compression.xml");
+
+        XmlReaderSettings settings = new XmlReaderSettings()
+        {
+          CloseInput = true, IgnoreComments = true, IgnoreWhitespace = true, ValidationType = ValidationType.Schema
+        };
+        settings.Schemas.Add(schema);
+        using(XmlReader reader = XmlReader.Create(defaultStream, settings))
+        {
+          if(reader.Read()) // if there's a root element...
+          {
+            if(reader.NodeType == XmlNodeType.XmlDeclaration) reader.Read();
+            while(reader.Read() && reader.NodeType == XmlNodeType.Element) // for each 'entry' element...
+            {
+              BaseAdd(new CompressionMapElement()
+              {
+                MimePattern = reader.GetAttribute("mimeType"), Compress = reader.GetBoolAttribute("compress", true),
+              });
+              if(!reader.IsEmptyElement) reader.Read();
+            }
+          }
+        }
+      }
+      finally
+      {
+        Utility.Dispose(defaultStream);
+      }
+    }
+
+    ResetModified(); // mark the default elements as not part of the changes that would need to be serialized
+  }
+}
+#endregion
+
+#region CompressionMapElement
+/// <summary>Implements a <see cref="ConfigurationElement"/> that specifies whether resources matching a MIME type pattern should be
+/// compressed.
+/// </summary>
+public sealed class CompressionMapElement : ConfigurationElement
+{
+  /// <summary>Gets whether the extension is considered the canonical extension for the MIME type.</summary>
+  [ConfigurationProperty("compress", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
+  public bool Compress
+  {
+    get { return (bool)this["compress"]; }
+    internal set { this["compress"] = value; }
+  }
+
+  /// <summary>Gets the MIME type pattern.</summary>
+  [ConfigurationProperty("mimeType", IsKey=true, IsRequired=true, DefaultValue="*")]
+  [RegexStringValidator(@"^[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+(?:/[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+)?$")]
+  public string MimePattern
+  {
+    get { return (string)this["mimeType"]; }
+    internal set { this["mimeType"] = value; }
+  }
+}
+#endregion
+
 #region CustomElementCollection
 /// <summary>Implements a base class for custom <see cref="ConfigurationElement"/> objects.</summary>
 public abstract class CustomElementCollection<T> : ConfigurationElementCollection, IEnumerable<T> where T : ConfigurationElement
 {
+  /// <summary>Initializes a new <see cref="CustomElementCollection{T}"/> with the default key comparer.</summary>
+  protected CustomElementCollection() : base() { }
+
+  /// <summary>Initializes a new <see cref="CustomElementCollection{T}"/> with the given key comparer.</summary>
+  protected CustomElementCollection(System.Collections.IComparer keyComparer) : base(keyComparer) { }
+
   /// <inheritdoc/>
   public override ConfigurationElementCollectionType CollectionType
   {
@@ -263,6 +382,263 @@ public sealed class LockManagerElement : TypeElementBase<ILockManager>
 }
 #endregion
 
+#region MimeMapCollection
+/// <summary>Implements a collection of <see cref="MimeMapElement"/> objects.</summary>
+public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
+{
+  /// <summary>Initializes a new <see cref="MimeMapCollection"/>.</summary>
+  public MimeMapCollection() : base(new KeyComparer()) { }
+
+  /// <summary>Gets the file extension to use when constructing a file name from an unknown MIME type, excluding the leading period, or
+  /// null or empty to use the default from <see cref="DefaultFile"/>.
+  /// </summary>
+  [ConfigurationProperty("defaultExtension"), RegexStringValidator(MimeMapElement.ExtensionPattern + "|^$")]
+  public string DefaultExtensionOverride
+  {
+    get { return (string)this["defaultExtension"]; }
+  }
+
+  /// <summary>Gets the name of the file from which the default elements should be taken. If null or empty, elements will be taken from an
+  /// internal MIME map.
+  /// </summary>
+  [ConfigurationProperty("defaultFile")]
+  public string DefaultFile
+  {
+    get { return (string)this["defaultFile"]; }
+  }
+
+  /// <summary>Gets the MIME type to report when guessing a MIME type from an unknown file extension, or null or empty to use the default
+  /// from <see cref="DefaultFile"/>.
+  /// </summary>
+  [ConfigurationProperty("defaultMimeType"), RegexStringValidator(MimeMapElement.MimeTypePattern + "|^$")]
+  public string DefaultMimeTypeOverride
+  {
+    get { return (string)this["defaultMimeType"]; }
+  }
+
+  /// <summary>Gets the file extension to use when constructing a file name from an unknown MIME type, excluding the leading period, or
+  /// null if there is no default.
+  /// </summary>
+  public string GetDefaultExtension()
+  {
+    return StringUtility.Coalesce(DefaultExtensionOverride, defaultExtension);
+  }
+
+  /// <summary>Gets the MIME type to report when guessing a MIME type from an unknown file extension, or null if there is no default.</summary>
+  public string GetDefaultMimeType()
+  {
+    return StringUtility.Coalesce(DefaultMimeTypeOverride, defaultMimeType);
+  }
+
+  /// <inheritdoc/>
+  protected override MimeMapElement CreateElement()
+  {
+    return new MimeMapElement();
+  }
+
+  /// <inheritdoc/>
+  protected override object GetElementKey(MimeMapElement element)
+  {
+    if(element == null) throw new ArgumentNullException();
+    string mimeType = element.MimeType, extension = element.Extension;
+    return string.IsNullOrEmpty(mimeType) ? extension : string.IsNullOrEmpty(extension) ? mimeType : mimeType + "<" + extension;
+  }
+
+  /// <inheritdoc/>
+  protected override bool ThrowOnDuplicate
+  {
+    get { return false; } // allow the user to overwrite default mappings without removing them first
+  }
+
+  /// <inheritdoc/>
+  protected override void Init()
+  {
+    base.Init();
+
+    using(Stream schemaStream = DAVUtility.GetManifestResourceStream("Resources/MimeMap.xsd"))
+    {
+      XmlSchema schema = XmlSchema.Read(schemaStream, (o, e) =>
+      {
+        throw new ConfigurationErrorsException("Error reading default MIME map. " + e.Message, e.Exception);
+      });
+      Stream defaultStream = null;
+      try
+      {
+        if(!string.IsNullOrEmpty(DefaultFile)) defaultStream = File.OpenRead(DefaultFile);
+        else defaultStream = DAVUtility.GetManifestResourceStream("Resources/MimeMap.xml");
+
+        XmlReaderSettings settings = new XmlReaderSettings()
+        {
+          CloseInput = true, IgnoreComments = true, IgnoreWhitespace = true, ValidationType = ValidationType.Schema
+        };
+        settings.Schemas.Add(schema);
+        using(XmlReader reader = XmlReader.Create(defaultStream, settings))
+        {
+          if(reader.Read()) // if there's a root element...
+          {
+            if(reader.NodeType == XmlNodeType.XmlDeclaration) reader.Read();
+            defaultExtension = reader.GetAttribute("defaultExtension");
+            defaultMimeType  = reader.GetAttribute("defaultMimeType");
+            while(reader.Read() && reader.NodeType == XmlNodeType.Element) // for each 'entry' element...
+            {
+              BaseAdd(new MimeMapElement()
+              {
+                MimeType = reader.GetAttribute("mimeType"), CanonicalMimeType = reader.GetBoolAttribute("canonicalMimeType", true),
+                Extension = reader.GetAttribute("extension"), CanonicalExtension = reader.GetBoolAttribute("canonicalExtension")
+              });
+              if(!reader.IsEmptyElement) reader.Read();
+            }
+          }
+        }
+      }
+      finally
+      {
+        Utility.Dispose(defaultStream);
+      }
+    }
+
+    ResetModified(); // mark the default elements as not part of the changes that would need to be serialized
+  }
+
+  #region KeyComparer
+  sealed class KeyComparer : System.Collections.IComparer
+  {
+    public int Compare(object ao, object bo)
+    {
+      string a = ao as string, b = bo as string;
+      if(string.IsNullOrEmpty(a)) return string.IsNullOrEmpty(b) ? 0 : -1;
+      else if(string.IsNullOrEmpty(a)) return 1;
+
+      int aMimeEnd, aExtensionStart, bMimeEnd, bExtensionStart;
+      Parse(a, out aMimeEnd, out aExtensionStart);
+      Parse(b, out bMimeEnd, out bExtensionStart);
+
+      if(aMimeEnd == -1) // if A has only an extension...
+      {
+        return bExtensionStart == -1 ? 1 : // if B has only a MIME type, then there can be no match
+          string.Compare(a, aExtensionStart, b, bExtensionStart, int.MaxValue, StringComparison.OrdinalIgnoreCase);
+      }
+      else if(aExtensionStart == -1) // if A has only a MIME type...
+      {
+        return bMimeEnd == -1 ? -1 : string.Compare(a, 0, b, 0, Math.Max(aMimeEnd, bMimeEnd), StringComparison.OrdinalIgnoreCase);
+      }
+      else // A has both a MIME type and an extension
+      {
+        int cmp = bMimeEnd == -1 ? 0 : string.Compare(a, 0, b, 0, Math.Max(aMimeEnd, bMimeEnd), StringComparison.OrdinalIgnoreCase);
+        if(cmp == 0)
+        {
+          cmp = bExtensionStart == -1 ? 0 :
+            string.Compare(a, aExtensionStart, b, bExtensionStart, int.MaxValue, StringComparison.OrdinalIgnoreCase);
+        }
+        return cmp;
+      }
+    }
+
+    static void Parse(string key, out int mimeEnd, out int extensionStart)
+    {
+      int pipe = key.IndexOf('<');
+      if(pipe == -1)
+      {
+        if(key.IndexOf('/') == -1) { mimeEnd = -1; extensionStart = 0; }
+        else { mimeEnd = key.Length; extensionStart = -1; }
+      }
+      else
+      {
+        mimeEnd        = pipe;
+        extensionStart = pipe+1;
+      }
+    }
+  }
+  #endregion
+
+  string defaultExtension, defaultMimeType;
+}
+#endregion
+
+#region MimeMapElement
+/// <summary>Implements a <see cref="ConfigurationElement"/> mapping a MIME type to and/or from a file extension.</summary>
+public sealed class MimeMapElement : ConfigurationElement
+{
+  /// <summary>Gets whether the extension is considered the canonical extension for the MIME type.</summary>
+  [ConfigurationProperty("canonicalExtension", DefaultValue=false), TypeConverter(typeof(BooleanConverter))]
+  public bool CanonicalExtension
+  {
+    get { return (bool)this["canonicalExtension"]; }
+    internal set { this["canonicalExtension"] = value; }
+  }
+
+  /// <summary>Gets whether the MIME type is considered the canonical MIME type for the extension.</summary>
+  [ConfigurationProperty("canonicalMimeType", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
+  public bool CanonicalMimeType
+  {
+    get { return (bool)this["canonicalMimeType"]; }
+    internal set { this["canonicalMimeType"] = value; }
+  }
+
+  /// <summary>Gets the file extension, without a leading period.</summary>
+  [ConfigurationProperty("extension", IsKey=true)]
+  public string Extension
+  {
+    get { return (string)this["extension"]; }
+    internal set { this["extension"] = value; }
+  }
+
+  /// <summary>Gets the MIME type.</summary>
+  [ConfigurationProperty("mimeType", IsKey=true)]
+  public string MimeType
+  {
+    get { return (string)this["mimeType"]; }
+    internal set { this["mimeType"] = value; }
+  }
+
+  /// <inheritdoc/>
+  protected override void DeserializeElement(XmlReader reader, bool serializeCollectionKey)
+  {
+    elementName = reader.LocalName;
+    base.DeserializeElement(reader, serializeCollectionKey);
+  }
+
+  /// <inheritdoc/>
+  protected override void PostDeserialize()
+  {
+    base.PostDeserialize();
+
+    if(elementName != "clear")
+    {
+      bool extMatch = extensionRe.IsMatch(Extension), mimeMatch = mimeTypeRe.IsMatch(MimeType);
+      if(elementName == "remove")
+      {
+        if(!extMatch && !mimeMatch)
+        {
+          throw new ConfigurationErrorsException("At least one of the extension or mimeType attributes is required.");
+        }
+      }
+      else
+      {
+        if(!extMatch)
+        {
+          if(string.IsNullOrEmpty(Extension)) throw new ConfigurationErrorsException("The extension attribute is required.");
+          else throw new ConfigurationErrorsException("Extension \"" + Extension + "\" doesn't match pattern " + ExtensionPattern);
+        }
+        if(!mimeMatch)
+        {
+          if(string.IsNullOrEmpty(MimeType)) throw new ConfigurationErrorsException("The mimeType attribute is required.");
+          else throw new ConfigurationErrorsException("Mime type \"" + MimeType + "\" doesn't match pattern " + MimeTypePattern);
+        }
+      }
+    }
+  }
+
+  string elementName;
+
+  // we can't use RegexStringValidator on the properties, unfortunately, because it seems to validate all properties when one property is
+  // set programmatically, preventing us from initializing the element one property at a time
+  internal const string ExtensionPattern = @"^[^\.].*$", MimeTypePattern = @"^[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+/[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+$";
+  static readonly Regex extensionRe = new Regex(ExtensionPattern, RegexOptions.Compiled | RegexOptions.Singleline);
+  static readonly Regex mimeTypeRe = new Regex(MimeTypePattern, RegexOptions.Compiled | RegexOptions.Singleline);
+}
+#endregion
+
 #region ParameterCollection
 /// <summary>Contains additional key/value pairs representing parameters to <see cref="IWebDAVService"/> and
 /// <see cref="IAuthorizationFilter"/> objects that were specified in the application configuration file.
@@ -303,7 +679,7 @@ public sealed class PropertyStoreElement : TypeElementBase<IPropertyStore>
 public abstract class TypeElementBase<T> : ConfigurationElement
 {
   /// <summary>Initializes a new <see cref="TypeElementBase{T}"/>.</summary>
-  public TypeElementBase()
+  protected TypeElementBase()
   {
     Parameters = new ParameterCollection();
   }
@@ -330,6 +706,13 @@ public abstract class TypeElementBase<T> : ConfigurationElement
 /// <summary>Implements a <see cref="ConfigurationSection"/> that contains the FlairPoint configuration.</summary>
 public sealed class WebDAVServerSection : ConfigurationSection
 {
+  /// <summary>Gets a collection of <see cref="CompressionMapElement"/> that represent the configured MIME compression map.</summary>
+  [ConfigurationProperty("compression"), ConfigurationCollection(typeof(CompressionMapCollection))]
+  public CompressionMapCollection CompressionMap
+  {
+    get { return (CompressionMapCollection)this["compression"]; }
+  }
+
   /// <summary>Gets whether the WebDAV service should be enabled.</summary>
   [ConfigurationProperty("enabled", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
   public bool Enabled
@@ -349,6 +732,13 @@ public sealed class WebDAVServerSection : ConfigurationSection
   public LockManagerElement LockManager
   {
     get { return (LockManagerElement)this["davLockManager"]; }
+  }
+
+  /// <summary>Gets a collection of <see cref="MimeMapElement"/> that represent the configured MIME type map.</summary>
+  [ConfigurationProperty("mimeMap"), ConfigurationCollection(typeof(MimeMapCollection))]
+  public MimeMapCollection MimeMap
+  {
+    get { return (MimeMapCollection)this["mimeMap"]; }
   }
 
   /// <summary>Gets the <see cref="PropertyStoreElement"/> describing the default <see cref="IPropertyStore"/> to be used by the WebDAV

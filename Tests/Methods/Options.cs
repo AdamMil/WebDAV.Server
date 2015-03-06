@@ -4,7 +4,7 @@ using NUnit.Framework;
 namespace WebDAV.Server.Tests
 {
   [TestFixture]
-  public class Options : TestBase
+  public class OptionsTests : TestBase
   {
     [Test]
     public void Test()
@@ -52,8 +52,9 @@ namespace WebDAV.Server.Tests
 
     void TestDAVSupport(string requestPath, string davHeader, params string[] verbs)
     {
-      TestRequest(DAVMethods.Options, requestPath, null, null, new int[] { 200, 204 }, new string[] { DAVHeaders.DAV, davHeader }, response =>
+      TestRequest(DAVMethods.Options, requestPath, null, null, 0, new string[] { DAVHeaders.DAV, davHeader }, response =>
       {
+        Assert.IsTrue((int)response.StatusCode == 200 || (int)response.StatusCode == 204);
         if(verbs != null)
         {
           foreach(string verb in verbs)

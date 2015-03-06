@@ -644,6 +644,13 @@ public class DirectoryResource : FileSystemResource
     }
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
+  public override void Put(PutRequest request)
+  {
+    if(request == null) throw new ArgumentNullException();
+    request.Status = ConditionCodes.MethodNotAllowed; // can't PUT to a directory
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropFind/node()" />
   public override void PropFind(PropFindRequest request)
   {
@@ -684,8 +691,6 @@ public class DirectoryResource : FileSystemResource
   {
     try
     {
-      ILockManager lockManager = request.Context.LockManager;
-      IPropertyStore propertyStore = request.Context.PropertyStore;
       bool childFailed = false; // keep track of whether any child failed to be deleted
       foreach(FileSystemInfo info in dirInfo.GetFileSystemInfos()) // for each file and subdirectory...
       {
@@ -695,14 +700,14 @@ public class DirectoryResource : FileSystemResource
         }
         else // otherwise, it's a file
         {
-          string fileUrl = request.Context.ServiceRoot + directoryUrl + DAVUtility.CanonicalPathEncode(info.Name);
+          string fileUrl = directoryUrl + DAVUtility.CanonicalPathEncode(info.Name);
           try
           {
             info.Delete();
           }
           catch(Exception ex) // if the file couldn't be deleted, add an error message about it
           {
-            request.FailedMembers.Add(fileUrl, GetStatusFromException(request, ex));
+            request.FailedMembers.Add(request.Context.ServiceRoot + fileUrl, GetStatusFromException(request, ex));
             childFailed = true; // and remember that a child failed
           }
           request.PostProcessRequest(fileUrl, false);
@@ -712,7 +717,7 @@ public class DirectoryResource : FileSystemResource
       if(!childFailed)
       {
         dirInfo.Delete(true); // if all children were successfully deleted, delete the current directory
-        request.PostProcessRequest(request.Context.ServiceRoot + directoryUrl, false);
+        request.PostProcessRequest(directoryUrl, false);
       }
       return !childFailed;
     }

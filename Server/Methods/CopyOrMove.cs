@@ -71,6 +71,8 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
       DestinationServiceRoot = destServiceRoot;
       if(destService != DestinationService && !destService.IsReusable) Utility.Dispose(destService);
     }
+
+    FailedMembers = new FailedResourceCollection();
   }
 
   /// <summary>Gets the absolute URI submitted by the client in the <c>Destination</c> header. The URI may point to a location outside the
@@ -136,10 +138,7 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   public void Dispose()
   {
     Dispose(true);
-    if(DestinationService != null && DestinationService != Context.Service && !DestinationService.IsReusable)
-    {
-      Utility.Dispose(DestinationService);
-    }
+    GC.SuppressFinalize(this);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
@@ -157,7 +156,10 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   /// <summary>Called to dispose the request.</summary>
   protected virtual void Dispose(bool manualDispose)
   {
-    if(DestinationService != null && !DestinationService.IsReusable) Utility.Dispose(DestinationService);
+    if(DestinationService != null && DestinationService != Context.Service && !DestinationService.IsReusable)
+    {
+      Utility.Dispose(DestinationService);
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />

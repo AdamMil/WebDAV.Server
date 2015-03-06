@@ -22,7 +22,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Debug\AdamMil.WebDAV.Server.xml</DocumentationFile>
-    <CodeAnalysisRuleSet>..\..\..\Analysis.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRuleSet>..\..\Analysis.ruleset</CodeAnalysisRuleSet>
     <BaseAddress>28311552</BaseAddress>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -33,7 +33,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Release\AdamMil.WebDAV.Server.xml</DocumentationFile>
-    <CodeAnalysisRuleSet>..\..\..\Analysis.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisRuleSet>..\..\Analysis.ruleset</CodeAnalysisRuleSet>
     <BaseAddress>28311552</BaseAddress>
   </PropertyGroup>
   <PropertyGroup>
@@ -80,10 +80,18 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="AdamMil.snk" />
+    <EmbeddedResource Include="Resources\MimeMap.xsd">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\Compression.xsd">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
     <None Include="Web.config.sample" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="documentation.xml" />
+    <EmbeddedResource Include="Resources\Compression.xml" />
+    <EmbeddedResource Include="Resources\MimeMap.xml" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">

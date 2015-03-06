@@ -84,19 +84,16 @@ public sealed class ContentRange
   /// <summary>Initializes a new <see cref="ContentRange"/> that represents the given range within an entity body.</summary>
   public ContentRange(long start, long length)
   {
-    if(start < 0 || length < 0 || start + length < 0) throw new ArgumentOutOfRangeException();
+    if(start < 0 || length <= 0 || start + length < 0) throw new ArgumentOutOfRangeException();
     Start       = start;
     Length      = length;
     TotalLength = -1;
   }
 
   /// <summary>Initializes a new <see cref="ContentRange"/> that represents the given range within an entity body of the given length.</summary>
-  public ContentRange(long start, long length, long totalLength)
+  public ContentRange(long start, long length, long totalLength) : this(start, length)
   {
-    long end = start + length;
-    if(start < 0 || length < 0 || totalLength < 0 || end < 0 || end > totalLength) throw new ArgumentOutOfRangeException();
-    Start       = start;
-    Length      = length;
+    if(totalLength < 0) throw new ArgumentOutOfRangeException();
     TotalLength = totalLength;
   }
 
@@ -494,6 +491,12 @@ public static class DAVUtility
     }
 
     return str;
+  }
+
+  internal static Stream GetManifestResourceStream(string path)
+  {
+    string name = typeof(WebDAVModule).Namespace + "." + path.Replace('/', '.');
+    return System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
   }
 
   /// <summary>Returns the parent of the given path, or null if the path has no parent. This works with both absolute and relative paths,
@@ -1013,7 +1016,7 @@ public sealed class EntityTag : IElementValue
     if(headerValue == null) throw new ArgumentNullException();
     string tag;
     bool isWeak;
-    if(!TryParse(headerValue, out tag, out isWeak)) throw new ArgumentException();
+    if(!TryParse(headerValue, out tag, out isWeak)) throw new FormatException();
     Tag    = tag;
     IsWeak = isWeak;
   }

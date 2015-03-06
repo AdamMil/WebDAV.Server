@@ -81,24 +81,24 @@ namespace WebDAV.Server.Tests
       return "http://localhost:" + Server.EndPoint.Port.ToStringInvariant() + "/" + requestPath;
     }
 
-    protected void TestRequest(string method, string requestPath, params int[] expectedStatuses)
+    protected void TestRequest(string method, string requestPath, int expectedStatus)
     {
-      TestRequest(method, requestPath, null, null, expectedStatuses, (string[])null, null);
+      TestRequest(method, requestPath, null, null, expectedStatus, (string[])null, null);
     }
 
-    protected void TestRequest(string method, string requestPath, string[] requestHeaders, int[] expectedStatuses,
+    protected void TestRequest(string method, string requestPath, string[] requestHeaders, int expectedStatus,
                                params string[] expectedHeaders)
     {
-      TestRequest(method, requestPath, requestHeaders, null, expectedStatuses, expectedHeaders, null);
+      TestRequest(method, requestPath, requestHeaders, null, expectedStatus, expectedHeaders, null);
     }
 
-    protected void TestRequest(string method, string requestPath, string[] requestHeaders, byte[] requestBody, int[] expectedStatuses,
+    protected void TestRequest(string method, string requestPath, string[] requestHeaders, byte[] requestBody, int expectedStatus,
                                params string[] expectedHeaders)
     {
-      TestRequest(method, requestPath, requestHeaders, requestBody, expectedStatuses, expectedHeaders, null);
+      TestRequest(method, requestPath, requestHeaders, requestBody, expectedStatus, expectedHeaders, null);
     }
 
-    protected void TestRequest(string method, string requestPath, string[] requestHeaders, byte[] requestBody, int[] expectedStatuses, string[] expectedHeaders,
+    protected void TestRequest(string method, string requestPath, string[] requestHeaders, byte[] requestBody, int expectedStatus, string[] expectedHeaders,
                                Action<HttpWebResponse> processor)
     {
       HttpWebRequest request = (HttpWebRequest)WebRequest.Create(GetFullUrl(requestPath));
@@ -134,14 +134,14 @@ namespace WebDAV.Server.Tests
 
       using(Stream stream = requestBody == null ? null : request.GetRequestStream())
       {
-        if(requestBody != null) stream.Write(requestBody, 0, requestBody.Length);
+        if(requestBody != null)
+        {
+          stream.Write(requestBody, 0, requestBody.Length);
+          stream.Close();
+        }
         using(HttpWebResponse response = GetResponseWithoutException(request))
         {
-          if(expectedStatuses != null && expectedStatuses.Length != 0 && !expectedStatuses.Contains((int)response.StatusCode))
-          {
-            Assert.Fail("Unexpected response status " + ((int)response.StatusCode).ToStringInvariant() + " (" +
-                        response.StatusCode.ToString() + ")");
-          }
+          if(expectedStatus != 0) Assert.AreEqual(expectedStatus, (int)response.StatusCode);
 
           if(expectedHeaders != null)
           {
