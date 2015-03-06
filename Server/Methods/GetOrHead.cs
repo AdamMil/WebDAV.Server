@@ -533,7 +533,8 @@ public class GetOrHeadRequest : WebDAVRequest
           }
         }
 
-        ContentEncoding contentEncoding = Context.ChooseResponseEncoding(metadata.Compressible, true);
+        bool shouldCompress = metadata.ShouldCompress();
+        ContentEncoding contentEncoding = Context.ChooseResponseEncoding(shouldCompress, true);
         bool sentBody = false;
         if(ranges != null && ranges.Length != 1) // if multiple ranges were specified, then we should send a multipart/byteranges response
         {
@@ -577,7 +578,7 @@ public class GetOrHeadRequest : WebDAVRequest
               byte[] headerBytes = Encoding.ASCII.GetBytes(header);
 
               Context.Response.SetContentType("multipart/byteranges; boundary=" + boundary);
-              using(Stream outputStream = Context.OpenResponseBody(metadata.Compressible, false))
+              using(Stream outputStream = Context.OpenResponseBody(shouldCompress, false))
               {
                 // if we're not encoding the stream, pass Response.OutputStream to WriteStreamRange so it can use the WriteFile method
                 Stream stream = contentEncoding == ContentEncoding.Identity ? Context.Response.OutputStream : outputStream;
@@ -642,7 +643,7 @@ public class GetOrHeadRequest : WebDAVRequest
 
             if(!IsHeadRequest) // we want to write an entity body unless it's a HEAD request...
             {
-              using(Stream outputStream = Context.OpenResponseBody(metadata.Compressible, false)) // this will use the contentEncoding above
+              using(Stream outputStream = Context.OpenResponseBody(shouldCompress, false)) // this will use the contentEncoding above
               {
                 // if we're not encoding the stream, pass Response.OutputStream to WriteStreamRange so it can use the WriteFile method
                 Stream stream = contentEncoding == ContentEncoding.Identity ? Context.Response.OutputStream : outputStream;

@@ -77,14 +77,14 @@ public sealed class PropertyPatch
     /// <summary>Determines whether the collection contains a <see cref="PropertyRemoval"/> referring to a property with the given name.</summary>
     public bool Contains(XmlQualifiedName qname)
     {
-      return qname != null && names != null && names.Contains(qname);
+      return qname != null && nameSet != null && nameSet.Contains(qname);
     }
 
     internal void Add(XmlQualifiedName qname)
     {
       if(qname == null || qname.IsEmpty) throw new ArgumentException("The name must not be null or empty.");
-      if(names == null) names = new HashSet<XmlQualifiedName>();
-      if(!names.Add(qname)) throw Exceptions.BadRequest("Duplicate property name " + qname.ToString());
+      if(nameSet == null) nameSet = new HashSet<XmlQualifiedName>();
+      if(!nameSet.Add(qname)) throw Exceptions.BadRequest("Duplicate property name " + qname.ToString());
       Items.Add(new PropertyRemoval(qname));
     }
 
@@ -95,7 +95,7 @@ public sealed class PropertyPatch
 
     internal static readonly PropertyRemovalSet Empty = new PropertyRemovalSet();
 
-    HashSet<XmlQualifiedName> names;
+    HashSet<XmlQualifiedName> nameSet;
   }
   #endregion
 

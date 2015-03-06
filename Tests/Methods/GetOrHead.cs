@@ -13,7 +13,7 @@ using NUnit.Framework;
 namespace WebDAV.Server.Tests
 {
   [TestFixture]
-  public class GetOrHead : TestBase
+  public class GetOrHeadTests : TestBase
   {
     [TestFixtureSetUp]
     public void Setup()
@@ -26,7 +26,9 @@ namespace WebDAV.Server.Tests
       rand.NextBytes(largeFile);
       Server.CreateDirectory("dir");
       Server.CreateFile("small.txt", smallFile);
-      Server.CreateFile("dir/large.pdf", largeFile);
+      Server.CreateFile("dir/large.tfb", largeFile);
+      Server.CreateFile("unknown", smallFile);
+      Server.CreateFile("foo.tfb", smallFile);
     }
 
     [Test]
@@ -35,9 +37,11 @@ namespace WebDAV.Server.Tests
       byte[] dirListing = Download("dir/");
       Assert.IsTrue(System.Text.Encoding.UTF8.GetString(dirListing).Contains("/dir/ contents"));
 
+      TestSimpleGet("unknown", smallFile, false);
+      TestSimpleGet("foo.tfb", smallFile, false);
       TestSimpleGet("small.txt", smallFile, false);
       TestSimpleGet("dir/", dirListing, true);
-      TestSimpleGet("dir/large.pdf", largeFile, false);
+      TestSimpleGet("dir/large.tfb", largeFile, false);
     }
 
     [Test]
@@ -48,7 +52,7 @@ namespace WebDAV.Server.Tests
 
       DateTime modifyDate = default(DateTime);
       EntityTag etag = null;
-      TestRequest("HEAD", requestPath, null, null, new int[] { 200 }, null, response =>
+      TestRequest("HEAD", requestPath, null, null, 200, null, response =>
       {
         Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
         Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
@@ -71,23 +75,23 @@ namespace WebDAV.Server.Tests
     [Test]
     public void T03_Partial()
     {
-      const string requestPath = "dir/large.pdf";
+      const string requestPath = "dir/large.tfb";
 
       DateTime modifyDate = default(DateTime);
       EntityTag etag = null;
-      TestRequest("HEAD", requestPath, null, null, new int[] { 200 }, null, response =>
+      TestRequest("HEAD", requestPath, null, null, 200, null, response =>
       {
         Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
         Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
       });
 
-      TestRequest("HEAD", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99" }, new int[] { 206 },
+      TestRequest("HEAD", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99" }, 206,
                   new string[] { DAVHeaders.ContentLength, "100", DAVHeaders.ContentRange, "bytes 0-99/"+largeFile.Length.ToStringInvariant() });
-      TestRequest("HEAD", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99,1000-1099", DAVHeaders.AcceptEncoding, "gzip" }, new int[] { 206 },
+      TestRequest("HEAD", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99,1000-1099", DAVHeaders.AcceptEncoding, "gzip" }, 206,
                   new string[] { DAVHeaders.ContentLength, null, DAVHeaders.ContentRange, null, DAVHeaders.ContentEncoding, "gzip" });
-      TestRequest("GET", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99", DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(modifyDate) }, new int[] { 304 },
+      TestRequest("GET", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99", DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(modifyDate) }, 304,
                   new string[] { DAVHeaders.ContentLength, null, DAVHeaders.ContentRange, null });
-      TestRequest("GET", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99,1000-1099", DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(modifyDate) }, new int[] { 304 },
+      TestRequest("GET", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99,1000-1099", DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(modifyDate) }, 304,
                   new string[] { DAVHeaders.ContentLength, null, DAVHeaders.ContentRange, null });
 
       TestPartialGet(requestPath, largeFile, null, new ByteRange(100, 300));
@@ -153,7 +157,7 @@ namespace WebDAV.Server.Tests
       for(int i=0; i<2; i++)
       {
         TestRequest(i == 0 ? "HEAD" : "GET", requestPath,
-          new string[] { headerName, headerValue }, null, new int[] { expectBody ? 200 : expect304 ? 304 : 412 },
+          new string[] { headerName, headerValue }, null, expectBody ? 200 : expect304 ? 304 : 412 ,
           !expectBody && !expect304 ? null :
             new string[] {
               DAVHeaders.ContentLength, expectBody ? expectedBody.Length.ToStringInvariant() : null,
@@ -207,7 +211,7 @@ namespace WebDAV.Server.Tests
       string contentRange = responseRanges.Length == 1 && expectedStatus != 200 ?
         "bytes " + responseRanges[0].Start.ToStringInvariant() + "-" + (responseRanges[0].End-1).ToStringInvariant() + "/" +
         fullBody.Length.ToStringInvariant() : null;
-      TestRequest("GET", requestPath, requestHeaders.ToArray(), null, new int[] { expectedStatus },
+      TestRequest("GET", requestPath, requestHeaders.ToArray(), null, expectedStatus,
                   new string[] { DAVHeaders.ContentRange, contentRange, DAVHeaders.ContentType, contentType }, response =>
       {
         if(responseRanges.Length != 0)
@@ -247,24 +251,24 @@ namespace WebDAV.Server.Tests
 
       for(int i=0; i<2; i++)
       {
+        bool shouldCompress = i != 0 && ShouldCompress(requestPath);
         string[] requestHeaders = i == 0 ? null : new string[] { DAVHeaders.AcceptEncoding, "gzip" };
         string[] expectedHeaders = new string[]
         {
           DAVHeaders.AcceptRanges, "bytes",
-          DAVHeaders.ContentEncoding, i == 0 ? null : "gzip",
+          DAVHeaders.ContentEncoding, shouldCompress ? "gzip" : null,
           DAVHeaders.ContentType, "+" + contentType,
-          DAVHeaders.ContentLength, i == 0 ? expectedBody.Length.ToStringInvariant() : null,
+          DAVHeaders.ContentLength, shouldCompress ? null : expectedBody.Length.ToStringInvariant(),
         };
-        int[] expectedStatus = new int[] { 200 };
 
-        TestRequest("HEAD", requestPath, requestHeaders, null, expectedStatus, expectedHeaders, response =>
+        TestRequest("HEAD", requestPath, requestHeaders, null, 200, expectedHeaders, response =>
         {
           if(!isDynamic) Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
           Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
           using(Stream stream = response.GetResponseStream()) Assert.AreEqual(0, stream.ReadToEnd().Length);
         });
 
-        TestRequest("GET", requestPath, requestHeaders, null, expectedStatus, expectedHeaders, response =>
+        TestRequest("GET", requestPath, requestHeaders, null, 200, expectedHeaders, response =>
         {
           DateTime modDate;
           EntityTag tag;
@@ -277,7 +281,7 @@ namespace WebDAV.Server.Tests
           Assert.AreEqual(etag, tag);
           using(Stream stream = response.GetResponseStream())
           {
-            if(i == 0)
+            if(!shouldCompress)
             {
               TestHelpers.AssertArrayEquals(stream.ReadToEnd(), expectedBody);
             }
@@ -294,7 +298,19 @@ namespace WebDAV.Server.Tests
 
     static string GetContentType(string requestPath)
     {
-      return requestPath.EndsWith("/") ? "text/html" : Path.GetExtension(requestPath) == ".pdf" ? "application/pdf" : "text/plain";
+      if(requestPath.EndsWith("/")) return "text/html";
+      switch(Path.GetExtension(requestPath).Trim('.'))
+      {
+        case "pdf": return "application/pdf";
+        case "tfb": return "text/foobar";
+        case "txt": return "text/plain";
+        default: return "application/octet-stream";
+      }
+    }
+
+    static bool ShouldCompress(string requestPath)
+    {
+      return GetContentType(requestPath).StartsWith("text/");
     }
 
     byte[] smallFile, largeFile;

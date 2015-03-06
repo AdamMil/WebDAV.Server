@@ -50,14 +50,14 @@ public sealed class EntityMetadata
   /// <summary>Initializes a new <see cref="EntityMetadata"/> representing an existing resource.</summary>
   public EntityMetadata()
   {
-    Compressible = true;
-    Exists       = true;
+    Exists = true;
   }
 
   /// <summary>Gets or sets whether the entity is considered to be compressible. If true, the entity may be compressed when sent to the
-  /// client, if the client supports compression. If false, the entity will not be compressed when sent to the client. The default is true.
+  /// client, if the client supports compression. If false, the entity will not be compressed when sent to the client. If null, whether
+  /// or not the entity will be compressed depends on its <see cref="MediaType"/>. The default is null.
   /// </summary>
-  public bool Compressible { get; set; }
+  public bool? Compressible { get; set; }
 
   /// <summary>Gets or sets the RFC 7232 entity tag of the entity body. In general, you should use
   /// <see cref="DAVUtility.ComputeEntityTag(System.IO.Stream)"/> to compute this, because all built-in entity tag computations are done
@@ -98,6 +98,12 @@ public sealed class EntityMetadata
       Compressible = Compressible, EntityTag = EntityTag, Exists = Exists, LastModifiedTime = LastModifiedTime, Length = _length,
       MediaType = MediaType
     };
+  }
+
+  /// <summary>Determines whether the entity should be compressed.</summary>
+  public bool ShouldCompress()
+  {
+    return Compressible.HasValue ? Compressible.Value : MimeTypes.ShouldCompress(MediaType);
   }
 
   long? _length;
@@ -403,13 +409,14 @@ public abstract class WebDAVRequest
         return ConditionCodes.NotModified;
       }
     }
-
     // as per RFC 7232 section 3.2, a 304 Not Modified response should be returned if 1) a GET request would normally be
     // responded to with a 200 OK status (something we can't check here), and 2) the last modified time is not greater than
-    // If-Modified-Since
-    if(ifModifiedSince.HasValue && requestMetadata.LastModifiedTime.HasValue && utcTime <= ifModifiedSince)
+    // If-Modified-Since. according to section 3.3, we only check If-Modified-Since if If-None-Match was not submitted
+    else if(ifModifiedSince.HasValue && requestMetadata.LastModifiedTime.HasValue && utcTime <= ifModifiedSince)
     {
-      return ConditionCodes.NotModified;
+      // according to RFC 7232 section 6, If-Modified-Since only applies to GET/HEAD requests. but it seems useful to apply it to other
+      // types of requests as well, just as If-None-Match is applied
+      return IsGetOrHead() ? ConditionCodes.NotModified : ConditionCodes.PreconditionFailed;
     }
 
     return null;

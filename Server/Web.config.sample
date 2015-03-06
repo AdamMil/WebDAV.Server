@@ -184,6 +184,68 @@
                          propertyFile="D:\data\webdav\fooprops" />
         </add>
       </locations>
+      <!-- The optional 'mimeMap' element configures the mapping between file extensions and MIME types used by the WebDAV server. If the
+           element is omitted, a default mapping will be used. This element should generally be omitted. The element has these attributes:
+           * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
+                           mapping will be used - the same mapping that would be used if the entire 'mimeMap' element was omitted. For
+                           the format of the default mapping file, see Resources/MimeMap.xml and Resources/MimeMap.xsd in the WebDAV server
+                           source code. 
+           * defaultExtension - This attribute specifies the file extension that the server will use when generating a file name for a
+                                resource with an unknown MIME type. If omitted, the default from 'defaultFile' will be used, which is
+                                normally to not use any file extension.
+           * defaultMimeType  - This attribute specifies the MIME type to use if no MIME type matches a particular file extension. If
+                                omitted, the default from 'defaultFile' will be used, which is normally to report no MIME type at all.
+           Within the 'mimeMap' element, the standard <add>, <clear/>, and <remove/> tags can be used to modify the mapping.
+      -->
+      <mimeMap defaultFile="D:\data\mimeMap.xml" defaultExtension="bin" defaultMimeType="application/octet-stream">
+        <!-- Each MIME map entry has the following attributes:
+             * mimeType  - The MIME type, which is the MIME media type (without parameters), such as text/css. This attribute is required.
+             * extension - The file extension, without any leading period. The extension may contain periods within it, such as dll.config,
+                           which matches *.dll.config. This attribute is required.
+             * canonicalExtension - Boolean. Whether the extension is the canonical extension for the MIME type. If true, the MIME type
+                                    will map to the given file extension, and if false, it will not. This affects the server's attempts to
+                                    choose a default file extension for a file with the given MIME type. The default is false.
+             * canonicalMimeType  - Boolean. Whether the MIME type is the canonical MIME type for the file extension. If true, file names
+                                    ending with the extension will always map to the MIME type. If false, file names ending with the
+                                    extension will map to the MIME type if it is the only extension associated with the MIME type. This
+                                    affects which MIME type the server will report when serving files with a given extension. The default
+                                    is true.
+             For a <remove> element, only one of 'mimeType' or 'extension' is required, but both can be used. If only one is specified, the
+             other will be considered a wildcard.
+        -->
+        <!-- <clear/> --> <!-- clear out the default mappings -->
+        <remove mimeType="text/plain" /> <!-- remove all mappings for text/plain -->
+        <remove extension="pdf" />       <!-- remove all mappings for the .pdf extension -->
+        <remove mimeType="audio/aiff" extension="aif" /> <!-- remove the specific mapping between audio/aiff and .aif -->
+        <add mimeType="text/foobar" extension="tfb" canonicalExtension="true" />
+        <add mimeType="text/foobar" extension="xtfb" />
+        <add mimeType="text/baz" extension="baz" />
+      </mimeMap>
+      <!-- The optional 'compression' element configures which MIME types will be compressed by default. If the element is omitted, a
+           default mapping will be used. In general, this element should be omitted. The element has these attributes:
+           * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
+                           mapping will be used - the same mapping that would be used if the entire 'compression' element was omitted. For
+                           the format of the default mapping file, see Resources/Compression.xml and Resources/Compression.xsd in the
+                           WebDAV server source code.
+      -->
+      <compression defaultFile="D:\data\compressionMap.xml">
+        <!-- Each compression mapping element has the following attributes:
+             * mimeType - The MIME type or MIME type prefix that the mapping applies to. Asterisks indicate wildcards (such as
+                          "text/*" or "*"). The wildcards only apply to MIME types, a <remove> tag can remove at most one mapping - the one
+                          whose mimeType attribute matches exactly.
+             * compress - Specifies whether resources with the given MIME type should be compressed. The default is true.
+             Elements will be matched in the order given. If a MIME type does not match any element, it will not be compressed by default.
+        -->
+        <clear/>
+        <!-- <remove mimeType="application/*" /> --> <!-- this only removes the application/* mapping, not application/xml, etc. -->
+        <add mimeType="application/xml" />
+        <add mimeType="application/*+xml" />
+        <add mimeType="application/x-javascript" />
+        <add mimeType="text/*" />
+        <add mimeType="message/*" />
+        <add mimeType="foo/bar" compress="false" /> <!-- compress foo/* except for foo/bar -->
+        <add mimeType="foo/*" compress="true" />
+      </compression>
     </server>
   </AdamMil.WebDAV>
 </configuration>

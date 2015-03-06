@@ -29,9 +29,9 @@ using System.Web;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
-// TODO: we should use 405 Method Not Found in more places (but it's difficult because RFC 7231 section 6.5.5 requires supplying an Allow
+// TODO: we should use 405 Method Not Found in more places, but it's difficult because RFC 7231 section 6.5.5 requires supplying an Allow
 // header containing a list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally,
-// though, in WebDAVModule)
+// though, in WebDAVModule, perhaps by adding an IWebDAVRequest.GetSupportedMethods method
 // TODO: look into Microsoft's WebDAV extensions
 // TODO: support the Expects header (RFC 7231 section 5.1.1) if IIS doesn't do it for us
 // TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI, but we
@@ -748,15 +748,14 @@ public sealed class WebDAVModule : IHttpModule
     bool denyAccess = false;
     foreach(AuthFilterConfig filterConfig in location.AuthFilters)
     {
-      if(filterConfig.GetFilter().ShouldDenyAccess(context, context.Service, context.RequestResource, out denyExistence))
+      if(filterConfig.GetFilter().ShouldDenyAccess(context, service, resource, out denyExistence))
       {
         denyAccess = true;
         if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
       }
     }
 
-    if((!denyAccess || !denyExistence) && context.RequestResource != null &&
-       context.RequestResource.ShouldDenyAccess(context, context.Service, out denyExistence))
+    if((!denyAccess || !denyExistence) && resource != null && resource.ShouldDenyAccess(context, service, out denyExistence))
     {
       denyAccess = true;
     }

@@ -40,10 +40,13 @@
     <Reference Include="System.configuration" />
     <Reference Include="System.Net" />
     <Reference Include="System.Web" />
+    <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Globals.cs" />
+    <Compile Include="Methods\Delete.cs" />
     <Compile Include="Methods\Options.cs" />
+    <Compile Include="Methods\Put.cs" />
     <Compile Include="MimeReader.cs" />
     <Compile Include="TestBase.cs" />
     <Compile Include="TestHarness.cs" />

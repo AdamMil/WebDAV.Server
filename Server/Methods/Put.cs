@@ -45,8 +45,7 @@ public class PutRequest : SimpleRequest
     if(!string.IsNullOrEmpty(context.Request.Headers[DAVHeaders.ContentRange]))
     {
       range = ContentRange.TryParse(context.Request.Headers[DAVHeaders.ContentRange]);
-      if(range == null) throw Exceptions.BadRequest("Invalid Content-Range header.");
-      if(range.Start == -1 && range.TotalLength == -1) range = null; // treat useless values as though they weren't submitted at all
+      if(range == null || range.Start == -1) throw Exceptions.BadRequest("Invalid Content-Range header.");
     }
     ContentRange = range;
   }
@@ -133,10 +132,12 @@ public class PutRequest : SimpleRequest
         // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope it works.)
         // TODO: do a bit more research on this. in particular, see if we can find and read some existing client and server code
         // NOTE: partial PUTs are now explicitly disallowed by the latest HTTP specification (RFC 7231). technically we should stop
-        // supporting them, but they seem useful for a WebDAV server, so i'll keep the support in here for now
+        // supporting them, but they seem useful for a WebDAV server, especially given that RFC 4918 says that PUT requests should not
+        // alter the properties of an existing resource, so WebDAV PUT requests are already a kind of partial update even if they replace
+        // the entire entity body. so i'll keep the support in here for now
 
         // if the client indicated knowledge of the entity length but was incorrect...
-        if(ContentRange.TotalLength != -1 && entityLength != -1 && ContentRange.TotalLength != entityLength)
+        if(ContentRange.TotalLength >= 0 && entityLength >= 0 && ContentRange.TotalLength != entityLength)
         {
           // respond with a 416 Requested Range Not Satisfiable status that includes the correct entity length
           Context.Response.Headers[DAVHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
@@ -145,7 +146,7 @@ public class PutRequest : SimpleRequest
         }
 
         // if the client requested a partial PUT...
-        if(ContentRange.Start != -1)
+        if(ContentRange.Start >= 0)
         {
           // we need to know how long the replacement stream is, so copy it to a temporary location if necessary
           if(!replacementStream.CanSeek)
@@ -164,7 +165,7 @@ public class PutRequest : SimpleRequest
           // also, if we need to shift any data over (i.e. the part we're replacing isn't the same length as the new data), then we'll need
           // the ability to read from the stream as well. we also disallow the start position to be past the end of the stream, because
           // there's unlikely to be a good use case and it makes DOS attacks too easy. (a client could ask to write at the trillionth byte)
-          if((isPartialUpdate || entityLength == -1) && // if it's a partial update or we can't be sure...
+          if((isPartialUpdate || entityLength < 0) && // if it's a partial update or we can't be sure...
              (!entityBody.CanSeek || ContentRange.Start > Math.Max(0, entityLength) ||
               !entityBody.CanRead && ContentRange.Length != replacementStream.Length))
           {

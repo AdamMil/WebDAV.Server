@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- the default MIME compression map -->
+<compressionMap xmlns="http://adammil.net/webdav.server/compressionMap"
+                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:schemaLocation="http://adammil.net/webdav.server/compressionMap Compression.xsd">
+  <entry mimeType="text/*" compress="true" />
+  <entry mimeType="application/xml" compress="true" />
+  <entry mimeType="application/*+xml" compress="true" />
+  <entry mimeType="application/x-javascript" compress="true" />
+  <entry mimeType="message/*" compress="true" />
+</compressionMap>

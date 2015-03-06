@@ -490,20 +490,15 @@ public class FilePropertyStore : PropertyStore
     if(!disposed)
     {
       Utility.Dispose(timer);
-      try
+      lock(fileLock)
       {
         if(file != null)
         {
-          Monitor.Enter(file);
           try { WriteChanges(); }
           catch(ObjectDisposedException) { } // if the app domain was unloaded, the file may have been closed already...
           file.Close();
         }
         disposed = true;
-      }
-      finally
-      {
-        if(file != null) Monitor.Exit(file);
       }
     }
 
@@ -585,7 +580,7 @@ public class FilePropertyStore : PropertyStore
   {
     if(pendingWrite && !disposed)
     {
-      lock(file)
+      lock(fileLock)
       {
         MultiValuedDictionary<string, XmlProperty> resources = null;
         lock(this)
@@ -624,6 +619,7 @@ public class FilePropertyStore : PropertyStore
   }
 
   readonly FileStream file;
+  readonly object fileLock = new object();
   readonly Timer timer;
   readonly int writeInterval;
   bool disposed, pendingWrite;

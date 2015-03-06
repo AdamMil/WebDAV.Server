@@ -265,6 +265,9 @@ public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
 /// </summary>
 public static class ConditionCodes
 {
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 202 Accepted status code.</summary>
+  public static readonly ConditionCode Accepted = new ConditionCode(HttpStatusCode.Accepted);
+
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 502 Bad Gateway status code.</summary>
   public static readonly ConditionCode BadGateway = new ConditionCode(HttpStatusCode.BadGateway);
 

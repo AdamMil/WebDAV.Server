@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="MimeMap" targetNamespace="http://adammil.net/webdav.server/compressionMap" elementFormDefault="qualified"
+           xmlns="http://adammil.net/webdav.server/compressionMap"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="mimePattern">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+(/[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+)?" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="compressionMap">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="entry" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:attribute name="mimeType" type="mimePattern" use="required" />
+            <xs:attribute name="compress" type="xs:boolean" use="optional" default="true" />
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

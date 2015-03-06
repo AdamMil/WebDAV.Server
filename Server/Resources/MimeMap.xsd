@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="MimeMap" targetNamespace="http://adammil.net/webdav.server/mimeMap" elementFormDefault="qualified"
+           xmlns="http://adammil.net/webdav.server/mimeMap"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="mimeType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+/[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="extension">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[^\.].*" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:element name="mimeMap">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="entry" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:attribute name="mimeType" type="mimeType" use="required" />
+            <xs:attribute name="extension" type="extension" use="required" />
+            <xs:attribute name="canonicalExtension" type="xs:boolean" default="false" />
+            <xs:attribute name="canonicalMimeType" type="xs:boolean" default="true" />
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="defaultExtension" type="extension" />
+      <xs:attribute name="defaultMimeType" type="mimeType" />
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
