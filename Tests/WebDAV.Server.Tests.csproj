@@ -5,8 +5,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{153DA5D4-3D06-400E-B405-810E7B9BCBAE}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>WebDAV.Server.Tests</RootNamespace>
-    <AssemblyName>WebDAV.Server.Tests</AssemblyName>
+    <RootNamespace>AdamMil.WebDAV.Server.Tests</RootNamespace>
+    <AssemblyName>AdamMil.WebDAV.Server.Tests</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
@@ -45,11 +45,12 @@
   <ItemGroup>
     <Compile Include="Globals.cs" />
     <Compile Include="Methods\Delete.cs" />
+    <Compile Include="Methods\MkCol.cs" />
     <Compile Include="Methods\Options.cs" />
+    <Compile Include="Methods\Properties.cs" />
     <Compile Include="Methods\Put.cs" />
     <Compile Include="MimeReader.cs" />
     <Compile Include="TestBase.cs" />
-    <Compile Include="TestHarness.cs" />
     <Compile Include="Methods\GetOrHead.cs" />
     <Compile Include="WebServer.cs" />
   </ItemGroup>

@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -32,7 +32,9 @@ public static class DAVNames
   /* Namespaces */
   /// <summary>The <c>DAV:</c> namespace, in which all standard WebDAV names are defined.</summary>
   public static readonly string DAV = "DAV:";
-  /// <summary>The <c>http://www.w3.org/XML/1998/namespace</c>, which is bound by definition to the <c>xml:</c> prefix.</summary>
+  /// <summary>The <c>http://microsoft.com/wsdl/types/</c> namespace, used for additional data types such as <c>guid</c>.</summary>
+  public static readonly string MSWSDLTypes = "http://microsoft.com/wsdl/types/";
+  /// <summary>The <c>http://www.w3.org/XML/1998/namespace</c> namespace, which is bound by definition to the <c>xml:</c> prefix.</summary>
   public static readonly string Xml = "http://www.w3.org/XML/1998/namespace";
   /// <summary>The <c>http://www.w3.org/2001/XMLSchema</c> namespace, conventionally bound to the <c>xs:</c> prefix.</summary>
   public static readonly string XmlSchema = "http://www.w3.org/2001/XMLSchema";
@@ -170,6 +172,8 @@ public static class DAVNames
   public static readonly XmlQualifiedName xsiType = new XmlQualifiedName("type", XmlSchemaInstance);
 
   /* Other Names */
+  /// <summary>The <c>http://microsoft.com/wsdl/types/:guid</c> type, which represents <see cref="Guid"/> data.</summary>
+  public static readonly XmlQualifiedName msGuid = new XmlQualifiedName("guid", MSWSDLTypes);
   /// <summary>The <c>xs:boolean</c> type, which represents boolean data, where <c>xs</c> refers to the
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>

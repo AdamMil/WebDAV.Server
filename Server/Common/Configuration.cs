@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -28,7 +28,7 @@ using System.Xml.Schema;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: perhaps we should add per-location MIME and compression maps
+// TODO: perhaps we should add per-location media and compression maps
 
 namespace AdamMil.WebDAV.Server.Configuration
 {
@@ -70,7 +70,7 @@ public sealed class AuthorizationFilterElement : TypeElementBase<IAuthorizationF
 public sealed class CompressionMapCollection : CustomElementCollection<CompressionMapElement>
 {
   /// <summary>Gets the name of the file from which the default elements should be taken. If null or empty, elements will be taken from an
-  /// internal MIME compression map.
+  /// internal media type compression map.
   /// </summary>
   [ConfigurationProperty("defaultFile")]
   public string DefaultFile
@@ -88,7 +88,7 @@ public sealed class CompressionMapCollection : CustomElementCollection<Compressi
   protected override object GetElementKey(CompressionMapElement element)
   {
     if(element == null) throw new ArgumentNullException();
-    return element.MimePattern;
+    return element.MediaTypePattern;
   }
 
   /// <inheritdoc/>
@@ -106,7 +106,7 @@ public sealed class CompressionMapCollection : CustomElementCollection<Compressi
     {
       XmlSchema schema = XmlSchema.Read(schemaStream, (o, e) =>
       {
-        throw new ConfigurationErrorsException("Error reading default MIME compression map. " + e.Message, e.Exception);
+        throw new ConfigurationErrorsException("Error reading default media type compression map. " + e.Message, e.Exception);
       });
       Stream defaultStream = null;
       try
@@ -128,7 +128,7 @@ public sealed class CompressionMapCollection : CustomElementCollection<Compressi
             {
               BaseAdd(new CompressionMapElement()
               {
-                MimePattern = reader.GetAttribute("mimeType"), Compress = reader.GetBoolAttribute("compress", true),
+                MediaTypePattern = reader.GetAttribute("mediaType"), Compress = reader.GetBoolAttribute("compress", true),
               });
               if(!reader.IsEmptyElement) reader.Read();
             }
@@ -147,12 +147,12 @@ public sealed class CompressionMapCollection : CustomElementCollection<Compressi
 #endregion
 
 #region CompressionMapElement
-/// <summary>Implements a <see cref="ConfigurationElement"/> that specifies whether resources matching a MIME type pattern should be
+/// <summary>Implements a <see cref="ConfigurationElement"/> that specifies whether resources matching a media type pattern should be
 /// compressed.
 /// </summary>
 public sealed class CompressionMapElement : ConfigurationElement
 {
-  /// <summary>Gets whether the extension is considered the canonical extension for the MIME type.</summary>
+  /// <summary>Gets whether the extension is considered the canonical extension for the media type.</summary>
   [ConfigurationProperty("compress", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
   public bool Compress
   {
@@ -160,13 +160,13 @@ public sealed class CompressionMapElement : ConfigurationElement
     internal set { this["compress"] = value; }
   }
 
-  /// <summary>Gets the MIME type pattern.</summary>
-  [ConfigurationProperty("mimeType", IsKey=true, IsRequired=true, DefaultValue="*")]
-  [RegexStringValidator(@"^[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+(?:/[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+)?$")]
-  public string MimePattern
+  /// <summary>Gets the media type pattern.</summary>
+  [ConfigurationProperty("mediaType", IsKey=true, IsRequired=true, DefaultValue="*")]
+  [RegexStringValidator(@"^[a-zA-Z0-9!#\$%&'\*\+\-\.\^_`\|~]+(?:/[a-zA-Z0-9!#\$%&'\*\+\-\.\^_`\|~]+)?$")]
+  public string MediaTypePattern
   {
-    get { return (string)this["mimeType"]; }
-    internal set { this["mimeType"] = value; }
+    get { return (string)this["mediaType"]; }
+    internal set { this["mediaType"] = value; }
   }
 }
 #endregion
@@ -382,24 +382,24 @@ public sealed class LockManagerElement : TypeElementBase<ILockManager>
 }
 #endregion
 
-#region MimeMapCollection
-/// <summary>Implements a collection of <see cref="MimeMapElement"/> objects.</summary>
-public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
+#region MediaMapCollection
+/// <summary>Implements a collection of <see cref="MediaMapElement"/> objects.</summary>
+public sealed class MediaMapCollection : CustomElementCollection<MediaMapElement>
 {
-  /// <summary>Initializes a new <see cref="MimeMapCollection"/>.</summary>
-  public MimeMapCollection() : base(new KeyComparer()) { }
+  /// <summary>Initializes a new <see cref="MediaMapCollection"/>.</summary>
+  public MediaMapCollection() : base(new KeyComparer()) { }
 
-  /// <summary>Gets the file extension to use when constructing a file name from an unknown MIME type, excluding the leading period, or
+  /// <summary>Gets the file extension to use when constructing a file name from an unknown media type, excluding the leading period, or
   /// null or empty to use the default from <see cref="DefaultFile"/>.
   /// </summary>
-  [ConfigurationProperty("defaultExtension"), RegexStringValidator(MimeMapElement.ExtensionPattern + "|^$")]
+  [ConfigurationProperty("defaultExtension"), RegexStringValidator(MediaMapElement.ExtensionPattern + "|^$")]
   public string DefaultExtensionOverride
   {
     get { return (string)this["defaultExtension"]; }
   }
 
   /// <summary>Gets the name of the file from which the default elements should be taken. If null or empty, elements will be taken from an
-  /// internal MIME map.
+  /// internal media type map.
   /// </summary>
   [ConfigurationProperty("defaultFile")]
   public string DefaultFile
@@ -407,16 +407,16 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
     get { return (string)this["defaultFile"]; }
   }
 
-  /// <summary>Gets the MIME type to report when guessing a MIME type from an unknown file extension, or null or empty to use the default
+  /// <summary>Gets the media type to report when guessing a media type from an unknown file extension, or null or empty to use the default
   /// from <see cref="DefaultFile"/>.
   /// </summary>
-  [ConfigurationProperty("defaultMimeType"), RegexStringValidator(MimeMapElement.MimeTypePattern + "|^$")]
-  public string DefaultMimeTypeOverride
+  [ConfigurationProperty("defaultMediaType"), RegexStringValidator(MediaMapElement.MediaTypePattern + "|^$")]
+  public string DefaultMediaTypeOverride
   {
-    get { return (string)this["defaultMimeType"]; }
+    get { return (string)this["defaultMediaType"]; }
   }
 
-  /// <summary>Gets the file extension to use when constructing a file name from an unknown MIME type, excluding the leading period, or
+  /// <summary>Gets the file extension to use when constructing a file name from an unknown media type, excluding the leading period, or
   /// null if there is no default.
   /// </summary>
   public string GetDefaultExtension()
@@ -424,24 +424,24 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
     return StringUtility.Coalesce(DefaultExtensionOverride, defaultExtension);
   }
 
-  /// <summary>Gets the MIME type to report when guessing a MIME type from an unknown file extension, or null if there is no default.</summary>
-  public string GetDefaultMimeType()
+  /// <summary>Gets the media type to report when guessing a media type from an unknown file extension, or null if there is no default.</summary>
+  public string GetDefaultMediaType()
   {
-    return StringUtility.Coalesce(DefaultMimeTypeOverride, defaultMimeType);
+    return StringUtility.Coalesce(DefaultMediaTypeOverride, defaultMediaType);
   }
 
   /// <inheritdoc/>
-  protected override MimeMapElement CreateElement()
+  protected override MediaMapElement CreateElement()
   {
-    return new MimeMapElement();
+    return new MediaMapElement();
   }
 
   /// <inheritdoc/>
-  protected override object GetElementKey(MimeMapElement element)
+  protected override object GetElementKey(MediaMapElement element)
   {
     if(element == null) throw new ArgumentNullException();
-    string mimeType = element.MimeType, extension = element.Extension;
-    return string.IsNullOrEmpty(mimeType) ? extension : string.IsNullOrEmpty(extension) ? mimeType : mimeType + "<" + extension;
+    string mediaType = element.MediaType, extension = element.Extension;
+    return string.IsNullOrEmpty(mediaType) ? extension : string.IsNullOrEmpty(extension) ? mediaType : mediaType + "<" + extension;
   }
 
   /// <inheritdoc/>
@@ -455,17 +455,17 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
   {
     base.Init();
 
-    using(Stream schemaStream = DAVUtility.GetManifestResourceStream("Resources/MimeMap.xsd"))
+    using(Stream schemaStream = DAVUtility.GetManifestResourceStream("Resources/MediaTypes.xsd"))
     {
       XmlSchema schema = XmlSchema.Read(schemaStream, (o, e) =>
       {
-        throw new ConfigurationErrorsException("Error reading default MIME map. " + e.Message, e.Exception);
+        throw new ConfigurationErrorsException("Error reading default media type map. " + e.Message, e.Exception);
       });
       Stream defaultStream = null;
       try
       {
         if(!string.IsNullOrEmpty(DefaultFile)) defaultStream = File.OpenRead(DefaultFile);
-        else defaultStream = DAVUtility.GetManifestResourceStream("Resources/MimeMap.xml");
+        else defaultStream = DAVUtility.GetManifestResourceStream("Resources/MediaTypes.xml");
 
         XmlReaderSettings settings = new XmlReaderSettings()
         {
@@ -478,12 +478,12 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
           {
             if(reader.NodeType == XmlNodeType.XmlDeclaration) reader.Read();
             defaultExtension = reader.GetAttribute("defaultExtension");
-            defaultMimeType  = reader.GetAttribute("defaultMimeType");
+            defaultMediaType  = reader.GetAttribute("defaultMediaType");
             while(reader.Read() && reader.NodeType == XmlNodeType.Element) // for each 'entry' element...
             {
-              BaseAdd(new MimeMapElement()
+              BaseAdd(new MediaMapElement()
               {
-                MimeType = reader.GetAttribute("mimeType"), CanonicalMimeType = reader.GetBoolAttribute("canonicalMimeType", true),
+                MediaType = reader.GetAttribute("mediaType"), CanonicalMediaType = reader.GetBoolAttribute("canonicalMediaType", true),
                 Extension = reader.GetAttribute("extension"), CanonicalExtension = reader.GetBoolAttribute("canonicalExtension")
               });
               if(!reader.IsEmptyElement) reader.Read();
@@ -509,22 +509,22 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
       if(string.IsNullOrEmpty(a)) return string.IsNullOrEmpty(b) ? 0 : -1;
       else if(string.IsNullOrEmpty(a)) return 1;
 
-      int aMimeEnd, aExtensionStart, bMimeEnd, bExtensionStart;
-      Parse(a, out aMimeEnd, out aExtensionStart);
-      Parse(b, out bMimeEnd, out bExtensionStart);
+      int aMediaEnd, aExtensionStart, bMediaEnd, bExtensionStart;
+      Parse(a, out aMediaEnd, out aExtensionStart);
+      Parse(b, out bMediaEnd, out bExtensionStart);
 
-      if(aMimeEnd == -1) // if A has only an extension...
+      if(aMediaEnd == -1) // if A has only an extension...
       {
-        return bExtensionStart == -1 ? 1 : // if B has only a MIME type, then there can be no match
+        return bExtensionStart == -1 ? 1 : // if B has only a media type, then there can be no match
           string.Compare(a, aExtensionStart, b, bExtensionStart, int.MaxValue, StringComparison.OrdinalIgnoreCase);
       }
-      else if(aExtensionStart == -1) // if A has only a MIME type...
+      else if(aExtensionStart == -1) // if A has only a media type...
       {
-        return bMimeEnd == -1 ? -1 : string.Compare(a, 0, b, 0, Math.Max(aMimeEnd, bMimeEnd), StringComparison.OrdinalIgnoreCase);
+        return bMediaEnd == -1 ? -1 : string.Compare(a, 0, b, 0, Math.Max(aMediaEnd, bMediaEnd), StringComparison.OrdinalIgnoreCase);
       }
-      else // A has both a MIME type and an extension
+      else // A has both a media type and an extension
       {
-        int cmp = bMimeEnd == -1 ? 0 : string.Compare(a, 0, b, 0, Math.Max(aMimeEnd, bMimeEnd), StringComparison.OrdinalIgnoreCase);
+        int cmp = bMediaEnd == -1 ? 0 : string.Compare(a, 0, b, 0, Math.Max(aMediaEnd, bMediaEnd), StringComparison.OrdinalIgnoreCase);
         if(cmp == 0)
         {
           cmp = bExtensionStart == -1 ? 0 :
@@ -534,32 +534,32 @@ public sealed class MimeMapCollection : CustomElementCollection<MimeMapElement>
       }
     }
 
-    static void Parse(string key, out int mimeEnd, out int extensionStart)
+    static void Parse(string key, out int mediaEnd, out int extensionStart)
     {
       int pipe = key.IndexOf('<');
       if(pipe == -1)
       {
-        if(key.IndexOf('/') == -1) { mimeEnd = -1; extensionStart = 0; }
-        else { mimeEnd = key.Length; extensionStart = -1; }
+        if(key.IndexOf('/') == -1) { mediaEnd = -1; extensionStart = 0; }
+        else { mediaEnd = key.Length; extensionStart = -1; }
       }
       else
       {
-        mimeEnd        = pipe;
+        mediaEnd       = pipe;
         extensionStart = pipe+1;
       }
     }
   }
   #endregion
 
-  string defaultExtension, defaultMimeType;
+  string defaultExtension, defaultMediaType;
 }
 #endregion
 
-#region MimeMapElement
-/// <summary>Implements a <see cref="ConfigurationElement"/> mapping a MIME type to and/or from a file extension.</summary>
-public sealed class MimeMapElement : ConfigurationElement
+#region MediaMapElement
+/// <summary>Implements a <see cref="ConfigurationElement"/> mapping a media type to and/or from a file extension.</summary>
+public sealed class MediaMapElement : ConfigurationElement
 {
-  /// <summary>Gets whether the extension is considered the canonical extension for the MIME type.</summary>
+  /// <summary>Gets whether the extension is considered the canonical extension for the media type.</summary>
   [ConfigurationProperty("canonicalExtension", DefaultValue=false), TypeConverter(typeof(BooleanConverter))]
   public bool CanonicalExtension
   {
@@ -567,12 +567,12 @@ public sealed class MimeMapElement : ConfigurationElement
     internal set { this["canonicalExtension"] = value; }
   }
 
-  /// <summary>Gets whether the MIME type is considered the canonical MIME type for the extension.</summary>
-  [ConfigurationProperty("canonicalMimeType", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
-  public bool CanonicalMimeType
+  /// <summary>Gets whether the media type is considered the canonical media type for the extension.</summary>
+  [ConfigurationProperty("canonicalMediaType", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
+  public bool CanonicalMediaType
   {
-    get { return (bool)this["canonicalMimeType"]; }
-    internal set { this["canonicalMimeType"] = value; }
+    get { return (bool)this["canonicalMediaType"]; }
+    internal set { this["canonicalMediaType"] = value; }
   }
 
   /// <summary>Gets the file extension, without a leading period.</summary>
@@ -583,12 +583,12 @@ public sealed class MimeMapElement : ConfigurationElement
     internal set { this["extension"] = value; }
   }
 
-  /// <summary>Gets the MIME type.</summary>
-  [ConfigurationProperty("mimeType", IsKey=true)]
-  public string MimeType
+  /// <summary>Gets the media type.</summary>
+  [ConfigurationProperty("mediaType", IsKey=true)]
+  public string MediaType
   {
-    get { return (string)this["mimeType"]; }
-    internal set { this["mimeType"] = value; }
+    get { return (string)this["mediaType"]; }
+    internal set { this["mediaType"] = value; }
   }
 
   /// <inheritdoc/>
@@ -605,12 +605,12 @@ public sealed class MimeMapElement : ConfigurationElement
 
     if(elementName != "clear")
     {
-      bool extMatch = extensionRe.IsMatch(Extension), mimeMatch = mimeTypeRe.IsMatch(MimeType);
+      bool extMatch = extensionRe.IsMatch(Extension), mediaMatch = mediaTypeRe.IsMatch(MediaType);
       if(elementName == "remove")
       {
-        if(!extMatch && !mimeMatch)
+        if(!extMatch && !mediaMatch)
         {
-          throw new ConfigurationErrorsException("At least one of the extension or mimeType attributes is required.");
+          throw new ConfigurationErrorsException("At least one of the extension or mediaType attributes is required.");
         }
       }
       else
@@ -620,10 +620,10 @@ public sealed class MimeMapElement : ConfigurationElement
           if(string.IsNullOrEmpty(Extension)) throw new ConfigurationErrorsException("The extension attribute is required.");
           else throw new ConfigurationErrorsException("Extension \"" + Extension + "\" doesn't match pattern " + ExtensionPattern);
         }
-        if(!mimeMatch)
+        if(!mediaMatch)
         {
-          if(string.IsNullOrEmpty(MimeType)) throw new ConfigurationErrorsException("The mimeType attribute is required.");
-          else throw new ConfigurationErrorsException("Mime type \"" + MimeType + "\" doesn't match pattern " + MimeTypePattern);
+          if(string.IsNullOrEmpty(MediaType)) throw new ConfigurationErrorsException("The mediaType attribute is required.");
+          else throw new ConfigurationErrorsException("Media type \"" + MediaType + "\" doesn't match pattern " + MediaTypePattern);
         }
       }
     }
@@ -633,9 +633,10 @@ public sealed class MimeMapElement : ConfigurationElement
 
   // we can't use RegexStringValidator on the properties, unfortunately, because it seems to validate all properties when one property is
   // set programmatically, preventing us from initializing the element one property at a time
-  internal const string ExtensionPattern = @"^[^\.].*$", MimeTypePattern = @"^[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+/[a-z0-9!#\$%&'\*\+\-\.\^_`\|~]+$";
+  internal const string ExtensionPattern = @"^[^\.].*$";
+  internal const string MediaTypePattern = @"^[a-zA-Z0-9!#\$%&'\*\+\-\.\^_`\|~]+/[a-zA-Z0-9!#\$%&'\*\+\-\.\^_`\|~]+$";
   static readonly Regex extensionRe = new Regex(ExtensionPattern, RegexOptions.Compiled | RegexOptions.Singleline);
-  static readonly Regex mimeTypeRe = new Regex(MimeTypePattern, RegexOptions.Compiled | RegexOptions.Singleline);
+  static readonly Regex mediaTypeRe = new Regex(MediaTypePattern, RegexOptions.Compiled | RegexOptions.Singleline);
 }
 #endregion
 
@@ -706,7 +707,7 @@ public abstract class TypeElementBase<T> : ConfigurationElement
 /// <summary>Implements a <see cref="ConfigurationSection"/> that contains the FlairPoint configuration.</summary>
 public sealed class WebDAVServerSection : ConfigurationSection
 {
-  /// <summary>Gets a collection of <see cref="CompressionMapElement"/> that represent the configured MIME compression map.</summary>
+  /// <summary>Gets a collection of <see cref="CompressionMapElement"/> that represent the configured media type compression map.</summary>
   [ConfigurationProperty("compression"), ConfigurationCollection(typeof(CompressionMapCollection))]
   public CompressionMapCollection CompressionMap
   {
@@ -734,11 +735,11 @@ public sealed class WebDAVServerSection : ConfigurationSection
     get { return (LockManagerElement)this["davLockManager"]; }
   }
 
-  /// <summary>Gets a collection of <see cref="MimeMapElement"/> that represent the configured MIME type map.</summary>
-  [ConfigurationProperty("mimeMap"), ConfigurationCollection(typeof(MimeMapCollection))]
-  public MimeMapCollection MimeMap
+  /// <summary>Gets a collection of <see cref="MediaMapElement"/> that represent the configured media type map.</summary>
+  [ConfigurationProperty("mediaTypeMap"), ConfigurationCollection(typeof(MediaMapCollection))]
+  public MediaMapCollection MediaTypeMap
   {
-    get { return (MimeMapCollection)this["mimeMap"]; }
+    get { return (MediaMapCollection)this["mediaTypeMap"]; }
   }
 
   /// <summary>Gets the <see cref="PropertyStoreElement"/> describing the default <see cref="IPropertyStore"/> to be used by the WebDAV

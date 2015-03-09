@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -103,7 +103,7 @@ public sealed class EntityMetadata
   /// <summary>Determines whether the entity should be compressed.</summary>
   public bool ShouldCompress()
   {
-    return Compressible.HasValue ? Compressible.Value : MimeTypes.ShouldCompress(MediaType);
+    return Compressible.HasValue ? Compressible.Value : MediaTypes.ShouldCompress(MediaType);
   }
 
   long? _length;
@@ -792,7 +792,7 @@ public abstract class WebDAVRequest
 
         while(true)
         {
-          bool negated = value.StartsWith("Not ", StringComparison.Ordinal);
+          bool negated = string.Compare(value, index, "Not ", 0, 4, StringComparison.Ordinal) == 0;
           if(negated)
           {
             index = SkipWhitespace(value, index+4);

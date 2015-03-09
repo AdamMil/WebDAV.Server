@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   #region TypeWithParameters
   public class TypeWithParameters
@@ -167,9 +167,11 @@ namespace WebDAV.Server.Tests
       System.IO.Directory.CreateDirectory(Path.Combine(Directory, name));
     }
 
-    public void CreateFile(string name, string textContent)
+    public byte[] CreateFile(string name, string textContent)
     {
-      CreateFile(name, Encoding.UTF8.GetBytes(textContent));
+      byte[] content = Encoding.UTF8.GetBytes(textContent);
+      CreateFile(name, content);
+      return content;
     }
 
     public void CreateFile(string name, byte[] content)

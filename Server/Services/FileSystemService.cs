@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -30,7 +30,6 @@ using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
 // TODO: authorization against the request URI and/or handling of access exceptions in resolving/loading the request resource
-// TODO: improve GetEntityMetadata() for dynamic resources
 // TODO: more cleanup and refactoring...
 // TODO: some type of permissions model that allows us to separate GET access from LOCK access. we should probably tie LOCK access to
 // write access...
@@ -473,7 +472,7 @@ public abstract class FileSystemResource : WebDAVResource
   public override void PropPatch(PropPatchRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.ProcessStandardRequest(); // allow setting of dead properties only
+    request.ProcessStandardRequest(); // allow setting of dead properties only, even though we could allow changing creation/modified dates
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
@@ -504,8 +503,8 @@ public abstract class FileSystemResource : WebDAVResource
     FileInfo fileInfo = info as FileInfo;
     if(fileInfo != null)
     {
-      string mimeType = MimeTypes.GuessMimeType(info.Name);
-      if(mimeType != null) properties.Add(DAVNames.getcontenttype, mimeType);
+      string mediaType = MediaTypes.GuessMediaType(info.Name);
+      if(mediaType != null) properties.Add(DAVNames.getcontenttype, mediaType);
 
       properties.Add(DAVNames.getcontentlength, (ulong)fileInfo.Length);
 
@@ -716,7 +715,20 @@ public class DirectoryResource : FileSystemResource
 
       if(!childFailed)
       {
-        dirInfo.Delete(true); // if all children were successfully deleted, delete the current directory
+        try { dirInfo.Delete(true); } // if all children were successfully deleted, delete the current directory
+        catch
+        {
+          // sometimes the Delete method throws an exception when it shouldn't
+          int lastError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+          if(lastError == 18 || lastError == 145) // NO_MORE_FILES or DIR_NOT_EMPTY
+          {
+            // if we get DIR_NOT_EMPTY, another process (like Explorer) may have a handle open, so give it a bit of time to close it.
+            // on the other hand, if we get NO_MORE_FILES, that seems like a bug in Directory.Delete(). it also goes away after a bit
+            System.Threading.Thread.Sleep(50);
+            dirInfo.Delete(true);
+          }
+          else throw;
+        }
         request.PostProcessRequest(directoryUrl, false);
       }
       return !childFailed;
@@ -833,15 +845,15 @@ public class FileResource : FileSystemResource
       else
       {
         // if the user doesn't have access to delete the file, respond with 403 Forbidden
-        // TODO: it would be better to respond with 401 Unauthorized instead, because authorization might change whether the method
-        // succeeds. we would need to add a WWW-Authorization header in that case, but perhaps we can do that... also, this same
-        // consideration applies to other cases where UnauthorizedAccessException is transmuted into 403 Forbidden, such as
-        // DirectoryResource.Delete()
         try
         {
           Info.Delete();
           request.PostProcessRequest(false);
         }
+        // TODO: it might be better to respond with 401 Unauthorized instead, because authorization might change whether the method
+        // succeeds. we would need to add a WWW-Authorization header in that case, but perhaps we can do that... also, this same
+        // consideration applies to other cases where UnauthorizedAccessException is transmuted into 403 Forbidden, such as
+        // DirectoryResource.Delete()
         catch(UnauthorizedAccessException) { request.Status = ConditionCodes.Forbidden; }
       }
     }
@@ -857,7 +869,7 @@ public class FileResource : FileSystemResource
       {
         metadata.LastModifiedTime = Info.LastWriteTimeUtc;
         metadata.Length           = Info.Length;
-        metadata.MediaType        = MimeTypes.GuessMimeType(Info.Name);
+        metadata.MediaType        = MediaTypes.GuessMediaType(Info.Name);
       }
     }
     if(includeEntityTag && metadata.EntityTag == null)

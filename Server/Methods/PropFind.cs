@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -23,8 +23,6 @@ using System.Linq;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
-
-// TODO: other stuff from DAV RFC (4918) section 4.3
 
 namespace AdamMil.WebDAV.Server
 {
@@ -147,7 +145,9 @@ public class PropFindRequest : WebDAVRequest
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetObjectValue);
+    ConditionCode precondition = CheckPreconditions(null);
+    if(precondition != null) Status = precondition;
+    else AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetObjectValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
@@ -159,7 +159,9 @@ public class PropFindRequest : WebDAVRequest
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
     if(properties == null) throw new ArgumentNullException();
-    AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetPropFindValue);
+    ConditionCode precondition = CheckPreconditions(null);
+    if(precondition != null) Status = precondition;
+    else AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetPropFindValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
@@ -176,8 +178,16 @@ public class PropFindRequest : WebDAVRequest
                                         Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
-                           SetObjectValue, 0);
+    ConditionCode precondition = CheckPreconditions(null);
+    if(precondition != null)
+    {
+      Status = precondition;
+    }
+    else
+    {
+      ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
+                             SetObjectValue, 0);
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
@@ -192,8 +202,16 @@ public class PropFindRequest : WebDAVRequest
                                         Func<T, string, IEnumerable<T>> getChildren)
   {
     if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
-                           SetPropFindValue, 0);
+    ConditionCode precondition = CheckPreconditions(null);
+    if(precondition != null)
+    {
+      Status = precondition;
+    }
+    else
+    {
+      ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
+                             SetPropFindValue, 0);
+    }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -253,6 +271,8 @@ public class PropFindRequest : WebDAVRequest
 
     // validate the request processing and collect the set of XML namespaces used in the response (DAV: is added automatically)
     HashSet<string> namespaces = new HashSet<string>();
+    // add xs: even if we may not use it directly, to prevent custom XML elements getting xmlns:xs definitions if they use xsi:type with xs
+    namespaces.Add(DAVNames.XmlSchema);
     namespaces.Add(DAVNames.XmlSchemaInstance); // we use xsi:, in xsi:type
     foreach(PropFindResource resource in Resources) resource.Validate(this, namespaces);
 
@@ -520,7 +540,20 @@ public class PropFindRequest : WebDAVRequest
     foreach(XmlAttribute attr in element.Attributes)
     {
       if((attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns")) continue;
-      writer.WriteAttributeString(attr.LocalName, attr.NamespaceURI, attr.Value);
+
+      // handle xsi:type attributes specially, because we need to translate the QName values from their original context to the context of
+      // the writer. ideally we'd be able to do this for all QName-valued attributes, but we don't know which ones those are...
+      if(attr.NamespaceURI.OrdinalEquals(DAVNames.XmlSchemaInstance) && attr.LocalName.OrdinalEquals("type"))
+      {
+        writer.WriteStartAttribute(attr.LocalName, attr.NamespaceURI);
+        XmlQualifiedName qname = element.ParseQualifiedName(attr.Value);
+        writer.WriteQualifiedName(qname.Name, qname.Namespace);
+        writer.WriteEndAttribute();
+      }
+      else
+      {
+        writer.WriteAttributeString(attr.LocalName, attr.NamespaceURI, attr.Value);
+      }
     }
 
     // now recursively write element content
@@ -644,7 +677,7 @@ public sealed class PropFindResource
   {
     XmlQualifiedName type = null;
     value = GetPropertyValue(value);
-    if(value != null && !builtInTypes.ContainsKey(property)) type = DAVUtility.GetXsiType(value);
+    if(value != null && !XmlProperty.builtInTypes.ContainsKey(property)) type = DAVUtility.GetXsiType(value);
     SetValueCore(property, value, type, language);
   }
 
@@ -662,7 +695,8 @@ public sealed class PropFindResource
     if(property == null) throw new ArgumentNullException();
     value = GetPropertyValue(value);
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
-    if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) && !builtInTypes.ContainsKey(property))
+    if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) &&
+       !XmlProperty.builtInTypes.ContainsKey(property))
     {
       value = ValidatePropertyValue(property, value, type);
     }
@@ -757,7 +791,7 @@ public sealed class PropFindResource
 
     // if the property is of a built-in type, validate that the value matches the expected type
     XmlQualifiedName expectedType;
-    if(builtInTypes.TryGetValue(property, out expectedType))
+    if(XmlProperty.builtInTypes.TryGetValue(property, out expectedType))
     {
       // validate that the value matches the expected type
       if(expectedType != null)
@@ -847,14 +881,6 @@ public sealed class PropFindResource
     try { return DAVUtility.ValidatePropertyValue(property, value, expectedType); }
     catch(ArgumentException ex) { throw new ContractViolationException(ex.Message); }
   }
-
-  static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
-  {
-    { DAVNames.creationdate, DAVNames.xsDateTime }, { DAVNames.displayname, DAVNames.xsString },
-    { DAVNames.getcontentlanguage, DAVNames.xsString }, { DAVNames.getcontentlength, DAVNames.xsULong },
-    { DAVNames.getcontenttype, DAVNames.xsString }, { DAVNames.getetag, null }, { DAVNames.getlastmodified, DAVNames.xsDateTime },
-    { DAVNames.lockdiscovery, null }, { DAVNames.resourcetype, null }, { DAVNames.supportedlock, null }
-  };
 }
 #endregion
 

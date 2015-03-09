@@ -1,7 +1,7 @@
 ﻿using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   [TestFixture]
   public class OptionsTests : TestBase

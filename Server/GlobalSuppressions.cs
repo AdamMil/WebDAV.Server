@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -156,7 +156,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.LockManager.#GetAllLocks()")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2214:DoNotCallOverridableMethodsInConstructors", Scope="member", Target="AdamMil.WebDAV.Server.FileLockManager.#.ctor(System.String,AdamMil.WebDAV.Server.Configuration.ParameterCollection)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA1801:ReviewUnusedParameters", MessageId="serviceId", Scope="member", Target="AdamMil.WebDAV.Server.MemoryLockManager.#.ctor(System.String,AdamMil.WebDAV.Server.Configuration.ParameterCollection)")]
-[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1810:InitializeReferenceTypeStaticFieldsInline", Scope="member", Target="AdamMil.WebDAV.Server.MimeTypes.#.cctor()")]
+[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1810:InitializeReferenceTypeStaticFieldsInline", Scope="member", Target="AdamMil.WebDAV.Server.MediaTypes.#.cctor()")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA1502:AvoidExcessiveComplexity", Scope="member", Target="AdamMil.WebDAV.Server.DAVUtility.#ValidatePropertyValue(System.Xml.XmlQualifiedName,System.Object,System.Xml.XmlQualifiedName)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1800:DoNotCastUnnecessarily", Scope="member", Target="AdamMil.WebDAV.Server.DAVUtility.#ValidatePropertyValue(System.Xml.XmlQualifiedName,System.Object,System.Xml.XmlQualifiedName)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1721:PropertyNamesShouldNotMatchGetMethods", Scope="member", Target="AdamMil.WebDAV.Server.XmlProperty.#Type")]
@@ -170,6 +170,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1021:AvoidOutParameters", MessageId="2#", Scope="member", Target="AdamMil.WebDAV.Server.IWebDAVResource.#ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,AdamMil.WebDAV.Server.IWebDAVService,System.Boolean&)")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.WebDAVRequest.#GetSubmittedLockTokens()")]
 [assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security", "CA2104:DoNotDeclareReadOnlyMutableReferenceTypes", Scope="member", Target="AdamMil.WebDAV.Server.ConditionCodes.#Accepted")]
-[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.Configuration.MimeMapCollection.#GetDefaultExtension()")]
-[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.Configuration.MimeMapCollection.#GetDefaultMimeType()")]
+[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.Configuration.MediaMapCollection.#GetDefaultExtension()")]
+[assembly: System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate", Scope="member", Target="AdamMil.WebDAV.Server.Configuration.MediaMapCollection.#GetDefaultMediaType()")]
 #endif

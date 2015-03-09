@@ -1,17 +1,20 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml;
 using AdamMil.IO;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   public abstract class TestBase : IDisposable
   {
@@ -79,6 +82,96 @@ namespace WebDAV.Server.Tests
     protected string GetFullUrl(string requestPath)
     {
       return "http://localhost:" + Server.EndPoint.Port.ToStringInvariant() + "/" + requestPath;
+    }
+
+    protected XmlNodeList GetPropertyElements(string requestPath)
+    {
+      return GetPropertyElements(requestPath, null);
+    }
+
+    protected XmlNodeList GetPropertyElements(string requestPath, string requestXml)
+    {
+      XmlDocument doc = RequestXml("PROPFIND", requestPath, new string[] { DAVHeaders.Depth, "0" }, requestXml, 207);
+      XmlNamespaceManager xmlns = new XmlNamespaceManager(doc.NameTable);
+      xmlns.AddNamespace("D", "DAV:");
+      return doc.SelectNodes("/D:multistatus/D:response/D:propstat/D:prop/node()", xmlns);
+    }
+
+    protected XmlDocument RequestXml(string method, string requestPath)
+    {
+      return RequestXml(method, requestPath, null, null, 0);
+    }
+
+    protected XmlDocument RequestXml(string method, string requestPath, string[] requestHeaders)
+    {
+      return RequestXml(method, requestPath, requestHeaders, null, 0);
+    }
+
+    protected XmlDocument RequestXml(string method, string requestPath, string[] requestHeaders, string requestBody)
+    {
+      return RequestXml(method, requestPath, requestHeaders, requestBody, 0);
+    }
+
+    protected XmlDocument RequestXml(string method, string requestPath, string[] requestHeaders, string requestBody, int expectedStatus)
+    {
+      XmlDocument doc = null;
+      byte[] body = requestBody == null ? null : Encoding.UTF8.GetBytes(requestBody);
+      TestRequest(method, requestPath, requestHeaders, body, expectedStatus, (string[])null, response =>
+      {
+        using(Stream stream = response.GetResponseStream())
+        {
+          doc = new XmlDocument();
+          doc.Load(stream);
+        }
+      });
+      return doc;
+    }
+
+    protected void SetCustomProperties(string requestPath, params string[] properties)
+    {
+      if((properties.Length & 1) != 0) throw new ArgumentException();
+      StringBuilder sb = new StringBuilder();
+      sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>")
+        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine("<set><prop>");
+      for(int i=0; i<properties.Length; i += 2)
+      {
+        sb.Append("<T:").Append(properties[i]).Append('>').Append(properties[i+1]).Append("</T:").Append(properties[i]).Append('>')
+          .AppendLine();
+      }
+      sb.AppendLine("</prop></set>").AppendLine("</propertyupdate>");
+      TestRequest("PROPPATCH", requestPath, null, Encoding.UTF8.GetBytes(sb.ToString()), 207);
+    }
+
+    protected void TestCustomProperties(string requestPath, params string[] properties)
+    {
+      TestCustomProperties(requestPath, false, properties);
+    }
+
+    protected void TestCustomProperties(string requestPath, bool allProps, params string[] properties)
+    {
+      if((properties.Length & 1) != 0) throw new ArgumentException();
+      StringBuilder sb = new StringBuilder();
+      sb.AppendLine("<propfind xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine(allProps ? "<allprop/>" : "<prop>");
+      int existingCount = 0;
+      for(int i=0; i<properties.Length; i += 2)
+      {
+        if(!allProps) sb.Append("<T:").Append(properties[i]).AppendLine("/>");
+        if(properties[i+1] != null) existingCount++;
+      }
+      if(!allProps) sb.AppendLine("</prop>");
+      sb.AppendLine("</propfind>");
+
+      Dictionary<string, string> dict = new Dictionary<string, string>();
+      foreach(XmlElement element in GetPropertyElements(requestPath, sb.ToString()))
+      {
+        if(element.NamespaceURI == "TEST:" && (allProps || !element.IsEmpty)) dict[element.LocalName] = element.InnerXml;
+      }
+      Assert.AreEqual(existingCount, dict.Count);
+      for(int i=0; i<properties.Length; i += 2)
+      {
+        if(properties[i+1] != null) Assert.AreEqual(properties[i+1], dict[properties[i]]);
+        else Assert.IsFalse(dict.ContainsKey(properties[i]));
+      }
     }
 
     protected void TestRequest(string method, string requestPath, int expectedStatus)

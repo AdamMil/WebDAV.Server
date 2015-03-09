@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -39,25 +39,36 @@ namespace AdamMil.WebDAV.Server
 /// <summary>Represents a WebDAV property value, which is usually a simple type but is capable of having an arbitrary XML element value.</summary>
 public sealed class XmlProperty
 {
-  /// <summary>Initializes a new <see cref="XmlProperty"/> with a name and value. The type of the value will be inferred.</summary>
+  /// <summary>Initializes a new <see cref="XmlProperty"/> with a name and value. The type of the value will be inferred either from the
+  /// value, or from the name, if the name matches a built-in WebDAV property, in which case the value will be validated against the type.
+  /// </summary>
   public XmlProperty(XmlQualifiedName name, object value) : this(name, value, null, null) { }
-  /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, and type (specified as a legal xsi:type value).
-  /// The type will be inferred from the value if null. Otherwise, the value will be validated against the type.
+  /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, and type (specified as a legal xsi:type value). If the name
+  /// matches a built-in WebDAV property, the known type of that property will be used instead of the given type. If the type (possibly
+  /// inferred from the name) is not null, the value will be validated against the type. Otherwise, the type will be inferred from the
+  /// value.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value, XmlQualifiedName type) : this(name, value, type, null) { }
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, and language (specified as a legal xml:lang value).
-  /// The type of the value will be inferred.
+  /// The type of the value will be inferred either from the value, or from the name, if the name matches a built-in WebDAV property,
+  /// in which case the value will be validated against the type.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value, string language) : this(name, value, null, language) { }
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, type (specified as a legal xsi:type value), and language
-  /// (specified as a legal xml:lang value). The type will be inferred from the value if null. Otherwise, the value will be validated
-  /// against the type.
+  /// (specified as a legal xml:lang value). If the name matches a built-in WebDAV property, the known type of that property will be used
+  /// instead of the given type. If the type (possibly inferred from the name) is not null, the value will be validated against the type.
+  /// Otherwise, the type will be inferred from the value.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value, XmlQualifiedName type, string language)
   {
     if(name == null) throw new ArgumentNullException();
+
+    XmlQualifiedName builtInType;
+    if(name.Namespace.OrdinalEquals(DAVNames.DAV) && builtInTypes.TryGetValue(name, out builtInType)) type = builtInType;
+
     if(type == null) type = DAVUtility.GetXsiType(value);
     else DAVUtility.ValidatePropertyValue(name, value, type);
+
     Name     = name;
     Value    = value;
     Type     = type;
@@ -155,13 +166,31 @@ public sealed class XmlProperty
 
   internal XmlElement Element { get; private set; }
 
+  /// <summary>The XML data types for the built-in WebDAV properties, or null if the properties have complex (element) values.</summary>
+  internal static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
+  {
+    { DAVNames.creationdate, DAVNames.xsDateTime }, { DAVNames.displayname, DAVNames.xsString },
+    { DAVNames.getcontentlanguage, DAVNames.xsString }, { DAVNames.getcontentlength, DAVNames.xsULong },
+    { DAVNames.getcontenttype, DAVNames.xsString }, { DAVNames.getetag, null }, { DAVNames.getlastmodified, DAVNames.xsDateTime },
+    { DAVNames.lockdiscovery, null }, { DAVNames.resourcetype, null }, { DAVNames.supportedlock, null }
+  };
+
   void InitializeFromElement(XmlElement element, string language)
   {
     Name     = element.GetQualifiedName();
     Language = language ?? element.GetInheritedAttributeValue(DAVNames.xmlLang);
 
-    string type = element.GetAttribute(DAVNames.xsiType);
-    if(!string.IsNullOrEmpty(type)) Type = element.ParseQualifiedName(type);
+    XmlQualifiedName type;
+    // determine the element type. if it's a built-in DAV property, use the well-known type
+    if(Name.Namespace.OrdinalEquals(DAVNames.DAV) && builtInTypes.TryGetValue(Name, out type))
+    {
+      Type = type;
+    }
+    else // otherwise, try parsing an xsi:type attribute, if any
+    {
+      string typeStr = element.GetAttribute(DAVNames.xsiType);
+      if(!string.IsNullOrEmpty(typeStr)) Type = element.ParseQualifiedName(typeStr);
+    }
 
     if(IsSimple(element))
     {
@@ -188,22 +217,29 @@ public sealed class XmlProperty
     }
     else
     {
-      Element = element.Extract();
-      if(language != null) Element.SetAttribute(DAVNames.xmlLang, language);
+      if(Type != null && Type.Namespace.OrdinalEquals(DAVNames.XmlSchema)) // if it's an xs: type...
+      {
+        throw new ArgumentException(Name.ToString() + " is expected to have a simple value."); // all xs: types are simple
+      }
+      // TODO: ideally, we'd validate complex built-in DAV properties as well
+      Element = element.Extract(); // Extract gets the inherited language...
+      if(language != null) Element.SetAttribute(DAVNames.xmlLang, language); // but if we're not using that, set the new language
     }
   }
 
-  /// <summary>Returns the inner text of an element if it contains only text, and null otherwise.</summary>
+  /// <summary>Returns the inner text of an element if it contains only text, and null if it is empty or contains complex content.</summary>
   static string GetInnerTextIfSimple(XmlElement element)
   {
     XmlNode firstChild = element.FirstChild;
-    if(firstChild != null && firstChild.NextSibling == null) return IsText(firstChild.NodeType) ? firstChild.Value : null;
+    if(firstChild == null) return null;
+    else if(firstChild.NextSibling == null) return IsText(firstChild.NodeType) ? firstChild.Value : null;
 
     StringBuilder sb = null;
-    foreach(XmlNode child in element.ChildNodes)
+    for(XmlNode child = firstChild; child != null; child = child.NextSibling)
     {
-      if(IsText(child.NodeType)) sb.Append(child.Value);
-      else return null;
+      if(!IsText(child.NodeType)) return null;
+      if(sb == null) sb = new StringBuilder();
+      sb.Append(child.Value);
     }
     return sb.ToString();
   }
@@ -211,7 +247,7 @@ public sealed class XmlProperty
   /// <summary>Determines whether the element has nothing more than content, language, and/or type.</summary>
   static bool IsSimple(XmlElement element)
   {
-    foreach(XmlNode child in element.ChildNodes)
+    for(XmlNode child = element.FirstChild; child != null; child = child.NextSibling)
     {
       if(!IsText(child.NodeType)) return false;
     }
@@ -225,6 +261,7 @@ public sealed class XmlProperty
         return false;
       }
     }
+
     return true;
   }
 

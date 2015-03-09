@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -31,8 +31,6 @@ using AdamMil.Collections;
 using AdamMil.IO;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
-
-// TODO: add or find xml types for guid and other common types that aren't in xs:
 
 namespace AdamMil.WebDAV.Server
 {
@@ -450,13 +448,14 @@ public static class DAVUtility
   internal static XmlElement Extract(this XmlElement element)
   {
     if(element == null) throw new ArgumentNullException();
-    string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
     XmlDocument emptyDoc = new XmlDocument();
-    element = (XmlElement)emptyDoc.ImportNode(element, true);
-    // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang being inherited)
-    if(!string.IsNullOrEmpty(xmlLang)) element.SetAttribute(DAVNames.xmlLang, xmlLang);
-    emptyDoc.AppendChild(element);
-    return element;
+    XmlElement newElement = (XmlElement)emptyDoc.ImportNode(element, true);
+    // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang needing to be inherited)
+    string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
+    if(!string.IsNullOrEmpty(xmlLang)) newElement.SetAttribute(DAVNames.xmlLang, xmlLang);
+    FixXsiTypes(element, newElement);
+    emptyDoc.AppendChild(newElement);
+    return newElement;
   }
 
   /// <summary>Uniquely encodes a string into a valid file name.</summary>
@@ -543,6 +542,7 @@ public static class DAVUtility
         case TypeCode.UInt64: type = DAVNames.xsULong; break;
         case TypeCode.Object:
           if(value is DateTimeOffset) type = DAVNames.xsDateTime;
+          else if(value is Guid) type = DAVNames.msGuid;
           else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
           else if(value is byte[]) type = DAVNames.xsB64Binary;
           break;
@@ -603,22 +603,23 @@ public static class DAVUtility
     else if(type == DAVNames.xsString) value = text;
     else if(type == DAVNames.xsDateTime || type == DAVNames.xsDate) value = XmlUtility.ParseDateTime(text);
     else if(type == DAVNames.xsInt) value = XmlConvert.ToInt32(text);
+    else if(type == DAVNames.xsBoolean) value = XmlConvert.ToBoolean(text);
+    else if(type == DAVNames.xsDouble) value = XmlConvert.ToDouble(text);
+    else if(type == DAVNames.xsUri) value = new Uri(text, UriKind.RelativeOrAbsolute);
+    else if(type == DAVNames.msGuid) value = new Guid(text);
+    else if(type == DAVNames.xsB64Binary) value = Convert.FromBase64String(text);
+    else if(type == DAVNames.xsDuration) value = XmlDuration.Parse(text);
+    else if(type == DAVNames.xsFloat) value = XmlConvert.ToSingle(text);
     else if(type == DAVNames.xsULong) value = XmlConvert.ToUInt64(text);
     else if(type == DAVNames.xsLong) value = XmlConvert.ToInt64(text);
-    else if(type == DAVNames.xsBoolean) value = XmlConvert.ToBoolean(text);
-    else if(type == DAVNames.xsUri) value = new Uri(text, UriKind.RelativeOrAbsolute);
-    else if(type == DAVNames.xsDouble) value = XmlConvert.ToDouble(text);
-    else if(type == DAVNames.xsFloat) value = XmlConvert.ToSingle(text);
     else if(type == DAVNames.xsDecimal) value = XmlConvert.ToDecimal(text);
     else if(type == DAVNames.xsUInt) value = XmlConvert.ToUInt32(text);
     else if(type == DAVNames.xsShort) value = XmlConvert.ToInt16(text);
     else if(type == DAVNames.xsUShort) value = XmlConvert.ToUInt16(text);
     else if(type == DAVNames.xsUByte) value = XmlConvert.ToByte(text);
     else if(type == DAVNames.xsSByte) value = XmlConvert.ToSByte(text);
-    else if(type == DAVNames.xsDuration) value = XmlDuration.Parse(text);
-    else if(type == DAVNames.xsB64Binary) value = Convert.FromBase64String(text);
     else if(type == DAVNames.xsHexBinary) value = BinaryUtility.ParseHex(text, true);
-    else value = null;
+    else value = text;
     return value;
   }
 
@@ -698,14 +699,6 @@ public static class DAVUtility
     {
       return (int)ValidateSignedInteger(propertyName, value, int.MinValue, int.MaxValue);
     }
-    else if(expectedType == DAVNames.xsULong)
-    {
-      return ValidateUnsignedInteger(propertyName, value, ulong.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsLong)
-    {
-      return ValidateSignedInteger(propertyName, value, long.MinValue, long.MaxValue);
-    }
     else if(expectedType == DAVNames.xsBoolean)
     {
       if(value is bool) return value;
@@ -716,13 +709,35 @@ public static class DAVUtility
       Uri uri;
       if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
     }
+    else if(expectedType == DAVNames.msGuid)
+    {
+      if(value is Guid) return value;
+      Guid guid;
+      if(value is string && GuidUtility.TryParse((string)value, out guid)) return guid;
+    }
     else if(expectedType == DAVNames.xsDouble)
     {
       if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
     }
+    else if(expectedType == DAVNames.xsLong)
+    {
+      return ValidateSignedInteger(propertyName, value, long.MinValue, long.MaxValue);
+    }
+    else if(expectedType == DAVNames.xsULong)
+    {
+      return ValidateUnsignedInteger(propertyName, value, ulong.MaxValue);
+    }
     else if(expectedType == DAVNames.xsFloat)
     {
       if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+    }
+    else if(expectedType == DAVNames.xsDuration)
+    {
+      if(value is XmlDuration || value is TimeSpan) return value;
+    }
+    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
+    {
+      if(value is byte[]) return value;
     }
     else if(expectedType == DAVNames.xsDecimal)
     {
@@ -750,14 +765,6 @@ public static class DAVUtility
     else if(expectedType == DAVNames.xsSByte)
     {
       return (sbyte)ValidateSignedInteger(propertyName, value, sbyte.MinValue, sbyte.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsDuration)
-    {
-      if(value is XmlDuration || value is TimeSpan) return value;
-    }
-    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
-    {
-      if(value is byte[]) return value;
     }
     else
     {
@@ -822,6 +829,20 @@ public static class DAVUtility
   static bool CanIncludeBody(int statusCode)
   {
     return statusCode != (int)HttpStatusCode.NoContent && statusCode != (int)HttpStatusCode.NotModified;
+  }
+
+  /// <summary>Recursively fixes QName values in xsi:type attributes to reference the correct namespaces in the new element.
+  /// Unfortunately, this doesn't correct QName values in other attributes because we don't know which other attributes expect QNames.
+  /// </summary>
+  static void FixXsiTypes(XmlElement oldElem, XmlElement newElem)
+  {
+    string xsiType = oldElem.GetAttribute(DAVNames.xsiType);
+    if(!string.IsNullOrEmpty(xsiType)) newElem.SetAttribute(DAVNames.xsiType, oldElem.ParseQualifiedName(xsiType).ToString(newElem));
+
+    for(XmlNode oc=oldElem.FirstChild, nc=newElem.FirstChild; oc != null; oc=oc.NextSibling, nc=nc.NextSibling)
+    {
+      if(oc.NodeType == XmlNodeType.Element) FixXsiTypes((XmlElement)oc, (XmlElement)nc);
+    }
   }
 
   static bool IsInteger(object value)
@@ -912,6 +933,7 @@ public static class DAVUtility
     {
       switch(Type.GetTypeCode(value.GetType()))
       {
+        case TypeCode.Byte: intValue = (byte)value; break;
         case TypeCode.Decimal:
         {
           decimal d = (decimal)value, trunc = decimal.Truncate(d);

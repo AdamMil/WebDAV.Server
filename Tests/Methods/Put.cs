@@ -8,7 +8,7 @@ using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   [TestFixture]
   public class PutTests : TestBase
@@ -34,9 +34,7 @@ namespace WebDAV.Server.Tests
       TestPut("small.txt", null, hello, 201, hello);
 
       // set a dead property
-      TestRequest("PROPPATCH", "small.txt", null,
-                  Encoding.ASCII.GetBytes("<?xml version=\"1.0\" encoding=\"utf-8\" ?><propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\"><set><prop><T:foo>bar</T:foo></prop></set></propertyupdate>"),
-                  207);
+      SetCustomProperties("small.txt", "foo", "bar");
 
       // overwrite it, using a compressed transfer
       MemoryStream compressedBody = new MemoryStream();
@@ -44,22 +42,7 @@ namespace WebDAV.Server.Tests
       TestPut("small.txt", new string[] { DAVHeaders.ContentEncoding, "gzip" }, compressedBody.ToArray(), 204, goodbye);
 
       // check that the dead property is still there
-      TestRequest("PROPFIND", "small.txt", new string[] { DAVHeaders.Depth, "0" },
-                  Encoding.ASCII.GetBytes("<?xml version=\"1.0\" encoding=\"utf-8\" ?><propfind xmlns=\"DAV:\" xmlns:T=\"TEST:\"><prop><T:foo/></prop></propfind>"),
-                  207, null, response =>
-      {
-        using(Stream stream = response.GetResponseStream())
-        {
-          XmlDocument doc = new XmlDocument();
-          doc.Load(stream);
-          XmlNamespaceManager xmlns = new XmlNamespaceManager(doc.NameTable);
-          xmlns.AddNamespace("D", "DAV:");
-          xmlns.AddNamespace("T", "TEST:");
-          XmlElement element = (XmlElement)doc.SelectSingleNode("/D:multistatus/D:response/D:propstat/D:prop/T:foo", xmlns);
-          Assert.IsNotNull(element);
-          Assert.AreEqual("bar", element.InnerText);
-        }
-      });
+      TestCustomProperties("small.txt", "foo", "bar");
 
       // test conditional requests
       TestPut("small.txt", new string[] { DAVHeaders.IfNoneMatch, DAVUtility.ComputeEntityTag(new MemoryStream(goodbye)).ToHeaderString() }, hello, 412, goodbye);

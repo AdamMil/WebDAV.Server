@@ -10,7 +10,7 @@ using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   [TestFixture]
   public class GetOrHeadTests : TestBase
@@ -54,8 +54,9 @@ namespace WebDAV.Server.Tests
       EntityTag etag = null;
       TestRequest("HEAD", requestPath, null, null, 200, null, response =>
       {
-        Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
-        Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
+        modifyDate = DAVUtility.ParseHttpDate(response.Headers[DAVHeaders.LastModified]);
+        etag       = new EntityTag(response.Headers[DAVHeaders.ETag]);
+        Assert.AreEqual(DateTimeKind.Utc, modifyDate.Kind);
       });
 
       TestConditionalGet(requestPath, expectedBody, DAVHeaders.IfModifiedSince, modifyDate, false);
@@ -81,8 +82,8 @@ namespace WebDAV.Server.Tests
       EntityTag etag = null;
       TestRequest("HEAD", requestPath, null, null, 200, null, response =>
       {
-        Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
-        Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
+        modifyDate = DAVUtility.ParseHttpDate(response.Headers[DAVHeaders.LastModified]);
+        etag       = new EntityTag(response.Headers[DAVHeaders.ETag]);
       });
 
       TestRequest("HEAD", requestPath, new string[] { DAVHeaders.Range, "bytes=0-99" }, 206,
@@ -263,8 +264,8 @@ namespace WebDAV.Server.Tests
 
         TestRequest("HEAD", requestPath, requestHeaders, null, 200, expectedHeaders, response =>
         {
-          if(!isDynamic) Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
-          Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
+          if(!isDynamic) modifyDate = DAVUtility.ParseHttpDate(response.Headers[DAVHeaders.LastModified]);
+          etag = new EntityTag(response.Headers[DAVHeaders.ETag]);
           using(Stream stream = response.GetResponseStream()) Assert.AreEqual(0, stream.ReadToEnd().Length);
         });
 
