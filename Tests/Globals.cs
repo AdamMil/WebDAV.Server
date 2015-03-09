@@ -1,7 +1,8 @@
 ﻿using System.IO;
 using System.Reflection;
+using AdamMil.Tests;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   static class Globals
   {

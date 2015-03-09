@@ -18,25 +18,35 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 -->
-<xs:schema targetNamespace="http://adammil.net/webdav.server/compressionMap" elementFormDefault="qualified"
-           xmlns="http://adammil.net/webdav.server/compressionMap"
+<xs:schema targetNamespace="http://adammil.net/webdav.server/mediaTypes" elementFormDefault="qualified"
+           xmlns="http://adammil.net/webdav.server/mediaTypes"
            xmlns:xs="http://www.w3.org/2001/XMLSchema">
-  <xs:simpleType name="mediaTypePattern">
+  <xs:simpleType name="mediaType">
     <xs:restriction base="xs:string">
-      <xs:pattern value="[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+(/[a-z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+)?" />
+      <xs:pattern value="[a-zA-Z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+/[a-zA-Z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+" />
     </xs:restriction>
   </xs:simpleType>
 
-  <xs:element name="compressionMap">
+  <xs:simpleType name="extension">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[^\.].*" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:element name="mediaTypeMap">
     <xs:complexType>
       <xs:sequence>
         <xs:element name="entry" minOccurs="0" maxOccurs="unbounded">
           <xs:complexType>
-            <xs:attribute name="mediaType" type="mediaTypePattern" use="required" />
-            <xs:attribute name="compress" type="xs:boolean" use="optional" default="true" />
+            <xs:attribute name="mediaType" type="mediaType" use="required" />
+            <xs:attribute name="extension" type="extension" use="required" />
+            <xs:attribute name="canonicalExtension" type="xs:boolean" default="false" />
+            <xs:attribute name="canonicalMediaType" type="xs:boolean" default="true" />
           </xs:complexType>
         </xs:element>
       </xs:sequence>
+      <xs:attribute name="defaultExtension" type="extension" />
+      <xs:attribute name="defaultMediaType" type="mediaType" />
     </xs:complexType>
   </xs:element>
 </xs:schema>

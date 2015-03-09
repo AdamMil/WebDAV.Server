@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -265,15 +265,24 @@ public class PropPatchRequest : WebDAVRequest
           hadError       = true;
         }
       }
+
       foreach(KeyValuePair<XmlQualifiedName,PropertyPatchValue> pair in patch.Set)
       {
-        ConditionCode status = IsProtected(pair.Key, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
-                                                                          : canSetProperty(pair.Key, pair.Value);
-        if(status == null && Context.PropertyStore == null) status = ConditionCodes.Forbidden; // can't set dead properties without a store
-        if(status != null && status.IsError)
+        ConditionCode status = pair.Value.Status;
+        if(status != null && status.IsError) // if it already had an error status (from parsing the request), use it...
         {
-          pair.Value.Status = status;
-          hadError          = true;
+          hadError = true;
+        }
+        else // otherwise, make sure it's not protected or otherwise forbidden
+        {
+          status = IsProtected(pair.Key, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
+                                                              : canSetProperty(pair.Key, pair.Value);
+          if(status == null && Context.PropertyStore == null) status = ConditionCodes.Forbidden; // can't set dead properties without a store
+          if(status != null && status.IsError)
+          {
+            pair.Value.Status = status;
+            hadError          = true;
+          }
         }
       }
     }
@@ -352,7 +361,6 @@ public class PropPatchRequest : WebDAVRequest
     xml.DocumentElement.AssertName(DAVNames.propertyupdate); // and it has to be a <propertyupdate> body
 
     // parse all of the property patches
-    bool hasBadValue = false; // whether we encountered a property with an unparsable value
     foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements())
     {
       if(child.HasName(DAVNames.set)) // if the patch should set new or existing properties...
@@ -363,7 +371,6 @@ public class PropPatchRequest : WebDAVRequest
         foreach(XmlElement prop in props.EnumerateChildElements())
         {
           XmlProperty parsedProperty = TryParseValue(prop);
-          if(parsedProperty == null) hasBadValue = true;
           try
           {
             patch.Set.Add(prop.GetQualifiedName(),
@@ -382,13 +389,6 @@ public class PropPatchRequest : WebDAVRequest
         patch.Remove.AddRange(child.GetChild(DAVNames.prop).EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName));
         Patches.Add(patch);
       }
-    }
-
-    // now we've parsed the request. if an unparsable value was encountered, issue an error result immediately
-    if(hasBadValue)
-    {
-      WriteResponseCore();
-      Context.Response.End(); // prevent the service from being invoked to process the request
     }
   }
 
@@ -433,9 +433,12 @@ public class PropPatchRequest : WebDAVRequest
       throw new ContractViolationException("PROPPATCH changes must either all succeed or all fail.");
     }
 
-    // collect the namespaces used in the response. while we're at it, also group the property names by status code
+    // collect the namespaces used in the response. while we're at it, also group the property names by status code. use a hash set
+    // dictionary rather than a list because properties can theoretically be named multiple times in the request, for instance being
+    // set and then removed, or set and then set again. it's still possible for properties to be named multiple times if they have
+    // different statuses, but i'm not sure what the proper output should be for that
     HashSet<string> namespaces = new HashSet<string>();
-    var namesByStatus = new MultiValuedDictionary<ConditionCode, XmlQualifiedName>();
+    var namesByStatus = new HashSetDictionary<ConditionCode, XmlQualifiedName>();
     ConditionCode defaultCode = hadFailure ? ConditionCodes.FailedDependency : ConditionCodes.OK;
     foreach(PropertyPatch patch in Patches)
     {
@@ -457,7 +460,7 @@ public class PropPatchRequest : WebDAVRequest
       writer.WriteStartElement(DAVNames.response.Name);
       writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + Context.RequestPath);
 
-      foreach(KeyValuePair<ConditionCode, List<XmlQualifiedName>> pair in namesByStatus)
+      foreach(KeyValuePair<ConditionCode, HashSet<XmlQualifiedName>> pair in namesByStatus)
       {
         writer.WriteStartElement(DAVNames.propstat.Name);
         writer.WriteStartElement(DAVNames.prop.Name);

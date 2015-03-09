@@ -3,7 +3,7 @@ using System.Text;
 using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
   [TestFixture]
   public class DeleteTests : TestBase
@@ -12,7 +12,7 @@ namespace WebDAV.Server.Tests
     public void Setup()
     {
       CreateWebServer(null, typeof(MemoryPropertyStore), new FileSystemLocation("/", true));
-
+      
       byte[] file = Encoding.UTF8.GetBytes("Goodbye, cruel world!");
       Server.CreateDirectory("dir");
       Server.CreateDirectory("dir/subdir");
@@ -26,14 +26,20 @@ namespace WebDAV.Server.Tests
     [Test]
     public void Test()
     {
+      SetCustomProperties("file.tfb", "foo", "file");
+      SetCustomProperties("dir/", "foo", "dir");
+      SetCustomProperties("dir/subdir/", "foo", "subdir");
+      SetCustomProperties("dir/subdir/file1", "foo", "sfile1");
+      SetCustomProperties("dir/subdir/file2", "foo", "sfile2");
+
       DateTime modifyDate = default(DateTime);
       EntityTag etag = null;
       TestRequest("HEAD", "file.tfb", null, null, 200, null, response =>
       {
-        Assert.IsTrue(DAVUtility.TryParseHttpDate(response.Headers[DAVHeaders.LastModified], out modifyDate));
-        Assert.IsTrue(EntityTag.TryParse(response.Headers[DAVHeaders.ETag], out etag));
+        modifyDate = DAVUtility.ParseHttpDate(response.Headers[DAVHeaders.LastModified]);
+        etag       = new EntityTag(response.Headers[DAVHeaders.ETag]);
       });
-
+      
       TestRequest("DELETE", "file.tfb", new string[] { DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(modifyDate) }, 412);
       TestRequest("DELETE", "file.tfb", new string[] { DAVHeaders.IfNoneMatch, etag.ToHeaderString() }, 412);
       TestRequest("DELETE", "file.tfb", new string[] { DAVHeaders.IfMatch, etag.ToHeaderString() }, 204);
@@ -43,6 +49,17 @@ namespace WebDAV.Server.Tests
       TestDelete("dir/subdir/file1");
       TestDelete("dir/");
       TestRequest("GET", "dir/file2", 404);
+
+      // make sure the properties were deleted
+      Server.CreateDirectory("dir");
+      Server.CreateDirectory("dir/subdir");
+      Server.CreateFile("file.tfb", new byte[0]);
+      Server.CreateFile("dir/subdir/file1", new byte[0]);
+      Server.CreateFile("dir/subdir/file2", new byte[0]);
+      foreach(string path in new[] { "dir", "dir/subdir", "file.tfb", "dir/subdir/file1", "dir/subdir/file2" })
+      {
+        TestCustomProperties(path, "foo", null);
+      }
     }
 
     void TestDelete(string requestPath)

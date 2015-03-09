@@ -63,7 +63,7 @@
     <Compile Include="Methods\PropPatch.cs" />
     <Compile Include="Methods\Put.cs" />
     <Compile Include="Methods\Unlock.cs" />
-    <Compile Include="MimeTypes.cs" />
+    <Compile Include="Common\MediaTypes.cs" />
     <Compile Include="Services\Authorization.cs" />
     <Compile Include="Common\ConditionCodes.cs" />
     <Compile Include="Common\Configuration.cs" />
@@ -80,7 +80,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="AdamMil.snk" />
-    <EmbeddedResource Include="Resources\MimeMap.xsd">
+    <EmbeddedResource Include="Resources\MediaTypes.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>
     <EmbeddedResource Include="Resources\Compression.xsd">
@@ -91,7 +91,7 @@
   <ItemGroup>
     <Content Include="documentation.xml" />
     <EmbeddedResource Include="Resources\Compression.xml" />
-    <EmbeddedResource Include="Resources\MimeMap.xml" />
+    <EmbeddedResource Include="Resources\MediaTypes.xml" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">

@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2013 by Adam Milazzo.
+Written 2012-2015 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -34,8 +34,8 @@ using AdamMil.WebDAV.Server.Configuration;
 // though, in WebDAVModule, perhaps by adding an IWebDAVRequest.GetSupportedMethods method
 // TODO: look into Microsoft's WebDAV extensions
 // TODO: support the Expects header (RFC 7231 section 5.1.1) if IIS doesn't do it for us
-// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI, but we
-// might do that sometimes... check for it and see what we can do about it...
+// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI.
+// check to make sure we don't do that
 // TODO: see if we can annotate the code with reliability attributes. (http://msdn.microsoft.com/en-us/magazine/cc163716.aspx)
 
 namespace AdamMil.WebDAV.Server

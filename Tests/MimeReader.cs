@@ -11,7 +11,7 @@ using AdamMil.Utilities;
 using AdamMil.Utilities.Encodings;
 using AdamMil.WebDAV.Server;
 
-namespace WebDAV.Server.Tests
+namespace AdamMil.WebDAV.Server.Tests
 {
 
 #region MimeReader
