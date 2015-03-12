@@ -23,6 +23,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Security.Principal;
 using System.Text.RegularExpressions;
 using System.Web;
 using System.Xml;
@@ -33,20 +34,22 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Contains information about the current WebDAV request.</summary>
-public sealed class WebDAVContext : IDisposable
+public sealed class WebDAVContext
 {
-  internal WebDAVContext(IWebDAVService service, string serviceRootPath, string requestPath, HttpApplication app,
-                         ILockManager lockManager, IPropertyStore propertyStore, Configuration config)
+  internal WebDAVContext(IWebDAVService service, IAuthorizationFilter[] authFilters, string serviceRootPath, string requestPath,
+                         HttpApplication app, ILockManager lockManager, IPropertyStore propertyStore, Configuration config)
   {
-    Service       = service;
-    ServiceRoot   = serviceRootPath;
-    RequestPath   = requestPath;
-    Application   = app;
-    Request       = app.Request;
-    Response      = app.Response;
-    LockManager   = lockManager;
-    PropertyStore = propertyStore;
-    Settings      = config;
+    Service          = service;
+    this.authFilters = authFilters;
+    ServiceRoot      = serviceRootPath;
+    RequestPath      = requestPath;
+    Application      = app;
+    Request          = app.Request;
+    Response         = app.Response;
+    User             = app.User;
+    LockManager      = lockManager;
+    PropertyStore    = propertyStore;
+    Settings         = config;
   }
 
   #region Configuration
@@ -69,6 +72,38 @@ public sealed class WebDAVContext : IDisposable
   public string CanonicalPathIfKnown
   {
     get { return RequestResource != null ? RequestResource.CanonicalPath : RequestPath; }
+  }
+
+  /// <summary>Get the ID of the user making the current request, or null if the user is unknown or anonymous.</summary>
+  /// <remarks><para><include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/remarks/node()" /></para>
+  /// <para>This property will return an ID determined by interrogating the <see cref="IAuthorizationFilter">authorization filters</see> as
+  /// well as the <see cref="Service"/>. The value will be cached for the duration of the request.
+  /// </para>
+  /// </remarks>
+  public string CurrentUserId
+  {
+    get
+    {
+      if(_currentUserId == null)
+      {
+        string userId = null;
+        if(authFilters != null)
+        {
+          foreach(IAuthorizationFilter filter in authFilters)
+          {
+            if(filter.GetCurrentUserId(this, out userId))
+            {
+              userId = userId ?? "";
+              break;
+            }
+          }
+        }
+        if(userId == null) userId = Service.GetCurrentUserId(this);
+        _currentUserId = userId ?? "";
+      }
+
+      return StringUtility.MakeNullIfEmpty(_currentUserId);
+    }
   }
 
   /// <summary>Gets the default <see cref="ILockManager"/> to be used with the request, or null if no lock manager is configured.</summary>
@@ -104,6 +139,30 @@ public sealed class WebDAVContext : IDisposable
 
   /// <summary>Gets additional configuration settings for the WebDAV service in the current context.</summary>
   public Configuration Settings { get; private set; }
+
+  /// <summary>Gets the <see cref="IPrincipal"/> reported by ASP.NET as the user making the current request.</summary>
+  public IPrincipal User { get; private set; }
+
+  /// <summary>Determines whether the user represented by the <see cref="CurrentUserId"/> is allowed to delete the given lock.</summary>
+  /// <remarks>This property will interrogate the <see cref="IAuthorizationFilter">authorization filters</see> as well as the
+  /// <see cref="Service"/>.
+  /// </remarks>
+  public bool CanDeleteLock(ActiveLock lockObject)
+  {
+    if(lockObject == null) throw new ArgumentNullException();
+    if(CurrentUserId.OrdinalEquals(lockObject.OwnerId)) return true;
+
+    if(authFilters != null)
+    {
+      foreach(IAuthorizationFilter filter in authFilters)
+      {
+        bool? canUnlock = filter.CanDeleteLock(this, lockObject);
+        if(canUnlock.HasValue) return canUnlock.Value;
+      }
+    }
+
+    return Service.CanDeleteLock(this, lockObject);
+  }
 
   /// <summary>Chooses a <see cref="ContentEncoding"/> for the response based on the types supported by the client.</summary>
   /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
@@ -243,7 +302,7 @@ public sealed class WebDAVContext : IDisposable
   {
     // begin outputting a multistatus (HTTP 207) response as defined in RFC 4918
     Response.SetStatus(207);
-    return new MultiStatusResponse(OpenXmlResponse(null), namespaces);
+    return new MultiStatusResponse(this, OpenXmlResponse(null), namespaces);
   }
 
   /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
@@ -315,7 +374,7 @@ public sealed class WebDAVContext : IDisposable
     if(status != null) Response.SetStatus(status);
     Response.ContentEncoding = System.Text.Encoding.UTF8;
     Response.SetContentType("application/xml"); // media type specified by RFC 4918 section 8.2
-    return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, IndentChars = "\t" });
+    return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, IndentChars = "\t", NewLineChars = "\n" });
   }
 
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>
@@ -341,6 +400,17 @@ public sealed class WebDAVContext : IDisposable
     RequestResource = Service.ResolveResource(this, RequestPath);
   }
 
+  /// <summary>Determines whether the client is the WebDAV mini-redirector client used by Windows Explorer, which has numerous bugs and
+  /// limitations that we need to work around.
+  /// </summary>
+  internal bool UseExplorerHacks()
+  {
+    // at the very least we need to 1) specify a prefix for the DAV: namespace (e.g. <D:prop>). Explorer can't understand responses that
+    // use the default namespace. 2) truncate timestamp precision to no more than 3 decimal places. Explorer can't parse timestamps with
+    // greater than millisecond precision
+    return Request.UserAgent != null && Request.UserAgent.StartsWith("Microsoft-WebDAV-MiniRedir/");
+  }
+
   /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
   /// be empty.
   /// </summary>
@@ -353,8 +423,8 @@ public sealed class WebDAVContext : IDisposable
     {
       foreach(ResourceStatus member in failedMembers)
       {
-        response.Writer.WriteStartElement(DAVNames.response.Name);
-        response.Writer.WriteElementString(DAVNames.href.Name, member.AbsolutePath);
+        response.Writer.WriteStartElement(DAVNames.response);
+        response.Writer.WriteElementString(DAVNames.href, member.AbsolutePath);
         response.WriteStatus(member.Status);
         response.Writer.WriteEndElement();
       }
@@ -414,10 +484,8 @@ public sealed class WebDAVContext : IDisposable
   }
   #endregion
 
-  void IDisposable.Dispose()
-  {
-    if(!Service.IsReusable) Utility.Dispose(Service);
-  }
+  readonly IAuthorizationFilter[] authFilters;
+  string _currentUserId;
 
   /// <summary>Returns a default preference value for a content encoding.</summary>
   static int GetDefaultPreference(string encoding)

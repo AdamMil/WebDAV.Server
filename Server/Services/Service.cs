@@ -19,19 +19,21 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 using System;
 using System.Net;
+using System.Security.Principal;
 
 namespace AdamMil.WebDAV.Server
 {
 
 #region IWebDAVService
 /// <summary>Represents a WebDAV service that serves a subtree within a URL namespace.</summary>
-/// <remarks>Before implementing a WebDAV service, it is strongly recommended that be familiar with the WebDAV specification as outlined in
-/// RFC 4918 and the HTTP specification as outlined in RFCs 7230 through 7235.
+/// <remarks>A WebDAV service must be usable across multiple requests on multiple threads simultaneously. Before implementing a WebDAV
+/// service, it is strongly recommended that be familiar with the WebDAV specification as outlined in RFC 4918 and the HTTP specification
+/// as outlined in RFCs 7230 through 7235.
 /// </remarks>
 public interface IWebDAVService
 {
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
-  bool IsReusable { get; }
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CanDeleteLock/node()" />
+  bool CanDeleteLock(WebDAVContext context, ActiveLock lockObject);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   void CreateAndLock(LockRequest request);
@@ -69,6 +71,9 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateUnlock/node()" />
   UnlockRequest CreateUnlock(WebDAVContext context);
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/node()" />
+  string GetCurrentUserId(WebDAVContext context);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/HandleGenericRequest/node()" />
   bool HandleGenericRequest(WebDAVContext context);
 
@@ -94,13 +99,18 @@ public interface IWebDAVService
 
 #region WebDAVService
 /// <summary>Provides a base class to simplify the implementation of <see cref="IWebDAVService"/>.</summary>
-/// <remarks>Before implementing a WebDAV service, it is strongly recommended that be familiar with the WebDAV specification as outlined in
-/// RFC 4918.
+/// <remarks>A WebDAV service must be usable across multiple requests on multiple threads simultaneously. Before implementing a
+/// WebDAV service, it is strongly recommended that be familiar with the WebDAV specification as outlined in  RFC 4918.
 /// </remarks>
 public abstract class WebDAVService : IWebDAVService
 {
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
-  public abstract bool IsReusable { get; }
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CanDeleteLock/node()" />
+  /// <remarks>The default implementation returns true if the two user IDs are identical, and false otherwise.</remarks>
+  public virtual bool CanDeleteLock(WebDAVContext context, ActiveLock lockObject)
+  {
+    if(context == null || lockObject == null) throw new ArgumentNullException();
+    return string.Equals(context.CurrentUserId, lockObject.OwnerId, StringComparison.Ordinal);
+  }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   /// <remarks>The default implementation responds with 403 Forbidden, indicating that the service does not support the locking of new
@@ -109,7 +119,8 @@ public abstract class WebDAVService : IWebDAVService
   public virtual void CreateAndLock(LockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the locking of new resources.");
+    if(request.Context.LockManager == null) request.Status = ConditionCodes.MethodNotAllowed;
+    else request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the locking of new resources.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateCopyOrMove/node()" />
@@ -189,6 +200,20 @@ public abstract class WebDAVService : IWebDAVService
     return new UnlockRequest(context);
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/node()" />
+  /// <remarks>The default implementation returns a user ID based on ASP.NET authentication providers by combining the currently
+  /// authenticated user's <see cref="IIdentity.AuthenticationType"/> and <see cref="IIdentity.Name"/> in the format
+  /// <c>authType:userName</c>. If you have a better mechanism to identify users, you should override this method as well as the
+  /// <see cref="CanDeleteLock"/> method. The <see cref="IIdentity.AuthenticationType"/> is <c>Negotiate</c> for basic/digest
+  /// authentication and <c>NTLM</c> for NTLM authentication.
+  /// </remarks>
+  public virtual string GetCurrentUserId(WebDAVContext context)
+  {
+    IIdentity identity = context.User == null ? null : context.User.Identity;
+    return identity == null || !identity.IsAuthenticated || string.IsNullOrEmpty(identity.Name) ?
+      null : identity.AuthenticationType + ":" + identity.Name;
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/HandleGenericRequest/node()" />
   /// <remarks>The default implementation does not handle any generic requests.</remarks>
   public virtual bool HandleGenericRequest(WebDAVContext context)
@@ -238,7 +263,8 @@ public abstract class WebDAVService : IWebDAVService
   public virtual void Unlock(UnlockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the unlocking of unmapped URLs.");
+    if(request.Context.LockManager == null) request.Status = ConditionCodes.MethodNotAllowed;
+    else request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This service does not support the unlocking of unmapped URLs.");
   }
 }
 #endregion

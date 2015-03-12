@@ -114,11 +114,14 @@ public abstract class WebDAVResource : IWebDAVResource
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Lock/node()" />
-  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource cannot be locked.</remarks>
+  /// <remarks>The default implementation responds with 405 Method Not Allowed if locking is not enabled, and 403 Forbidden otherwise,
+  /// indicating that the resource cannot be locked.
+  /// </remarks>
   public virtual void Lock(LockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource cannot be locked.");
+    if(request.Context.LockManager == null) request.Status = ConditionCodes.MethodNotAllowed;
+    else request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource cannot be locked.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
@@ -164,13 +167,14 @@ public abstract class WebDAVResource : IWebDAVResource
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
-  /// <remarks>The default implementation responds with 409 Conflict, indicating that the resource is not locked (because it doesn't
-  /// support locking).
+  /// <remarks>The default implementation responds with 405 Method Not Allowed if locking is not enabled, and 409 Conflict otherwise,
+  /// indicating that the resource is not locked.
   /// </remarks>
   public virtual void Unlock(UnlockRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode(HttpStatusCode.Conflict, "The resource is not locked (because it does not support locking).");
+    if(request.Context.LockManager == null) request.Status = ConditionCodes.MethodNotAllowed;
+    else request.Status = new ConditionCode(HttpStatusCode.Conflict, "The resource is not locked.");
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />

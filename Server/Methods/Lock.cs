@@ -147,7 +147,7 @@ public class LockRequest : WebDAVRequest
 
     if(Context.LockManager == null) // if there's no lock manager, the resource can't be locked
     {
-      Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support locking.");
+      Status = new ConditionCode(HttpStatusCode.MethodNotAllowed, "This resource does not support locking.");
     }
     else if(supportedLocks != null && LockType != null && !supportedLocks.Any(L => LockType.Equals(L))) // is the lock type unsupported?
     {
@@ -157,18 +157,11 @@ public class LockRequest : WebDAVRequest
     {
       if(canonicalPath == null) canonicalPath = Context.RequestResource.CanonicalPath;
       bool recursive = supportsRecursiveLocks && Depth == Depth.SelfAndDescendants;
-      ConditionCode precondition = CheckPreconditions(metadata);
+      ConditionCode precondition = CheckPreconditions(metadata, canonicalPath);
       if(precondition != null) // if the preconditions weren't satisfied...
       {
-        if(precondition.StatusCode != (int)HttpStatusCode.NotModified)
-        {
-          Status = precondition; // then immediately return the precondition status
-        }
-        else // otherwise, see if there are any conflicting locks. if so, return the error. if not, return the precondition status
-        {
-          ProcessConflictingLocks(canonicalPath, recursive, false);
-          if(Status == null || Status.IsSuccessful) Status = precondition;
-        }
+        // return the precondition status if it's an error or there were no conflicting locks. otherwise, we'll report the conflicts
+        if(precondition.IsError || !ProcessConflictingLocks(canonicalPath, recursive, false)) Status = precondition;
       }
       else // the preconditions were satisfied...
       {
@@ -190,7 +183,8 @@ public class LockRequest : WebDAVRequest
         {
           try
           {
-            NewLock = Context.LockManager.AddLock(canonicalPath, LockType, recursive, requestedTimeout, OwnerData, ServerData);
+            NewLock = Context.LockManager.AddLock(canonicalPath, LockType, GetLockSelection(recursive), requestedTimeout,
+                                                  Context.CurrentUserId, OwnerData, ServerData);
           }
           catch(LockConflictException)
           {
@@ -198,6 +192,9 @@ public class LockRequest : WebDAVRequest
           }
           catch(LockLimitReachedException ex)
           {
+            // 503 Service Unavailable seems like the best choice among the available HTTP status codes for reporting the lock limit.
+            // the only other one that's similar is 507 Insufficient Storage, but that's more about disk space and requires that the
+            // client not retry automatically, whereas we don't want to prevent automatic retry
             Status = ex.ConditionCode ?? new ConditionCode(HttpStatusCode.ServiceUnavailable, "A lock limit has been reached.");
           }
         }
@@ -243,7 +240,11 @@ public class LockRequest : WebDAVRequest
     {
       // RFC 4918 section 9.10.2 requires exactly one lock token to be submitted for refresh
       HashSet<string> lockTokens = GetSubmittedLockTokens();
-      if(lockTokens.Count != 1) throw Exceptions.BadRequest("Exactly one lock token must be submitted when refreshing a lock.");
+      if(lockTokens.Count != 1)
+      {
+        throw Exceptions.BadRequest("Exactly one lock token must be submitted when refreshing a lock." +
+                                    (lockTokens.Count == 0 ? " If you intended to create a lock, the request body was missing." : null));
+      }
     }
     else
     {
@@ -293,8 +294,10 @@ public class LockRequest : WebDAVRequest
 
       using(XmlWriter writer = Context.OpenXmlResponse(Status ?? ConditionCodes.OK))
       {
-        writer.WriteStartElement(DAVNames.prop);
-        writer.WriteAttributeString("xmlns", DAVNames.DAV);
+        string davPrefix = Context.UseExplorerHacks() ? "D" : null; // Windows Explorer can't handle responses without prefixes
+        writer.WriteStartElement(davPrefix, DAVNames.prop.Name, DAVNames.prop.Namespace);
+        if(davPrefix == null) writer.WriteAttributeString("xmlns", DAVNames.DAV); // add the xmlns attribute for the DAV: namespace
+        else writer.WriteAttributeString("xmlns", davPrefix, null, DAVNames.DAV);
         writer.WriteStartElement(DAVNames.lockdiscovery);
         ((IElementValue)NewLock).WriteValue(writer, Context);
         writer.WriteEndElement(); // lockdiscovery
@@ -311,14 +314,24 @@ public class LockRequest : WebDAVRequest
     }
   }
 
-  void ProcessConflictingLocks(string lockPath, bool recursive, bool forceError)
+  LockSelection GetLockSelection(bool recursive)
   {
-    HashSet<string> paths = Context.LockManager.GetConflictingLocks(lockPath, LockType, recursive).Select(L => L.Path).ToSet();
+    LockSelection selection = recursive ? LockSelection.RecursiveUpAndDown : LockSelection.SelfAndRecursiveAncestors;
+    if(Context.RequestResource == null) selection |= LockSelection.Parent;
+    return selection;
+  }
+
+  bool ProcessConflictingLocks(string lockPath, bool recursive, bool forceError)
+  {
+    HashSet<string> paths =
+      Context.LockManager.GetConflictingLocks(lockPath, LockType, GetLockSelection(recursive), Context.CurrentUserId)
+        .Select(L => L.Path).ToSet();
     foreach(string path in paths) FailedResources.Add(Context.ServiceRoot + path, ConditionCodes.Locked);
 
     if(FailedResources.Count == 0) // if there weren't any known conflicting locks...
     {
       if(forceError) Status = ConditionCodes.Locked; // then issue a generic Locked error if we're to force an error status
+      return forceError;
     }
     else if(!paths.Contains(DAVUtility.RemoveTrailingSlash(lockPath))) // if the request path didn't conflict but other paths did...
     {
@@ -330,6 +343,12 @@ public class LockRequest : WebDAVRequest
       FailedResources.Clear(); // use the HTTP 423 Locked status rather than a 207 Multi-Status response
       Status = ConditionCodes.Locked;
     }
+
+    // if multiple resources failed, we're going to write a 207 Multi-Status response. we'll report that in Status even though we'll
+    // ignore Status later in order to communicate that an unusual condition occurred, given that a null status normally means success
+    if(FailedResources.Count > 1) Status = ConditionCodes.MultiStatus;
+
+    return true;
   }
 }
 

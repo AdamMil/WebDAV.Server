@@ -27,9 +27,8 @@ using System.Runtime.InteropServices;
 #else
 [assembly: AssemblyConfiguration("Release")]
 #endif
-[assembly: AssemblyCompany("Webmedia")]
 [assembly: AssemblyProduct("AdamMil.net")]
-[assembly: AssemblyCopyright("Copyright © Nortal 2012-2013")]
+[assembly: AssemblyCopyright("Copyright © Adam Milazzo 2012-2015")]
 
 [assembly: ComVisible(false)]
 

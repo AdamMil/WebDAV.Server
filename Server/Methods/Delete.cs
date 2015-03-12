@@ -74,9 +74,9 @@ public class DeleteRequest : WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
   /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and on descendant resources.</remarks>
-  protected override ConditionCode CheckSubmittedLockTokens()
+  protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
-    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, true);
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, true, true);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />

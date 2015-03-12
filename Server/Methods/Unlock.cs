@@ -54,24 +54,49 @@ public class UnlockRequest : SimpleRequest
   public string LockToken { get; private set; }
 
   /// <summary>Processes a standard <c>UNLOCK</c> request.</summary>
-  /// <remarks>This method attempts to unlock the canonical resource URL if <see cref="WebDAVContext.RequestResource"/> is not null, and
-  /// to unlock the <see cref="WebDAVContext.RequestPath"/> otherwise.
-  /// </remarks>
+  /// <remarks>This method will attempt to unlock the resource named by <see cref="WebDAVContext.CanonicalPathIfKnown"/>.</remarks>
   public void ProcessStandardRequest()
   {
-    ConditionCode precondition = CheckPreconditions(null);
-    if(precondition != null && precondition.StatusCode != (int)HttpStatusCode.NotModified)
+    ProcessStandardRequest(null);
+  }
+
+  /// <summary>Processes a standard <c>UNLOCK</c> request.</summary>
+  /// <remarks>This method will attempt to unlock the resource named by <paramref name="canonicalPath"/>, or
+  /// <see cref="WebDAVContext.CanonicalPathIfKnown"/> if that is null. This override may be useful for services that have non-canonical
+  /// URIs and also may allow resources to be deleted outside of WebDAV. In that case, passing the canonical URL of the nonexistent
+  /// resource will allow dangling locks to be removed.
+  /// </remarks>
+  public void ProcessStandardRequest(string canonicalPath)
+  {
+    ConditionCode precondition = CheckPreconditions(null, canonicalPath);
+    if(precondition != null && precondition.IsError)
     {
       Status = precondition;
       return;
     }
+    else if(Context.LockManager == null)
+    {
+      Status = ConditionCodes.MethodNotAllowed;
+      return;
+    }
 
-    ActiveLock lockObject = null;
-    if(Context.LockManager != null) lockObject = Context.LockManager.GetLock(LockToken, Context.CanonicalPathIfKnown);
-
-    if(lockObject == null) Status = ConditionCodes.LockTokenMatchesRequestUri409;
-    else if(precondition != null) Status = precondition;
-    else Context.LockManager.RemoveLock(lockObject);
+    ActiveLock lockObject = Context.LockManager.GetLock(LockToken, canonicalPath ?? Context.CanonicalPathIfKnown);
+    if(lockObject == null)
+    {
+      Status = ConditionCodes.LockTokenMatchesRequestUri409;
+    }
+    else if(!Context.CanDeleteLock(lockObject))
+    {
+      Status = new ConditionCode(HttpStatusCode.Forbidden, "You do not have permission to delete this lock.");
+    }
+    else if(precondition != null)
+    {
+      Status = precondition;
+    }
+    else
+    {
+      Context.LockManager.RemoveLock(lockObject);
+    }
   }
 }
 

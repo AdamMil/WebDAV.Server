@@ -240,7 +240,7 @@ public class PropPatchRequest : WebDAVRequest
     }
 
     // first, check preconditions to see whether we're allowed to execute the request
-    ConditionCode precondition = CheckPreconditions(null);
+    ConditionCode precondition = CheckPreconditions(null, canonicalPath);
     if(precondition != null) // if we shouldn't execute the request...
     {
       Status = precondition;
@@ -336,9 +336,9 @@ public class PropPatchRequest : WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
   /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources.</remarks>
-  protected override ConditionCode CheckSubmittedLockTokens()
+  protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
-    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, false, false);
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, false, false);
   }
 
   /// <summary>Determines whether the named WebDAV property is protected (i.e. whether it is not allowed to be changed by the client).</summary>
@@ -457,13 +457,13 @@ public class PropPatchRequest : WebDAVRequest
     using(MultiStatusResponse response = Context.OpenMultiStatusResponse(namespaces))
     {
       XmlWriter writer = response.Writer;
-      writer.WriteStartElement(DAVNames.response.Name);
-      writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + Context.RequestPath);
+      writer.WriteStartElement(DAVNames.response);
+      writer.WriteElementString(DAVNames.href, Context.ServiceRoot + Context.RequestPath);
 
       foreach(KeyValuePair<ConditionCode, HashSet<XmlQualifiedName>> pair in namesByStatus)
       {
-        writer.WriteStartElement(DAVNames.propstat.Name);
-        writer.WriteStartElement(DAVNames.prop.Name);
+        writer.WriteStartElement(DAVNames.propstat);
+        writer.WriteStartElement(DAVNames.prop);
         foreach(XmlQualifiedName name in pair.Value) writer.WriteEmptyElement(name);
         writer.WriteEndElement(); // </prop>
         response.WriteStatus(pair.Key);

@@ -123,9 +123,10 @@ public class OptionsRequest : SimpleRequest
   /// <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties, the <c>Timeout</c> header, and the <c>Lock-Token</c> header. It
   /// should also support the <c>DAV:owner</c> element. Locking of existing resources can be accomplished by implementing the
   /// <see cref="IWebDAVResource.Lock"/> and <see cref="IWebDAVResource.Unlock"/> methods (using
-  /// <see cref="LockRequest.ProcessStandardRequest(IEnumerable{LockType},bool)"/> and <see cref="UnlockRequest.ProcessStandardRequest"/>)
-  /// and providing values for the <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties. Locking new resources can be supported
-  /// by implementing the <see cref="IWebDAVService.CreateAndLock"/> method.
+  /// <see cref="LockRequest.ProcessStandardRequest(IEnumerable{LockType},bool)"/> and
+  /// <see cref="UnlockRequest.ProcessStandardRequest()"/>) and providing values for the <c>DAV:supportedlock</c> and
+  /// <c>DAV:lockdiscovery</c> properties. Locking new resources can be supported by implementing the
+  /// <see cref="IWebDAVService.CreateAndLock"/> method.
   /// <para>
   /// Lock support will be reported in the <c>DAV</c> header. This property is ignored if <see cref="IsDAVCompliant"/> is set to false.
   /// </para>
@@ -152,7 +153,7 @@ public class OptionsRequest : SimpleRequest
       Context.Response.Headers[DAVHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 7233 section 2.3
     }
 
-    bool useEmptyResponseHack = false;
+    bool useEmptyResponseHack = false; // a hack for the buggy Microsoft Office (Web Folder) client. see below
     if(IsDAVCompliant || AllowedMethods.Count != 0)
     {
       StringBuilder sb = new StringBuilder();

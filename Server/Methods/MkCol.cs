@@ -35,9 +35,9 @@ public class MkColRequest : SimpleRequest
   /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources because a new
   /// collection is assumed to not contain any mapped member URLs.
   /// </remarks>
-  protected override ConditionCode CheckSubmittedLockTokens()
+  protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
-    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, false);
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, true, false);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
