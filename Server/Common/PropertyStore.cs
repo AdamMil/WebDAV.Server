@@ -64,7 +64,7 @@ public sealed class XmlProperty
     if(name == null) throw new ArgumentNullException();
 
     XmlQualifiedName builtInType;
-    if(name.Namespace.OrdinalEquals(DAVNames.DAV) && builtInTypes.TryGetValue(name, out builtInType)) type = builtInType;
+    if(DAVUtility.IsDAVName(name) && builtInTypes.TryGetValue(name, out builtInType)) type = builtInType;
 
     if(type == null) type = DAVUtility.GetXsiType(value);
     else DAVUtility.ValidatePropertyValue(name, value, type);
@@ -182,7 +182,7 @@ public sealed class XmlProperty
 
     XmlQualifiedName type;
     // determine the element type. if it's a built-in DAV property, use the well-known type
-    if(Name.Namespace.OrdinalEquals(DAVNames.DAV) && builtInTypes.TryGetValue(Name, out type))
+    if(DAVUtility.IsDAVName(Name) && builtInTypes.TryGetValue(Name, out type))
     {
       Type = type;
     }
@@ -199,7 +199,7 @@ public sealed class XmlProperty
       {
         try
         {
-          Value = Type == null ? elementText : DAVUtility.ParseXmlValue(elementText, Type);
+          Value = Type == null ? elementText : DAVUtility.ParseXmlValue(elementText, Type, element);
         }
         catch(ArgumentException ex)
         {
@@ -232,12 +232,12 @@ public sealed class XmlProperty
   {
     XmlNode firstChild = element.FirstChild;
     if(firstChild == null) return null;
-    else if(firstChild.NextSibling == null) return IsText(firstChild.NodeType) ? firstChild.Value : null;
+    else if(firstChild.NextSibling == null) return firstChild.IsTextNode() ? firstChild.Value : null;
 
     StringBuilder sb = null;
     for(XmlNode child = firstChild; child != null; child = child.NextSibling)
     {
-      if(!IsText(child.NodeType)) return null;
+      if(!child.IsTextNode()) return null;
       if(sb == null) sb = new StringBuilder();
       sb.Append(child.Value);
     }
@@ -247,10 +247,7 @@ public sealed class XmlProperty
   /// <summary>Determines whether the element has nothing more than content, language, and/or type.</summary>
   static bool IsSimple(XmlElement element)
   {
-    for(XmlNode child = element.FirstChild; child != null; child = child.NextSibling)
-    {
-      if(!IsText(child.NodeType)) return false;
-    }
+    if(element.HasComplexContent()) return false;
 
     foreach(XmlAttribute attr in element.Attributes)
     {
@@ -263,12 +260,6 @@ public sealed class XmlProperty
     }
 
     return true;
-  }
-
-  static bool IsText(XmlNodeType type)
-  {
-    return type == XmlNodeType.Text || type == XmlNodeType.Whitespace || type == XmlNodeType.SignificantWhitespace ||
-           type == XmlNodeType.CDATA;
   }
 }
 #endregion

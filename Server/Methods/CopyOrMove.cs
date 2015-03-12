@@ -30,7 +30,7 @@ namespace AdamMil.WebDAV.Server
 
 /// <summary>Represents a <c>COPY</c> or <c>MOVE</c> request.</summary>
 /// <remarks>The <c>COPY</c> and <c>MOVE</c> requests are described in sections 9.8 and 9.9 of RFC 4918.</remarks>
-public class CopyOrMoveRequest : WebDAVRequest, IDisposable
+public class CopyOrMoveRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="CopyOrMoveRequest"/> based on a new WebDAV request.</summary>
   public CopyOrMoveRequest(WebDAVContext context) : base(context)
@@ -69,7 +69,6 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
       DestinationPath        = destPath;
       DestinationService     = destServiceRoot.OrdinalEquals(Context.ServiceRoot) ? Context.Service : destService;
       DestinationServiceRoot = destServiceRoot;
-      if(destService != DestinationService && !destService.IsReusable) Utility.Dispose(destService);
     }
 
     FailedMembers = new FailedResourceCollection();
@@ -134,32 +133,16 @@ public class CopyOrMoveRequest : WebDAVRequest, IDisposable
   /// </summary>
   public bool Overwrite { get; private set; }
 
-  /// <inheritdoc/>
-  public void Dispose()
-  {
-    Dispose(true);
-    GC.SuppressFinalize(this);
-  }
-
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
-  protected override ConditionCode CheckSubmittedLockTokens()
+  protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
     // check the source if we're moving it, as well as the destination
-    ConditionCode code = IsMove ? CheckSubmittedLockTokens(LockType.ExclusiveWrite, IsMove, Depth != Depth.Self) : null;
+    ConditionCode code = IsMove ? CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, IsMove, Depth != Depth.Self) : null;
     if(code == null && DestinationService != null)
     {
-      code = CheckSubmittedLockTokens(LockType.ExclusiveWrite, true, true, DestinationPath, DestinationService);
+      code = CheckSubmittedLockTokens(LockType.ExclusiveWrite, DestinationPath, true, true, DestinationService);
     }
     return code;
-  }
-
-  /// <summary>Called to dispose the request.</summary>
-  protected virtual void Dispose(bool manualDispose)
-  {
-    if(DestinationService != null && DestinationService != Context.Service && !DestinationService.IsReusable)
-    {
-      Utility.Dispose(DestinationService);
-    }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />

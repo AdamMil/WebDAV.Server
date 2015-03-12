@@ -42,7 +42,7 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Implements an <see cref="IHttpModule"/> that provides WebDAV services.</summary>
-public sealed class WebDAVModule : IHttpModule
+public class WebDAVModule : IHttpModule
 {
   /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline if the module has not been disabled in the application
   /// configuration file.
@@ -62,7 +62,6 @@ public sealed class WebDAVModule : IHttpModule
   {
     IWebDAVService service;
     IWebDAVResource resource = ResolveUri(context, uri, out service);
-    if(service != null && !service.IsReusable) Utility.Dispose(service);
     return resource;
   }
 
@@ -160,7 +159,6 @@ public sealed class WebDAVModule : IHttpModule
       IWebDAVService service = location.GetService();
       IWebDAVResource resource = service.ResolveResource(context, location.GetRelativeUrl(uri, context));
       denyAccess = resource != null && ShouldDenyAccess(context, service, resource, location, out denyExistence);
-      if(!service.IsReusable) Utility.Dispose(service);
     }
     return denyAccess;
   }
@@ -219,36 +217,6 @@ public sealed class WebDAVModule : IHttpModule
   }
   #endregion
 
-  #region AuthFilterConfig
-  sealed class AuthFilterConfig
-  {
-    public AuthFilterConfig(AuthorizationFilterElement config)
-    {
-      filterCreator = GetCreationDelegate<IAuthorizationFilter>(config.Type, config.Parameters);
-    }
-
-    public void Dispose()
-    {
-      Utility.Dispose(sharedFilter);
-      sharedFilter = null;
-    }
-
-    public IAuthorizationFilter GetFilter()
-    {
-      IAuthorizationFilter filter = sharedFilter;
-      if(filter == null)
-      {
-        filter = filterCreator();
-        if(filter.IsReusable) sharedFilter = filter;
-      }
-      return filter;
-    }
-
-    readonly Func<IAuthorizationFilter> filterCreator;
-    IAuthorizationFilter sharedFilter;
-  }
-  #endregion
-
   #region LocationConfig
   sealed class LocationConfig
   {
@@ -272,12 +240,15 @@ public sealed class WebDAVModule : IHttpModule
         if(config.PropertyStore != null && config.PropertyStore.InnerType != null) propertyStore = config.PropertyStore;
 
         serviceCreator   = GetCreationDelegate<IWebDAVService>(config.Type, config.Parameters);
-        AuthFilters      = new AuthFilterConfig[config.AuthorizationFilters.Count];
         ServeRootOptions = config.ServeRootOptions;
-        for(int i=0; i<AuthFilters.Length; i++) AuthFilters[i] = new AuthFilterConfig(config.AuthorizationFilters[i]);
+        LockManager      = Construct(lockManager, typeof(DisableLockManager), ID);
+        PropertyStore    = Construct(propertyStore, typeof(DisablePropertyStore), ID);
 
-        LockManager   = Construct(lockManager, typeof(DisableLockManager), ID);
-        PropertyStore = Construct(propertyStore, typeof(DisablePropertyStore), ID);
+        if(config.AuthorizationFilters.Count != 0)
+        {
+          AuthFilters = new IAuthorizationFilter[config.AuthorizationFilters.Count];
+          for(int i=0; i<AuthFilters.Length; i++) AuthFilters[i] = Construct(config.AuthorizationFilters[i], null, null);
+        }
       }
     }
 
@@ -289,16 +260,16 @@ public sealed class WebDAVModule : IHttpModule
 
     public void ClearSharedService()
     {
-      sharedService = null;
+      service = null;
     }
 
     public void Dispose()
     {
-      Utility.Dispose(sharedService);
-      sharedService = null;
+      Utility.Dispose(service);
+      service = null;
       if(AuthFilters != null)
       {
-        foreach(AuthFilterConfig authFilter in AuthFilters) authFilter.Dispose();
+        foreach(IAuthorizationFilter authFilter in AuthFilters) Utility.Dispose(authFilter);
       }
       Utility.Dispose(LockManager);
       Utility.Dispose(PropertyStore);
@@ -319,12 +290,8 @@ public sealed class WebDAVModule : IHttpModule
 
     public IWebDAVService GetService()
     {
-      IWebDAVService service = sharedService;
-      if(service == null)
-      {
-        service = serviceCreator();
-        if(service.IsReusable) sharedService = service;
-      }
+      IWebDAVService service = this.service; // grab a local copy to prevent it from being cleared on another thread via ClearSharedService
+      if(service == null) service = this.service = serviceCreator();
       return service;
     }
 
@@ -343,7 +310,7 @@ public sealed class WebDAVModule : IHttpModule
     }
 
     public readonly bool Enabled;
-    public readonly AuthFilterConfig[] AuthFilters;
+    public readonly IAuthorizationFilter[] AuthFilters;
 
     bool IpMatches(HttpRequest request)
     {
@@ -388,7 +355,7 @@ public sealed class WebDAVModule : IHttpModule
     readonly Func<IWebDAVService> serviceCreator;
     string scheme, hostname, path;
     IPAddress ip;
-    IWebDAVService sharedService;
+    IWebDAVService service;
     int port;
     readonly bool caseSensitive;
   }
@@ -446,12 +413,10 @@ public sealed class WebDAVModule : IHttpModule
               (string.Equals(application.Request.Url.AbsolutePath, "/", StringComparison.Ordinal) ||
                string.Equals(application.Request.RawUrl, "*", StringComparison.Ordinal)))
       {
-        using(WebDAVContext context = CreateContext(location, "", application, config))
-        {
-          OptionsRequest request = context.Service.CreateOptions(context);
-          request.SetOutOfScope(); // enable special processing within OptionsRequest for out-of-scope requests
-          ProcessMethod(context, request, context.Service.Options);
-        }
+        WebDAVContext context = CreateContext(location, "", application, config);
+        OptionsRequest request = context.Service.CreateOptions(context);
+        request.SetOutOfScope(); // enable special processing within OptionsRequest for out-of-scope requests
+        ProcessMethod(context, request, context.Service.Options);
         break; // don't complete the request because we only want to add our custom headers to ASP.NET's usual response
       }
     }
@@ -476,17 +441,19 @@ public sealed class WebDAVModule : IHttpModule
       {
         throw new ConfigurationErrorsException(type.FullName + " does not derive from " + typeof(T).FullName + ".");
       }
-      ConstructorInfo cons = type.GetConstructor(new Type[] { typeof(string), typeof(ParameterCollection) });
+      Type[] paramTypes =
+        locationId == null ? new Type[] { typeof(ParameterCollection) } : new Type[] { typeof(string), typeof(ParameterCollection) };
+      ConstructorInfo cons = type.GetConstructor(paramTypes);
       if(cons != null)
       {
-        obj = (T)cons.Invoke(new object[] { locationId, element.Parameters });
+        obj = (T)cons.Invoke(locationId == null ? new object[] { element.Parameters } : new object[] { locationId, element.Parameters });
       }
       else
       {
-        cons = type.GetConstructor(new Type[] { typeof(string) });
+        cons = type.GetConstructor(locationId == null ? Type.EmptyTypes : new Type[] { typeof(string) });
         if(cons != null)
         {
-          obj = (T)cons.Invoke(new object[] { locationId });
+          obj = (T)cons.Invoke(locationId == null ? null : new object[] { locationId });
         }
         else
         {
@@ -501,7 +468,7 @@ public sealed class WebDAVModule : IHttpModule
 
   static WebDAVContext CreateContext(LocationConfig location, string requestPath, HttpApplication application, Configuration config)
   {
-    return new WebDAVContext(location.GetService(), location.RootPath, requestPath, application,
+    return new WebDAVContext(location.GetService(), location.AuthFilters, location.RootPath, requestPath, application,
                              location.LockManager, location.PropertyStore, config.ContextSettings);
   }
 
@@ -513,6 +480,16 @@ public sealed class WebDAVModule : IHttpModule
     bool denyExistence;
     if(ShouldDenyAccess(context, context.Service, context.RequestResource, location, out denyExistence))
     {
+      // issuing a 404 Not Found response when the request would normally create a new resource actually reveals its existence rather than
+      // hiding it because a 404 response is never normally issued for those requests. so for requests that can create new resources,
+      // return 403 Forbidden
+      if(denyExistence &&
+         (context.Request.HttpMethod.OrdinalEquals(DAVMethods.Put) || context.Request.HttpMethod.OrdinalEquals(DAVMethods.Lock) ||
+          context.Request.HttpMethod.OrdinalEquals(DAVMethods.MkCol)))
+      {
+        denyExistence = false;
+      }
+
       if(denyExistence) WriteNotFoundResponse(context.Application); // if we should deny even the existence of the resource, return a 404
       else WriteErrorResponse(context.Application, (int)HttpStatusCode.Forbidden, "Access denied.");
       return true;
@@ -618,108 +595,106 @@ public sealed class WebDAVModule : IHttpModule
   static bool ProcessRequest(HttpApplication app, LocationConfig config)
   {
     // create the request context and service instance
-    using(WebDAVContext context = CreateContext(config, config.GetRelativeUrl(app.Request.Url, null), app, WebDAVModule.config))
+    WebDAVContext context = CreateContext(config, config.GetRelativeUrl(app.Request.Url, null), app, WebDAVModule.config);
+    // resolve the request Uri into a WebDAV resource
+    context.ResolveResource();
+
+    // perform authorization
+    if(DeniedAccess(context, config)) return true;
+
+    string method = app.Request.HttpMethod;
+    if(context.RequestResource == null) // if the resource was not found...
     {
-      // resolve the request Uri into a WebDAV resource
-      context.ResolveResource();
-
-      // perform authorization
-      if(DeniedAccess(context, config)) return true;
-
-      string method = app.Request.HttpMethod;
-      if(context.RequestResource == null) // if the resource was not found...
+      // some verbs (like MKCOL and PUT) can be executed on unmapped URLs. if it's not a verb we care about and the service also declines
+      // to handle it, issue a 404 Not Found response
+      if(method.OrdinalEquals(DAVMethods.Put))
       {
-        // some verbs (like MKCOL and PUT) can be executed on unmapped URLs. if it's not a verb we care about and the service also declines
-        // to handle it, issue a 404 Not Found response
-        if(method.OrdinalEquals(DAVMethods.Options))
-        {
-          ProcessMethod(context, context.Service.CreateOptions(context), context.Service.Options);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Put))
-        {
-          ProcessMethod(context, context.Service.CreatePut(context), context.Service.Put);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Lock))
-        {
-          ProcessMethod(context, context.Service.CreateLock(context), context.Service.CreateAndLock);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Post))
-        {
-          ProcessMethod(context, context.Service.CreatePost(context), context.Service.Post);
-        }
-        else if(method.OrdinalEquals(DAVMethods.MkCol))
-        {
-          ProcessMethod(context, context.Service.CreateMkCol(context), context.Service.MakeCollection);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Unlock))
-        {
-          ProcessMethod(context, context.Service.CreateUnlock(context), context.Service.Unlock);
-        }
-        else if(!context.Service.HandleGenericRequest(context))
-        {
-          if(method.OrdinalEquals(DAVMethods.Trace)) return false; // let ASP.NET handle TRACE requests if the WebDAV service didn't
-          WriteNotFoundResponse(app);
-        }
+        ProcessMethod(context, context.Service.CreatePut(context), context.Service.Put);
       }
-      else // otherwise, the URL was mapped to a resource
+      else if(method.OrdinalEquals(DAVMethods.Lock))
       {
-        // now process the WebDAV operation against the resource based on the HTTP method
-        if(method.OrdinalEquals(DAVMethods.PropFind))
+        ProcessMethod(context, context.Service.CreateLock(context), context.Service.CreateAndLock);
+      }
+      else if(method.OrdinalEquals(DAVMethods.MkCol))
+      {
+        ProcessMethod(context, context.Service.CreateMkCol(context), context.Service.MakeCollection);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Unlock))
+      {
+        ProcessMethod(context, context.Service.CreateUnlock(context), context.Service.Unlock);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Options))
+      {
+        ProcessMethod(context, context.Service.CreateOptions(context), context.Service.Options);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Post))
+      {
+        ProcessMethod(context, context.Service.CreatePost(context), context.Service.Post);
+      }
+      else if(!context.Service.HandleGenericRequest(context))
+      {
+        if(method.OrdinalEquals(DAVMethods.Trace)) return false; // let ASP.NET handle TRACE requests if the WebDAV service didn't
+        WriteNotFoundResponse(app);
+      }
+    }
+    else // otherwise, the URL was mapped to a resource
+    {
+      // now process the WebDAV operation against the resource based on the HTTP method
+      if(method.OrdinalEquals(DAVMethods.PropFind))
+      {
+        ProcessMethod(context, context.Service.CreatePropFind(context), context.RequestResource.PropFind);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Get) || method.OrdinalEquals(DAVMethods.Head))
+      {
+        ProcessMethod(context, context.Service.CreateGetOrHead(context), context.RequestResource.GetOrHead);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Put))
+      {
+        ProcessMethod(context, context.Service.CreatePut(context), context.RequestResource.Put);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Lock))
+      {
+        ProcessMethod(context, context.Service.CreateLock(context), context.RequestResource.Lock);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Unlock))
+      {
+        ProcessMethod(context, context.Service.CreateUnlock(context), context.RequestResource.Unlock);
+      }
+      else if(method.OrdinalEquals(DAVMethods.PropPatch))
+      {
+        ProcessMethod(context, context.Service.CreatePropPatch(context), context.RequestResource.PropPatch);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Options))
+      {
+        ProcessMethod(context, context.Service.CreateOptions(context), context.RequestResource.Options);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Delete))
+      {
+        ProcessMethod(context, context.Service.CreateDelete(context), context.RequestResource.Delete);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Copy) || method.OrdinalEquals(DAVMethods.Move))
+      {
+        ProcessMethod(context, context.Service.CreateCopyOrMove(context), context.RequestResource.CopyOrMove);
+      }
+      else if(method.OrdinalEquals(DAVMethods.Post))
+      {
+        ProcessMethod(context, context.Service.CreatePost(context), context.RequestResource.Post);
+      }
+      else if(method.OrdinalEquals(DAVMethods.MkCol))
+      {
+        // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section
+        // 9.3.1. this requires adding an Allow header that describes the allowed methods. the easiest way to do that is to process it as
+        // though it was an OPTIONS request, so that's what we'll do
+        ProcessMethod(context, context.Service.CreateOptions(context), request =>
         {
-          ProcessMethod(context, context.Service.CreatePropFind(context), context.RequestResource.PropFind);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Get) || method.OrdinalEquals(DAVMethods.Head))
-        {
-          ProcessMethod(context, context.Service.CreateGetOrHead(context), context.RequestResource.GetOrHead);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Options))
-        {
-          ProcessMethod(context, context.Service.CreateOptions(context), context.RequestResource.Options);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Lock))
-        {
-          ProcessMethod(context, context.Service.CreateLock(context), context.RequestResource.Lock);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Unlock))
-        {
-          ProcessMethod(context, context.Service.CreateUnlock(context), context.RequestResource.Unlock);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Put))
-        {
-          ProcessMethod(context, context.Service.CreatePut(context), context.RequestResource.Put);
-        }
-        else if(method.OrdinalEquals(DAVMethods.PropPatch))
-        {
-          ProcessMethod(context, context.Service.CreatePropPatch(context), context.RequestResource.PropPatch);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Copy) || method.OrdinalEquals(DAVMethods.Move))
-        {
-          ProcessMethod(context, context.Service.CreateCopyOrMove(context), context.RequestResource.CopyOrMove);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Delete))
-        {
-          ProcessMethod(context, context.Service.CreateDelete(context), context.RequestResource.Delete);
-        }
-        else if(method.OrdinalEquals(DAVMethods.Post))
-        {
-          ProcessMethod(context, context.Service.CreatePost(context), context.RequestResource.Post);
-        }
-        else if(method.OrdinalEquals(DAVMethods.MkCol))
-        {
-          // MKCOL is not allowed on mapped URLs as per RFC 4918 section 9.3. we'll respond with 405 Method Not Allowed as per section
-          // 9.3.1. this requires adding an Allow header that describes the allowed methods. the easiest way to do that is to process it as
-          // though it was an OPTIONS request, so that's what we'll do
-          ProcessMethod(context, context.Service.CreateOptions(context), request =>
-          {
-            context.RequestResource.Options(request);
-            request.Status = new ConditionCode(HttpStatusCode.MethodNotAllowed, "A resource already exists there.");
-          });
-        }
-        else if(!context.RequestResource.HandleGenericRequest(context) && !context.Service.HandleGenericRequest(context))
-        {
-          if(method.OrdinalEquals(DAVMethods.Trace)) return false; // let ASP.NET handle TRACE requests if the WebDAV service didn't
-          WriteErrorResponse(app, (int)HttpStatusCode.Forbidden, "The WebDAV service declined to respond to this request.");
-        }
+          context.RequestResource.Options(request);
+          request.Status = new ConditionCode(HttpStatusCode.MethodNotAllowed, "A resource already exists there.");
+        });
+      }
+      else if(!context.RequestResource.HandleGenericRequest(context) && !context.Service.HandleGenericRequest(context))
+      {
+        if(method.OrdinalEquals(DAVMethods.Trace)) return false; // let ASP.NET handle TRACE requests if the WebDAV service didn't
+        WriteErrorResponse(app, (int)HttpStatusCode.Forbidden, "The WebDAV service declined to respond to this request.");
       }
     }
 
@@ -746,12 +721,15 @@ public sealed class WebDAVModule : IHttpModule
   {
     denyExistence = false;
     bool denyAccess = false;
-    foreach(AuthFilterConfig filterConfig in location.AuthFilters)
+    if(location.AuthFilters != null)
     {
-      if(filterConfig.GetFilter().ShouldDenyAccess(context, service, resource, out denyExistence))
+      foreach(IAuthorizationFilter filter in location.AuthFilters)
       {
-        denyAccess = true;
-        if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
+        if(filter.ShouldDenyAccess(context, service, resource, out denyExistence))
+        {
+          denyAccess = true;
+          if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
+        }
       }
     }
 

@@ -269,6 +269,10 @@ public class PropFindRequest : WebDAVRequest
       return;
     }
 
+    // the WebDAV mini-redirector client used by Windows Explorer can't handle creation dates with greater than 1 millisecond precision, so
+    // we'll truncate them for that client
+    bool trucateCreationDates = Context.UseExplorerHacks();
+
     // validate the request processing and collect the set of XML namespaces used in the response (DAV: is added automatically)
     HashSet<string> namespaces = new HashSet<string>();
     // add xs: even if we may not use it directly, to prevent custom XML elements getting xmlns:xs definitions if they use xsi:type with xs
@@ -284,13 +288,13 @@ public class PropFindRequest : WebDAVRequest
       var valuesByStatus = new MultiValuedDictionary<ConditionCode, KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>();
       foreach(PropFindResource resource in Resources)
       {
-        writer.WriteStartElement(DAVNames.response.Name);
-        writer.WriteElementString(DAVNames.href.Name, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
+        writer.WriteStartElement(DAVNames.response);
+        writer.WriteElementString(DAVNames.href, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
 
         if(resource.properties.Count == 0) // if the resource has no properties, quickly render an empty properties collection
         {
-          writer.WriteStartElement(DAVNames.propstat.Name);
-          writer.WriteEmptyElement(DAVNames.prop.Name);
+          writer.WriteStartElement(DAVNames.propstat);
+          writer.WriteEmptyElement(DAVNames.prop);
           response.WriteStatus(ConditionCodes.OK);
           writer.WriteEndElement();
         }
@@ -306,10 +310,10 @@ public class PropFindRequest : WebDAVRequest
           // then, output a <propstat> element for each status, containing the properties having that status
           foreach(KeyValuePair<ConditionCode, List<KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue>>> spair in valuesByStatus)
           {
-            writer.WriteStartElement(DAVNames.propstat.Name);
+            writer.WriteStartElement(DAVNames.propstat);
 
             // output the properties
-            writer.WriteStartElement(DAVNames.prop.Name);
+            writer.WriteStartElement(DAVNames.prop);
             foreach(KeyValuePair<XmlQualifiedName, PropFindResource.PropertyValue> ppair in spair.Value) // for each property in the group
             {
               XmlElement element = ppair.Value == null ? null : ppair.Value.Value as XmlElement;
@@ -359,9 +363,42 @@ public class PropFindRequest : WebDAVRequest
                       else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
                       else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
                     }
-                    else if(value is XmlDuration || value is Guid)
+                    else if(value is XmlDuration || value is Guid || value is Uri)
                     {
-                      writer.WriteString(value.ToString()); // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values
+                      // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values and puts unwanted extra space around URIs
+                      writer.WriteString(value.ToString());
+                    }
+                    else if(ppair.Key == DAVNames.getlastmodified) // RFC 4918 section 15.7 requires rfc1123-date values for
+                    {                                              // getlastmodified, in order to match the HTTP Last-Modified header
+                      if(value is DateTime)
+                      {
+                        writer.WriteString(DAVUtility.GetHttpDateHeader((DateTime)value));
+                      }
+                      else if(value is DateTimeOffset)
+                      {
+                        writer.WriteString(DAVUtility.GetHttpDateHeader(((DateTimeOffset)value).UtcDateTime));
+                      }
+                      else // if the value type is unrecognized, fall back on .WriteValue(object)
+                      {
+                        writer.WriteValue(value);
+                      }
+                    }
+                    else if(trucateCreationDates && ppair.Key == DAVNames.creationdate) // if we need the date hack for Windows Explorer...
+                    {
+                      if(value is DateTime)
+                      {
+                        DateTime dt = (DateTime)value;
+                        writer.WriteValue(dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMillisecond)));
+                      }
+                      else
+                      {
+                        if(value is DateTimeOffset)
+                        {
+                          DateTimeOffset dto = (DateTimeOffset)value;
+                          value = dto.AddTicks(-(dto.Ticks % TimeSpan.TicksPerMillisecond));
+                        }
+                        writer.WriteValue(value);
+                      }
                     }
                     else // in the general case, just use .WriteValue(object) to write the value appropriately
                     {
@@ -388,43 +425,50 @@ public class PropFindRequest : WebDAVRequest
 
   internal static System.Collections.IEnumerable GetElementValuesEnumerable(object value)
   {
-    if(!(value is string)) // ignore string because it's a very common type that also implements IEnumerable
+    if(isDotNet4Plus) // .NET 4 exposed covariance to C# and the framework added it to various types like IEnumerable<T>
     {
-      System.Collections.IEnumerable enumerable = value as System.Collections.IEnumerable;
-      if(enumerable != null) // if the value implements IEnumerable (and therefore may implement IEnumerable<T>)
+      return value as IEnumerable<IElementValue>; // so we can just do this
+    }
+    else // otherwise, we'll have to use reflection to examine the type. since that's slow, we'll cache the result per type
+    {
+      if(!(value is string)) // ignore string because it's a very common type that also implements IEnumerable
       {
-        Type type = value.GetType();
-        object isIElementValue = isIElementValuesEnumerable[type]; // Hashtable allows lock-free reads
-        if(isIElementValue == null) // if we don't yet know whether the type implements IEnumerable<T> where T : IElementValue...
+        System.Collections.IEnumerable enumerable = value as System.Collections.IEnumerable;
+        if(enumerable != null) // if the value implements IEnumerable (and therefore may implement IEnumerable<T>)
         {
-          isIElementValue = @false;
-          // get the interfaces implemented by the method. this includes base interfaces, so if it implements an interface derived from
-          // IEnumerable<T>, then IEnumerable<T> will still be in the output of type.GetInterfaces()
-          foreach(Type iface in type.GetInterfaces())
+          Type type = value.GetType();
+          object isIElementValue = isIElementValuesEnumerable[type]; // Hashtable allows lock-free reads
+          if(isIElementValue == null) // if we don't yet know whether the type implements IEnumerable<T> where T : IElementValue...
           {
-            if(iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>)) // if it's IEnumerable<*> for some *...
+            isIElementValue = @false;
+            // get the interfaces implemented by the method. this includes base interfaces, so if it implements an interface derived from
+            // IEnumerable<T>, then IEnumerable<T> will still be in the output of type.GetInterfaces()
+            foreach(Type iface in type.GetInterfaces())
             {
-              Type[] typeArgs = iface.GetGenericArguments();
-              if(typeArgs.Length == 1 && typeof(IElementValue).IsAssignableFrom(typeArgs[0])) // IEnumerable<T> where T : IElementValue...
+              if(iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>)) // if it's IEnumerable<*> for some *...
               {
-                // then we know this is a value that we should output using IElementValue. note that it's theoretically possible for the
-                // type to implement IEnumerable<T> for multiple values of T, where the IEnumerable interface corresponds to the wrong one,
-                // but we'll ignore that possibility
-                isIElementValue = @true;
-                break;
+                Type[] typeArgs = iface.GetGenericArguments();
+                if(typeArgs.Length == 1 && typeof(IElementValue).IsAssignableFrom(typeArgs[0])) // IEnumerable<T> where T : IElementValue
+                {
+                  // then we know this is a value that we should output using IElementValue. note that it's theoretically possible for the
+                  // type to implement IEnumerable<T> for multiple values of T, where the IEnumerable interface corresponds to the wrong
+                  // one, but we'll ignore that possibility
+                  isIElementValue = @true;
+                  break;
+                }
               }
             }
+
+            // remember whether the type implemented it so we can avoid doing this reflection work for future values
+            lock(isIElementValuesEnumerable) isIElementValuesEnumerable[type] = isIElementValue;
           }
 
-          // remember whether the type implemented it so we can avoid doing this reflection work for future values
-          lock(isIElementValuesEnumerable) isIElementValuesEnumerable[type] = isIElementValue;
+          if(isIElementValue == @true) return enumerable;
         }
-
-        if(isIElementValue == @true) return enumerable;
       }
-    }
 
-    return null;
+      return null;
+    }
   }
 
   /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
@@ -537,18 +581,20 @@ public class PropFindRequest : WebDAVRequest
     writer.WriteStartElement(element.LocalName, element.NamespaceURI);
 
     // write the original element attributes, skipping xmlns attributes
+    bool expectQNameContent = false;
     foreach(XmlAttribute attr in element.Attributes)
     {
       if((attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns")) continue;
 
       // handle xsi:type attributes specially, because we need to translate the QName values from their original context to the context of
       // the writer. ideally we'd be able to do this for all QName-valued attributes, but we don't know which ones those are...
-      if(attr.NamespaceURI.OrdinalEquals(DAVNames.XmlSchemaInstance) && attr.LocalName.OrdinalEquals("type"))
+      if(attr.HasName(DAVNames.xsiType))
       {
         writer.WriteStartAttribute(attr.LocalName, attr.NamespaceURI);
         XmlQualifiedName qname = element.ParseQualifiedName(attr.Value);
         writer.WriteQualifiedName(qname.Name, qname.Namespace);
         writer.WriteEndAttribute();
+        if(qname == DAVNames.xsQName) expectQNameContent = true; // if the element type is xs:QName, translate the content as well
       }
       else
       {
@@ -557,24 +603,33 @@ public class PropFindRequest : WebDAVRequest
     }
 
     // now recursively write element content
-    foreach(XmlNode node in element.ChildNodes)
+    if(expectQNameContent && element.HasSimpleNonSpaceContent()) // if the element type is xs:QName, translate the content
     {
-      switch(node.NodeType)
+      XmlQualifiedName qname = element.ParseQualifiedName(element.InnerText);
+      writer.WriteQualifiedName(qname.Name, qname.Namespace);
+    }
+    else // otherwise, write it out verbatim
+    {
+      foreach(XmlNode node in element.ChildNodes)
       {
-        case XmlNodeType.CDATA: writer.WriteCData(node.Value); break;
-        case XmlNodeType.Element: WriteElement(response, (XmlElement)node); break;
-        case XmlNodeType.SignificantWhitespace: writer.WriteString(node.Value); break;
-        case XmlNodeType.Text: writer.WriteString(node.Value); break;
-        case XmlNodeType.Whitespace: writer.WriteWhitespace(node.Value); break;
+        switch(node.NodeType)
+        {
+          case XmlNodeType.CDATA: writer.WriteCData(node.Value); break;
+          case XmlNodeType.Element: WriteElement(response, (XmlElement)node); break;
+          case XmlNodeType.SignificantWhitespace: case XmlNodeType.Whitespace: writer.WriteWhitespace(node.Value); break;
+          case XmlNodeType.Text: writer.WriteString(node.Value); break;
+        }
       }
     }
 
     writer.WriteEndElement();
   }
 
+  static readonly bool isDotNet4Plus = Environment.Version.Major >= 4;
   // use a System.Collections.Hashtable because it has a special implementation that allows lock-free reads
-  static readonly System.Collections.Hashtable isIElementValuesEnumerable = new System.Collections.Hashtable();
-  static readonly object @true = true, @false = false; // pre-boxed values stored within the hashtable
+  static readonly System.Collections.Hashtable isIElementValuesEnumerable = isDotNet4Plus ? null : new System.Collections.Hashtable();
+  // pre-boxed values stored within the hashtable
+  static readonly object @true = isDotNet4Plus ? null : (object)true, @false = isDotNet4Plus ? null : (object)false;
 }
 #endregion
 
@@ -853,10 +908,16 @@ public sealed class PropFindResource
 
     foreach(XmlAttribute attr in element.Attributes)
     {
-      if(!string.IsNullOrEmpty(attr.NamespaceURI) && !attr.Prefix.OrdinalEquals("xml") &&
+      if(!string.IsNullOrEmpty(attr.NamespaceURI) && !attr.Prefix.OrdinalEquals("xml") &&  // add namespaces from qualified attributes
          !(attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns"))
       {
         namespaces.Add(attr.NamespaceURI);
+      }
+      else if(attr.HasName(DAVNames.xsiType) && element.HasSimpleNonSpaceContent() &&
+              element.ParseQualifiedName(attr.Value) == DAVNames.xsQName) // add namespaces from xs:QName element content
+      {
+        string namespaceUri = element.ParseQualifiedName(element.InnerText).Namespace;
+        if(!string.IsNullOrEmpty(namespaceUri)) namespaces.Add(namespaceUri);
       }
     }
 

@@ -226,52 +226,20 @@ public abstract class WebDAVRequest
   /// <summary>Gets the HTTP method name sent by the client.</summary>
   public string MethodName { get; private set; }
 
-  /// <summary>Gets whether the client has submitted any precondition headers (e.g. <c>If</c>, <c>If-Match</c>, <c>If-Modified-Since</c>,
-  /// etc). If true, or if processing the request might conflict with any resource locks, you must call the
-  /// <see cref="CheckPreconditions"/> method to ensure that the preconditions are satisfied before proceeding with the request. It is
-  /// okay (and inexpensive) to call <see cref="CheckPreconditions"/> even if this is false, so in general you do not need to check this
-  /// property.
-  /// </summary>
-  /// <remarks>The main usage of this property is to avoid computing expensive <see cref="EntityMetadata"/> (especially the
-  /// <see cref="EntityTag"/>) in cases when it won't be needed. In particular, if this property is false, then the
-  /// <see cref="EntityMetadata"/> object passed to <see cref="CheckPreconditions"/> will not require an <see cref="EntityTag"/>.
-  /// </remarks>
-  public bool ClientSubmittedPreconditions
-  {
-    get { return ifClauses != null || ifMatch != null || ifNoneMatch != null || ifModifiedSince.HasValue || ifUnmodifiedSince.HasValue; }
-  }
-
   /// <summary>Gets or sets the <see cref="ConditionCode"/> representing the overall result of the request. If the status is null, the
   /// request is assumed to have been successful and an appropriate response will be used. In general, setting a status value will
   /// prevent a default entity body from being generated.
   /// </summary>
   public ConditionCode Status { get; set; }
 
-  /// <summary>Determines whether a request should be processed given the precondition (i.e. <c>If</c>, <c>If-Match</c>,
-  /// <c>If-None-Match</c>, <c>If-Modified-Since</c>, and <c>If-Unmodified-Since</c>) headers submitted by the client. This method also
-  /// checks resource locks by calling <see cref="CheckSubmittedLockTokens()"/>.
-  /// </summary>
-  /// <param name="requestMetadata">The <see cref="EntityMetadata"/> for the request resource. If null, the metadata will be retrieved by
-  /// calling <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if it is available.
-  /// </param>
-  /// <returns>Returns null if the request should proceed normally. Otherwise, the status code that should be returned to the client is
-  /// returned. This might be an error code (e.g. 412 Precondition Failed) or a redirection code (e.g. 304 Not Modified).
-  /// </returns>
-  /// <remarks>If the request would normally result in a response other than 2xx or 412 Precondition Failed, then that response must be
-  /// given instead. That is to say, this method should only be called if the request would otherwise result in a 2xx response.
-  /// In addition, if the request is a <c>GET</c> request and this method returns 304 Not Modified, the 304 response should be ignored if
-  /// the <c>GET</c> request would otherwise have been responded to with anything but 200 OK. (For instance, if a particular <c>GET</c>
-  /// request would normally be responded to with 206 Partial Content and this method returns 304 Not Modified, the request should be
-  /// processed normally and return 206 Partial Content. However if this method returns any other status or if the <c>GET</c> request would
-  /// normally be responded to with 200 OK, the status returned from this method should be returned to the client instead of processing the
-  /// request.)
-  /// <note type="caution">This method does not check the <c>If-Range</c> header, because it works differently from the other <c>If-</c>
-  /// headers. When responding to a <c>GET</c> request, you should check the <c>If-Range</c> header using
-  /// <see cref="GetOrHeadRequest.IfRange"/> or use <see cref="GetOrHeadRequest.WriteStandardResponse(System.IO.Stream,EntityMetadata)"/>,
-  /// which checks it for you.)
-  /// </note>
-  /// </remarks>
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/*[@name != 'canonicalPath']" />
   public ConditionCode CheckPreconditions(EntityMetadata requestMetadata)
+  {
+    return CheckPreconditions(requestMetadata, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
+  public ConditionCode CheckPreconditions(EntityMetadata requestMetadata, string canonicalPath)
   {
     // RFC 7232 section 6 defines the evaluation order when multiple conditions are mixed together, although it doesn't specify how the
     // standard HTTP conditions should be combined with conditions from extensions such as WebDAV. the general idea, though, is to try
@@ -318,81 +286,10 @@ public abstract class WebDAVRequest
       }
     }
 
-    // RFC 4918 section 10.4.3 specifies the processing for the If header
-    if(ifClauses != null)
-    {
-      bool anyListSucceeded = false;
-      foreach(TaggedIfLists clause in ifClauses)
-      {
-        EntityMetadata metadata = null;
-        ILockManager lockManager = null;
-        string canonicalPath;
-        if(clause.ResourceTag == null || clause.ResourceTag.OrdinalEquals(Context.ServiceRoot + Context.RequestPath) ||
-           clause.ResourceTag[0] != '/' && clause.ResourceTagUri.Equals(Context.Request.Url))
-        {
-          bool checksEntityTag = clause.ChecksEntityTag();
-          if((requestMetadata == null || checksEntityTag && requestMetadata.EntityTag == null) && Context.RequestResource != null)
-          {
-            requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
-          }
-
-          metadata      = requestMetadata;
-          lockManager   = Context.LockManager;
-          canonicalPath = Context.CanonicalPathIfKnown;
-        }
-        else
-        {
-          IWebDAVResource resource;
-          IWebDAVService service;
-          string serviceRoot;
-          IPropertyStore propertyStore;
-          bool accessDenied;
-          if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource, out serviceRoot, out canonicalPath,
-                                     out accessDenied, out lockManager, out propertyStore))
-          {
-            canonicalPath = resource.CanonicalPath;
-            metadata      = resource.GetEntityMetadata(clause.ChecksEntityTag());
-          }
-          if(service != null && !service.IsReusable) Utility.Dispose(service);
-        }
-
-        foreach(IfList list in clause.Lists)
-        {
-          bool allConditionsSucceeded = true;
-          foreach(IfCondition condition in list.Conditions)
-          {
-            bool match = false;
-            if(condition.EntityTag != null)
-            {
-              match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
-            }
-            else if(condition.LockToken != null)
-            {
-              match = lockManager != null && canonicalPath != null && lockManager.GetLock(condition.LockToken, canonicalPath) != null;
-            }
-
-            if(!match ^ condition.Negated)
-            {
-              allConditionsSucceeded = false;
-              break;
-            }
-          }
-
-          if(allConditionsSucceeded)
-          {
-            anyListSucceeded = true;
-            break;
-          }
-        }
-
-        if(anyListSucceeded) break;
-      }
-
-      if(!anyListSucceeded) return ConditionCodes.PreconditionFailed;
-    }
+    if(ifClauses != null && !CheckIfHeader(ref requestMetadata, canonicalPath)) return ConditionCodes.PreconditionFailed;
 
     // now check that the required lock tokens have been submitted in the If header
-    ConditionCode lockStatus = CheckSubmittedLockTokens();
+    ConditionCode lockStatus = CheckSubmittedLockTokens(canonicalPath);
     if(lockStatus != null) return lockStatus;
 
     if(ifNoneMatch != null)
@@ -438,34 +335,63 @@ public abstract class WebDAVRequest
           }
         }
       }
+
+      // filter the lock tokens, for instance to remove those that are not owned by the current user
+      List<string> deadTokens = null;
+      foreach(string token in lockTokens)
+      {
+        if(!FilterSubmittedLockToken(token))
+        {
+          if(deadTokens == null) deadTokens = new List<string>();
+          deadTokens.AddRange(token);
+        }
+      }
+      if(deadTokens != null) lockTokens.ExceptWith(deadTokens);
     }
     return lockTokens;
+  }
+
+  /// <summary>Gets whether the client has submitted any precondition headers that require a match against an <see cref="EntityTag"/>. If
+  /// true, or if processing the request might conflict with any resource locks, you must call the
+  /// <see cref="CheckPreconditions(EntityMetadata)"/> method to ensure that the preconditions are satisfied before proceeding with the
+  /// request. If false, it is okay (and inexpensive) to call <see cref="CheckPreconditions(EntityMetadata)"/>, so in general you do not
+  /// need to call this method.
+  /// </summary>
+  /// <remarks>The main usage of this method is to avoid computing the <see cref="EntityMetadata.EntityTag"/> in cases when it won't be
+  /// needed. In particular, if this property is false, then the <see cref="EntityMetadata"/> object passed to
+  /// <see cref="CheckPreconditions(EntityMetadata)"/> will not require an <see cref="EntityTag"/>.
+  /// </remarks>
+  public bool PreconditionsMayNeedEntityTag()
+  {
+    if(ifMatch != null || ifNoneMatch != null) return true;
+    if(ifClauses != null)
+    {
+      foreach(TaggedIfLists lists in ifClauses)
+      {
+        if(lists.ChecksEntityTag()) return true;
+      }
+    }
+    return false;
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
   /// <remarks>The default implementation always returns null.
   /// <note type="inherit">Derived classes should typically implement this method by calling
-  /// <see cref="CheckSubmittedLockTokens(LockType,bool,bool)"/> or one of its overrides.
+  /// <see cref="CheckSubmittedLockTokens(LockType,string,bool,bool)"/> or one of its overrides.
   /// </note>
   /// </remarks>
-  protected virtual ConditionCode CheckSubmittedLockTokens()
+  protected virtual ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
     return null;
-  }
-
-  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
-  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants)
-  {
-    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, null, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
   /// <param name="canonicalPath">The canonical, relative path to the resource whose locks will be examined. The resource must be within
   /// the request service (i.e. controlled by <see cref="WebDAVContext.Service"/>). If null, the request resource will be used.
   /// </param>
-  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants, string canonicalPath)
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, string canonicalPath, bool checkParent, bool checkDescendants)
   {
-    return CheckSubmittedLockTokens(lockType, checkParent, checkDescendants, canonicalPath, null);
+    return CheckSubmittedLockTokens(lockType, canonicalPath, checkParent, checkDescendants, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
@@ -475,8 +401,8 @@ public abstract class WebDAVRequest
   /// <param name="service">The <see cref="IWebDAVService"/> containing the resource whose locks will be examined. If null, the request
   /// service will be used. If not null, <paramref name="canonicalPath"/> cannot be null either.
   /// </param>
-  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, bool checkParent, bool checkDescendants,
-                                                   string canonicalPath, IWebDAVService service)
+  protected ConditionCode CheckSubmittedLockTokens(LockType lockType, string canonicalPath, bool checkParent, bool checkDescendants,
+                                                   IWebDAVService service)
   {
     if(lockType == null) throw new ArgumentNullException();
 
@@ -497,8 +423,8 @@ public abstract class WebDAVRequest
         string parentPath = DAVUtility.GetParentPath(canonicalPath);
         if(parentPath != null) // if the resource has a parent...
         {
-          IList<ActiveLock> locks = Context.LockManager.GetLocks(parentPath, true, false, filter);
-          if(locks.Count != 0) // and the parent is locked...
+          IList<ActiveLock> locks = Context.LockManager.GetLocks(parentPath, LockSelection.SelfAndRecursiveAncestors, filter);
+          if(locks.Count != 0) // and the parent is locked (directly or indirectly)...
           {
             ActiveLock lockObject = GetSubmittedLock(locks, submittedTokens); // see if a relevant token was submitted
             if(lockObject == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + parentPath); // error: none submitted
@@ -515,8 +441,9 @@ public abstract class WebDAVRequest
         }
       }
 
-      // now check locks directly on the resource
-      IList<ActiveLock> directLocks = Context.LockManager.GetLocks(canonicalPath, !checkParent, false, filter);
+      // now check locks directly on the resource, and indirect locks too if we didn't already check them in the checkParent path above
+      IList<ActiveLock> directLocks =
+        Context.LockManager.GetLocks(canonicalPath, checkParent ? LockSelection.Self : LockSelection.SelfAndRecursiveAncestors, filter);
       if(directLocks.Count != 0)
       {
         ActiveLock lockObject = GetSubmittedLock(directLocks, submittedTokens); // see if a relevant token was submitted
@@ -531,21 +458,7 @@ public abstract class WebDAVRequest
       // now look at locks that are descendants of the resource
       if(checkDescendants)
       {
-        IList<ActiveLock> locks = Context.LockManager.GetLocks(canonicalPath, false, true, filter);
-        List<ActiveLock> descendantLocks;
-        if(directLocks.Count == 0)
-        {
-          descendantLocks = GetList(locks);
-        }
-        else
-        {
-          descendantLocks = new List<ActiveLock>(locks.Count);
-          foreach(ActiveLock lockObject in locks)
-          {
-            if(lockObject.Path.Length > canonicalPath.Length) descendantLocks.Add(lockObject);
-          }
-        }
-
+        List<ActiveLock> descendantLocks = GetList(Context.LockManager.GetLocks(canonicalPath, LockSelection.Descendants, filter));
         if(descendantLocks.Count != 0)
         {
           descendantLocks.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.Ordinal));
@@ -559,6 +472,16 @@ public abstract class WebDAVRequest
     }
 
     return null;
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/FilterSubmittedLockToken/node()" />
+  /// <remarks>The default implementation filters out lock tokens that are not owned by the current user. (If the current user is
+  /// anonymous, locks created by other anonymous users will not be filtered out, since there is no way to distinguish the two.)
+  /// </remarks>
+  protected virtual bool FilterSubmittedLockToken(string lockToken)
+  {
+    ActiveLock lockObject = Context.LockManager.GetLock(lockToken, null);
+    return lockObject != null && Context.CurrentUserId.OrdinalEquals(lockObject.OwnerId);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -610,7 +533,7 @@ public abstract class WebDAVRequest
     internal TaggedIfLists(string resourceTag, Uri resourceTagUri, IfList[] lists)
     {
       if(lists == null) throw new ArgumentNullException();
-      if(resourceTag != null && resourceTag.Length == 0 || lists.Length == 0) throw new ArgumentException();
+      if(StringUtility.IsEmpty(resourceTag) || lists.Length == 0) throw new ArgumentException();
       ResourceTag    = resourceTag;
       ResourceTagUri = resourceTagUri;
       Lists          = lists;
@@ -631,11 +554,45 @@ public abstract class WebDAVRequest
       }
       return false;
     }
+
+    /// <summary>Determines whether the <see cref="ResourceTag"/> exactly matches a relative path in the context of a request. If this
+    /// method returns false, the tag might still match the given path through an alias.
+    /// </summary>
+    public bool ExactTagMatch(WebDAVContext context, string relativePath)
+    {
+      if(context == null || relativePath == null) throw new ArgumentNullException();
+      if(ResourceTag != null)
+      {
+        if(ResourceTagUri.IsAbsoluteUri) // if the resource tag was an absolute URI, construct an absolute URI from the request and compare
+        {
+          string absolutePath = DAVUtility.RemoveTrailingSlash(context.ServiceRoot + relativePath);
+          return string.Equals(DAVUtility.RemoveTrailingSlash(ResourceTagUri.AbsolutePath), absolutePath, StringComparison.Ordinal) &&
+                 ResourceTagUri.Authority.OrdinalEquals(context.Request.Url.Authority);
+        }
+        // otherwise, if the resource tag was an absolute path, see if it matches the service root up to the trailing slash
+        else if(string.Compare(ResourceTag, 0, context.ServiceRoot, 0, context.ServiceRoot.Length-1, StringComparison.Ordinal) == 0)
+        {
+          if(relativePath.Length != 0) // the path doesn't merely reference the service root...
+          {
+            // match the slash that separates the two and then match the relative path
+            return ResourceTag.Length > context.ServiceRoot.Length && ResourceTag[context.ServiceRoot.Length-1] == '/' &&
+                   string.Compare(ResourceTag, context.ServiceRoot.Length, relativePath, 0, int.MaxValue, StringComparison.Ordinal) == 0;
+          }
+          else // if the relative path references the service root...
+          {
+            return ResourceTag.Length < context.ServiceRoot.Length || // we already matched up to the trailing slash, so check the slash
+                   ResourceTag.Length == context.ServiceRoot.Length && ResourceTag[context.ServiceRoot.Length-1] == '/';
+          }
+        }
+      }
+
+      return false;
+    }
   }
   #endregion
 
   /// <summary>Checks the lock at the given index along with some or all of its descendants, and advances the index to the next unchecked
-  /// lock.
+  /// lock. This method assumes that the locks have been sorted by path.
   /// </summary>
   ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens, Predicate<ActiveLock> filter)
   {
@@ -704,6 +661,80 @@ public abstract class WebDAVRequest
     return null;
   }
 
+  /// <summary>Checks the preconditions for the WebDAV <c>If</c> header.</summary>
+  bool CheckIfHeader(ref EntityMetadata requestMetadata, string canonicalPath)
+  {
+    // RFC 4918 section 10.4.3 specifies the processing for the If header
+    bool anyListSucceeded = false;
+    foreach(TaggedIfLists clause in ifClauses)
+    {
+      EntityMetadata metadata = null;
+      ILockManager lockManager = null;
+      string canonicalClausePath = canonicalPath ?? Context.CanonicalPathIfKnown;
+
+      // if the clause definitely matches the request URI...
+      if(clause.ResourceTag == null || clause.ExactTagMatch(Context, Context.RequestPath) ||
+         !canonicalClausePath.OrdinalEquals(Context.RequestPath) && clause.ExactTagMatch(Context, canonicalClausePath))
+      {
+        bool checksEntityTag = clause.ChecksEntityTag();
+        if((requestMetadata == null || checksEntityTag && requestMetadata.EntityTag == null) && Context.RequestResource != null)
+        {
+          requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
+        }
+
+        metadata    = requestMetadata;
+        lockManager = Context.LockManager;
+      }
+      else // otherwise, the clause doesn't obviously match the request URI, so do a full resolution step
+      {
+        IWebDAVResource resource;
+        IWebDAVService service;
+        string serviceRoot;
+        IPropertyStore propertyStore;
+        bool accessDenied;
+        if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource, out serviceRoot, out canonicalClausePath,
+                                   out accessDenied, out lockManager, out propertyStore))
+        {
+          canonicalClausePath = resource.CanonicalPath;
+          metadata            = resource.GetEntityMetadata(clause.ChecksEntityTag());
+        }
+      }
+
+      foreach(IfList list in clause.Lists)
+      {
+        bool allConditionsSucceeded = true;
+        foreach(IfCondition condition in list.Conditions)
+        {
+          bool match = false;
+          if(condition.EntityTag != null)
+          {
+            match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
+          }
+          else if(condition.LockToken != null)
+          {
+            match = lockManager != null && canonicalClausePath != null && lockManager.GetLock(condition.LockToken, canonicalClausePath) != null;
+          }
+
+          if(!match ^ condition.Negated)
+          {
+            allConditionsSucceeded = false;
+            break;
+          }
+        }
+
+        if(allConditionsSucceeded)
+        {
+          anyListSucceeded = true;
+          break;
+        }
+      }
+
+      if(anyListSucceeded) break;
+    }
+
+    return anyListSucceeded;
+  }
+
   bool IsGetOrHead()
   {
     return Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Get) || Context.Request.HttpMethod.OrdinalEquals(DAVMethods.Head);
@@ -724,9 +755,9 @@ public abstract class WebDAVRequest
     return L => a(L) && b(L);
   }
 
-  static List<ActiveLock> GetList(IList<ActiveLock> ilist)
+  static List<ActiveLock> GetList(IList<ActiveLock> list)
   {
-    return ilist as List<ActiveLock> ?? new List<ActiveLock>(ilist);
+    return list as List<ActiveLock> ?? new List<ActiveLock>(list);
   }
 
   static ActiveLock GetSubmittedLock(IEnumerable<ActiveLock> locks, HashSet<string> submittedTokens)

@@ -18,7 +18,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -45,11 +45,13 @@
   <ItemGroup>
     <Compile Include="Globals.cs" />
     <Compile Include="Methods\Delete.cs" />
+    <Compile Include="Methods\Locks.cs" />
     <Compile Include="Methods\MkCol.cs" />
     <Compile Include="Methods\Options.cs" />
     <Compile Include="Methods\Properties.cs" />
     <Compile Include="Methods\Put.cs" />
     <Compile Include="MimeReader.cs" />
+    <Compile Include="Services\Authorization.cs" />
     <Compile Include="TestBase.cs" />
     <Compile Include="Methods\GetOrHead.cs" />
     <Compile Include="WebServer.cs" />
@@ -70,6 +72,10 @@
     <ProjectReference Include="..\Server\WebDAV.Server.csproj">
       <Project>{2c80b8ca-aa29-4f20-9225-fb77c46f9d32}</Project>
       <Name>WebDAV.Server</Name>
+    </ProjectReference>
+    <ProjectReference Include="Helpers\WebDAV.Server.Tests.Helpers.csproj">
+      <Project>{153da5d4-3d06-400e-b405-810e7b9a82b1}</Project>
+      <Name>WebDAV.Server.Tests.Helpers</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

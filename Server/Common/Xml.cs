@@ -226,6 +226,10 @@ public static class DAVNames
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsLong = new XmlQualifiedName("long", XmlSchema);
+  /// <summary>The <c>xs:QName</c> type, which represents a qualified node name, where <c>xs</c> refers to the
+  /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
+  /// </summary>
+  public static readonly XmlQualifiedName xsQName = new XmlQualifiedName("QName", XmlSchema);
   /// <summary>The <c>xs:short</c> type, which represents 16-bit signed integer data, where <c>xs</c> refers to the
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
@@ -258,14 +262,19 @@ public static class DAVNames
 /// <seealso cref="WebDAVContext.OpenMultiStatusResponse"/>
 public sealed class MultiStatusResponse : IDisposable
 {
-  internal MultiStatusResponse(XmlWriter writer, HashSet<string> namespaces)
+  internal MultiStatusResponse(WebDAVContext context, XmlWriter writer, HashSet<string> namespaces)
   {
     Writer = writer;
 
+    // the WebDAV mini-redirector client used by Windows Explorer can't handle responses that use the default xml namespace. it requires
+    // prefixes for the elements, so we must respond like <a:multistatus xmlns:a="DAV:"> rather than <multistatus xmlns="DAV:">
+    string davPrefix = context.UseExplorerHacks() ? MakeNamespacePrefix() : null;
+
     // write the start element using the fully qualified name so the writer knows the namespace, since we haven't defined it yet with
     // an xmlns attribute. if we don't define the namespace, we'll get an error when we try to create the xmlns attribute
-    writer.WriteStartElement(DAVNames.multistatus);
-    writer.WriteAttributeString("xmlns", DAVNames.DAV); // now add the xmlns element for the DAV: namespace
+    writer.WriteStartElement(davPrefix, DAVNames.multistatus.Name, DAVNames.multistatus.Namespace);
+    if(davPrefix == null) writer.WriteAttributeString("xmlns", DAVNames.DAV); // now add the xmlns attribute for the DAV: namespace
+    else writer.WriteAttributeString("xmlns", davPrefix, null, DAVNames.DAV);
 
     if(namespaces != null)
     {
@@ -292,9 +301,9 @@ public sealed class MultiStatusResponse : IDisposable
   public void WriteStatus(ConditionCode code)
   {
     if(code == null) throw new ArgumentNullException();
-    Writer.WriteElementString(DAVNames.status.Name, code.DAVStatusText); // write the DAV:status element
+    Writer.WriteElementString(DAVNames.status, code.DAVStatusText); // write the DAV:status element
     code.WriteErrorXml(Writer); // write the DAV:error element, if any
-    if(!string.IsNullOrEmpty(code.Message)) Writer.WriteElementString(DAVNames.responsedescription.Name, code.Message);
+    if(!string.IsNullOrEmpty(code.Message)) Writer.WriteElementString(DAVNames.responsedescription, code.Message);
   }
 
   /// <summary>Finishes writing the multi-status response and disposes the underlying <see cref="XmlWriter"/>.</summary>

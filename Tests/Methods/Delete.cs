@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Text;
-using AdamMil.WebDAV.Server;
 using NUnit.Framework;
 
 namespace AdamMil.WebDAV.Server.Tests

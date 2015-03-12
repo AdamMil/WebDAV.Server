@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using AdamMil.IO;
+using AdamMil.Tests;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
 using NUnit.Framework;
@@ -25,6 +26,88 @@ namespace AdamMil.WebDAV.Server.Tests
       Dispose(true);
       GC.SuppressFinalize(this);
     }
+
+    #region LockInfo
+    protected sealed class LockInfo
+    {
+      public LockInfo(TestBase test, XmlNode node)
+      {
+        Assert.AreEqual(DAVNames.activelock, node.GetQualifiedName());
+
+        node = node.FirstChild;
+        Assert.AreEqual(DAVNames.lockscope, node.GetQualifiedName());
+        Assert.AreEqual(DAVNames.DAV, node.NamespaceURI);
+        Scope = node.FirstChild.GetQualifiedName();
+
+        node = node.NextSibling;
+        Assert.AreEqual(DAVNames.locktype, node.GetQualifiedName());
+        Assert.AreEqual(DAVNames.write, node.FirstChild.GetQualifiedName());
+
+        node = node.NextSibling;
+        Assert.AreEqual(DAVNames.depth, node.GetQualifiedName());
+        string value = node.InnerText.Trim();
+        if(value == "0") Depth = Depth.Self;
+        else if(value == "1") Depth = Depth.SelfAndChildren;
+        else if(value == "infinity") Depth = Depth.SelfAndDescendants;
+        else Assert.Fail("Invalid depth " + value);
+
+        node = node.NextSibling;
+        if(node.GetQualifiedName() == DAVNames.owner)
+        {
+          OwnerData = (XmlElement)node.FirstChild;
+          node = node.NextSibling;
+        }
+
+        Assert.AreEqual(DAVNames.timeout, node.GetQualifiedName());
+        value = node.InnerText;
+        if(value != "Infinite")
+        {
+          Assert.IsTrue(value.StartsWith("Second-"));
+          Timeout = uint.Parse(value.Substring(7), CultureInfo.InvariantCulture);
+        }
+        node = node.NextSibling;
+
+        Assert.AreEqual(DAVNames.locktoken, node.GetQualifiedName());
+        Assert.AreEqual(DAVNames.href, node.FirstChild.GetQualifiedName());
+        LockToken = new Uri(node.FirstChild.InnerText, UriKind.Absolute);
+        node = node.NextSibling;
+
+        Assert.AreEqual(DAVNames.lockroot, node.GetQualifiedName());
+        Assert.AreEqual(DAVNames.href, node.FirstChild.GetQualifiedName());
+        LockRoot = new Uri(node.FirstChild.InnerText, UriKind.RelativeOrAbsolute);
+        if(!LockRoot.IsAbsoluteUri) LockRoot = new Uri(new Uri(test.GetFullUrl("/"), UriKind.Absolute), LockRoot);
+        Assert.IsNull(node.NextSibling);
+      }
+
+      public Uri LockToken, LockRoot;
+      public Depth Depth;
+      public XmlQualifiedName Scope;
+      public XmlElement OwnerData;
+      public uint Timeout;
+
+      public void Test(LockInfo expected)
+      {
+        Test(expected, false);
+      }
+
+      public void Test(LockInfo expected, bool exactTimeout)
+      {
+        Test(expected.LockRoot.ToString(), expected.Depth, expected.Scope, exactTimeout ? (int)expected.Timeout : -1,
+             expected.OwnerData == null ? null : expected.OwnerData.OuterXml);
+        if(!exactTimeout) Assert.LessOrEqual(expected.Timeout, Timeout);
+      }
+
+      public void Test(string lockRoot, Depth depth, XmlQualifiedName scope, int timeout, string ownerXml)
+      {
+        Assert.AreEqual(new Uri(lockRoot.ToLowerInvariant(), UriKind.Absolute), new Uri(LockRoot.ToString().ToLowerInvariant(), UriKind.Absolute));
+        Assert.AreEqual(depth, Depth);
+        Assert.AreEqual(scope, Scope);
+        if(timeout != -1) Assert.AreEqual((uint)timeout, Timeout);
+        if(ownerXml == null) Assert.IsNull(OwnerData);
+        else TestHelpers.AssertXmlEquals(ownerXml, OwnerData);
+      }
+    }
+    #endregion
 
     protected WebServer Server { get; private set; }
 
@@ -79,7 +162,12 @@ namespace AdamMil.WebDAV.Server.Tests
       return data;
     }
 
-    protected string GetFullUrl(string requestPath)
+    protected string DownloadString(string requestPath)
+    {
+      return Encoding.UTF8.GetString(Download(requestPath));
+    }
+
+    protected internal string GetFullUrl(string requestPath)
     {
       return "http://localhost:" + Server.EndPoint.Port.ToStringInvariant() + "/" + requestPath;
     }
@@ -95,6 +183,134 @@ namespace AdamMil.WebDAV.Server.Tests
       XmlNamespaceManager xmlns = new XmlNamespaceManager(doc.NameTable);
       xmlns.AddNamespace("D", "DAV:");
       return doc.SelectNodes("/D:multistatus/D:response/D:propstat/D:prop/node()", xmlns);
+    }
+
+    protected LockInfo Lock(string requestPath, int expectedStatus=200, Depth depth=Depth.Self, string scope="exclusive", uint timeoutSecs=0,
+                            string ifHeader=null, string expectedXml=null, string ownerXml=null, string[] extraHeaders=null)
+    {
+      List<string> requestHeaders = new List<string>() { DAVHeaders.Timeout, timeoutSecs == 0 ? "Infinite" : "Second-" + timeoutSecs.ToStringInvariant() };
+      if(depth != Depth.Unspecified)
+      {
+        requestHeaders.Add(DAVHeaders.Depth);
+        requestHeaders.Add(GetDepthHeader(depth));
+      }
+      if(ifHeader != null) { requestHeaders.Add(DAVHeaders.If); requestHeaders.Add(ifHeader); }
+      if(extraHeaders != null) requestHeaders.AddRange(extraHeaders);
+
+      string bodyXml = "<?xml version=\"1.0\" encoding=\"utf-8\" ?><lockinfo xmlns=\"DAV:\"><lockscope><"+scope+"/></lockscope><locktype><write/></locktype>";
+      if(ownerXml != null) bodyXml += "<owner>" + ownerXml + "</owner>";
+      bodyXml += "</lockinfo>";
+
+      LockInfo info = Lock(requestPath, requestHeaders.ToArray(), bodyXml, expectedStatus, expectedXml);
+      if(info != null)
+      {
+        Assert.AreEqual(depth, info.Depth);
+        Assert.AreEqual(scope, info.Scope.Name);
+        if(ownerXml == null) Assert.IsNull(info.OwnerData);
+        else TestHelpers.AssertXmlEquals(ownerXml, info.OwnerData);
+      }
+      return info;
+    }
+
+    protected LockInfo Lock(string requestPath, string[] requestHeaders, string bodyXml, int expectedStatus, string expectedXml=null)
+    {
+      LockInfo info = null;
+      TestRequest("LOCK", requestPath, requestHeaders, bodyXml == null ? null : Encoding.UTF8.GetBytes(bodyXml), expectedStatus, null, response =>
+      {
+        string token = response.Headers[DAVHeaders.LockToken];
+        if(expectedStatus < 200 || expectedStatus >= 300 || expectedStatus == 207)
+        {
+          Assert.IsNullOrEmpty(token);
+          if(expectedXml != null)
+          {
+            using(Stream stream = response.GetResponseStream()) TestHelpers.AssertXmlEquals(expectedXml, stream);
+          }
+        }
+        else
+        {
+          XmlDocument responseXml = new XmlDocument();
+          using(Stream stream = response.GetResponseStream()) responseXml.Load(stream);
+          if(expectedXml != null) TestHelpers.AssertXmlEquals(expectedXml, responseXml);
+
+          Assert.AreEqual(DAVNames.prop, responseXml.DocumentElement.GetQualifiedName());
+          Assert.AreEqual(DAVNames.lockdiscovery, responseXml.DocumentElement.FirstChild.GetQualifiedName());
+
+          info = new LockInfo(this, responseXml.DocumentElement.FirstChild.FirstChild);
+          if(bodyXml != null) // if the client submitted a body, it should have received a Lock-Token header
+          {
+            Assert.IsNotNullOrEmpty(token);
+            Assert.AreEqual(info.LockToken, new Uri(token.TrimStart('<').TrimEnd('>'), UriKind.Absolute));
+          }
+        }
+      });
+
+      return info;
+    }
+
+    protected LockInfo[] QueryLocks(string requestPath, Depth depth)
+    {
+      XmlDocument xml = RequestXml("PROPFIND", requestPath, new string[] { DAVHeaders.Depth, GetDepthHeader(depth) },
+                                   "<propfind xmlns=\"DAV:\"><prop><lockdiscovery/></prop></propfind>", 207);
+      XmlNamespaceManager xmlns = new XmlNamespaceManager(xml.NameTable);
+      xmlns.AddNamespace("D", DAVNames.DAV);
+      List<LockInfo> locks = new List<LockInfo>();
+      foreach(XmlNode node in xml.SelectNodes("//D:prop/D:lockdiscovery/D:activelock", xmlns)) locks.Add(new LockInfo(this, node));
+      return locks.ToArray();
+    }
+
+    protected LockInfo[] QueryLocks(string requestPath, int expectedLockCount)
+    {
+      return QueryLocks(requestPath, expectedLockCount, Depth.Self);
+    }
+
+    protected LockInfo[] QueryLocks(string requestPath, int expectedLockCount, Depth depth)
+    {
+      LockInfo[] info = QueryLocks(requestPath, depth);
+      Assert.AreEqual(expectedLockCount, info.Length);
+      return info;
+    }
+
+    protected LockInfo[] QueryLocks(string requestPath, params LockInfo[] expectedLocks)
+    {
+      return QueryLocks(requestPath, Depth.Self, expectedLocks);
+    }
+
+    protected LockInfo[] QueryLocks(string requestPath, Depth depth, params LockInfo[] expectedLocks)
+    {
+      LockInfo[] locks = QueryLocks(requestPath, expectedLocks.Length, depth);
+      for(int i=0; i<expectedLocks.Length; i++)
+      {
+        // reorder the locks so they're in the same order as the expected locks
+        for(int j=i; j<locks.Length; j++)
+        {
+          if(locks[j].LockToken == expectedLocks[i].LockToken)
+          {
+            if(i != j) Utility.Swap(ref locks[i], ref locks[j]);
+            break;
+          }
+        }
+        // then verify each lock
+        locks[i].Test(expectedLocks[i]);
+      }
+      return locks;
+    }
+
+    protected void RemoveCustomProperties(string requestPath, params string[] properties)
+    {
+      RemoveCustomProperties(requestPath, null, properties);
+    }
+
+    protected void RemoveCustomProperties(string requestPath, string[] requestHeaders, params string[] properties)
+    {
+      StringBuilder sb = new StringBuilder();
+      sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>")
+        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine("<remove><prop>");
+      foreach(string propertyName in properties)
+      {
+        sb.Append("<T:").Append(propertyName).Append("/>");
+      }
+      sb.AppendLine().AppendLine("</prop></remove>").AppendLine("</propertyupdate>");
+      TestRequest("PROPPATCH", requestPath, requestHeaders, Encoding.UTF8.GetBytes(sb.ToString()), 207);
     }
 
     protected XmlDocument RequestXml(string method, string requestPath)
@@ -129,6 +345,11 @@ namespace AdamMil.WebDAV.Server.Tests
 
     protected void SetCustomProperties(string requestPath, params string[] properties)
     {
+      SetCustomProperties(requestPath, null, properties);
+    }
+
+    protected void SetCustomProperties(string requestPath, string[] requestHeaders, params string[] properties)
+    {
       if((properties.Length & 1) != 0) throw new ArgumentException();
       StringBuilder sb = new StringBuilder();
       sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>")
@@ -139,7 +360,7 @@ namespace AdamMil.WebDAV.Server.Tests
           .AppendLine();
       }
       sb.AppendLine("</prop></set>").AppendLine("</propertyupdate>");
-      TestRequest("PROPPATCH", requestPath, null, Encoding.UTF8.GetBytes(sb.ToString()), 207);
+      TestRequest("PROPPATCH", requestPath, requestHeaders, Encoding.UTF8.GetBytes(sb.ToString()), 207);
     }
 
     protected void TestCustomProperties(string requestPath, params string[] properties)
@@ -259,6 +480,36 @@ namespace AdamMil.WebDAV.Server.Tests
       }
 
       System.Threading.Thread.Sleep(50);
+    }
+
+    protected void Unlock(string requestPath, LockInfo info, int expectedStatus=204, string expectedXml=null, string[] extraHeaders=null)
+    {
+      List<string> headers = new List<string>();
+      headers.Add(DAVHeaders.LockToken);
+      headers.Add("<" + info.LockToken.ToString() + ">");
+      if(extraHeaders != null) headers.AddRange(extraHeaders);
+      TestRequest("UNLOCK", requestPath, headers.ToArray(), null, expectedStatus, null, response =>
+      {
+        if(expectedXml != null)
+        {
+          using(Stream stream = response.GetResponseStream()) TestHelpers.AssertXmlEquals(expectedXml, stream);
+        }
+      });
+    }
+
+    /// <summary>Returns the WebDAV <c>Depth</c> header corresponding to the given <see cref="Depth"/> value, or null if
+    /// <paramref name="depth"/> is <see cref="Depth.Unspecified"/>.
+    /// </summary>
+    protected static string GetDepthHeader(Depth depth)
+    {
+      switch(depth)
+      {
+        case Depth.Self: return "0";
+        case Depth.SelfAndChildren: return "1";
+        case Depth.SelfAndDescendants: return "infinity";
+        case Depth.Unspecified: return null;
+        default: throw new ArgumentException("Invalid depth value: " + depth.ToString());
+      }
     }
 
     protected static HttpWebResponse GetResponseWithoutException(HttpWebRequest request)

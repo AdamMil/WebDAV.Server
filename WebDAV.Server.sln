@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebDAV.Server.Tests", "Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdamMil.TestHelpers", "..\AdamMil.net\TestHelpers\AdamMil.TestHelpers.csproj", "{E755006A-EB9E-4A5A-9872-65A2C4737C20}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebDAV.Server.Tests.Helpers", "Tests\Helpers\WebDAV.Server.Tests.Helpers.csproj", "{153DA5D4-3D06-400E-B405-810E7B9A82B1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,6 +44,10 @@ Global
 		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E755006A-EB9E-4A5A-9872-65A2C4737C20}.Release|Any CPU.Build.0 = Release|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9A82B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9A82B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9A82B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{153DA5D4-3D06-400E-B405-810E7B9A82B1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

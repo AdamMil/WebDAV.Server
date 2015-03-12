@@ -35,6 +35,428 @@ using AdamMil.WebDAV.Server.Configuration;
 namespace AdamMil.WebDAV.Server
 {
 
+#region BinaryReaderWriterExtensions
+static class BinaryReaderWriterExtensions
+{
+  /// <summary>Reads a value that was written with <see cref="WriteValueWithType"/>.</summary>
+  internal static object ReadValueWithType(this AdamMil.IO.BinaryReader reader)
+  {
+    if(reader == null) throw new ArgumentNullException();
+    ValueType type = (ValueType)reader.ReadByte();
+    object value;
+    if((type & ValueType.IsArray) == 0) // if it's not an array...
+    {
+      switch(type)
+      {
+        case ValueType.False: value = false; break;
+        case ValueType.True: value = true; break;
+        case ValueType.Byte: value = reader.ReadByte(); break;
+        case ValueType.Char: value = reader.ReadChar(); break;
+        case ValueType.DateTime: value = reader.ReadDateTime(); break;
+        case ValueType.DBNull: value = DBNull.Value; break;
+        case ValueType.Decimal: value = reader.ReadDecimal(); break;
+        case ValueType.Double: value = reader.ReadDouble(); break;
+        case ValueType.Int16: value = reader.ReadInt16(); break;
+        case ValueType.Int32: value = reader.ReadEncodedInt32(); break;
+        case ValueType.Int64: value = reader.ReadEncodedInt64(); break;
+        case ValueType.Null: value = null; break;
+        case ValueType.SByte: value = reader.ReadSByte(); break;
+        case ValueType.Single: value = reader.ReadSingle(); break;
+        case ValueType.String: value = reader.ReadStringWithLength(); break;
+        case ValueType.UInt16: value = reader.ReadUInt16(); break;
+        case ValueType.UInt32: value = reader.ReadEncodedUInt32(); break;
+        case ValueType.UInt64: value = reader.ReadEncodedUInt64(); break;
+        case ValueType.Guid: value = reader.ReadGuid(); break;
+        case ValueType.TimeSpan: value = new TimeSpan(reader.ReadInt64()); break;
+        case ValueType.DateTimeOffset:
+          value = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
+          break;
+        case ValueType.XmlDuration:
+        {
+          int months = reader.ReadEncodedInt32();
+          value = new XmlDuration(Math.Abs(months), (long)reader.ReadEncodedUInt64(), months < 0);
+          break;
+        }
+        case ValueType.XmlQualifiedName: value = new XmlQualifiedName(reader.ReadStringWithLength(), reader.ReadStringWithLength()); break;
+        default: throw new InvalidDataException("Unrecognized type: " + type.ToString());
+      }
+    }
+    else // it's an array
+    {
+      int length = (int)reader.ReadEncodedUInt32();
+      switch(type & ~ValueType.IsArray)
+      {
+        case ValueType.False:
+        {
+          bool[] array = new bool[length];
+          for(int i=0; length != 0; )
+          {
+            int byteValue = reader.ReadByte();
+            for(int bits=8; bits != 0; byteValue >>= 1, bits--)
+            {
+              array[i++] = (byteValue & 1) != 0;
+              if(--length == 0) break;
+            }
+          }
+          value = array;
+          break;
+        }
+        case ValueType.Byte: value = reader.ReadBytes(length); break;
+        case ValueType.Char: value = reader.ReadChars(length); break;
+        case ValueType.DateTime: value = reader.ReadDateTimes(length); break;
+        case ValueType.DBNull:
+        {
+          DBNull[] array = new DBNull[length];
+          for(int i=0; i<array.Length; i++) array[i] = DBNull.Value;
+          value = array;
+          break;
+        }
+        case ValueType.Decimal: value = reader.ReadDecimals(length); break;
+        case ValueType.Double: value = reader.ReadDoubles(length); break;
+        case ValueType.Int16: value = reader.ReadInt16s(length); break;
+        case ValueType.Int32: value = reader.ReadEncodedInt32s(length); break;
+        case ValueType.Int64: value = reader.ReadEncodedInt64s(length); break;
+        case ValueType.SByte: value = reader.ReadSBytes(length); break;
+        case ValueType.Single: value = reader.ReadSingles(length); break;
+        case ValueType.String: value = reader.ReadStringsWithLengths(length); break;
+        case ValueType.UInt16: value = reader.ReadUInt16s(length); break;
+        case ValueType.UInt32: value = reader.ReadEncodedUInt32s(length); break;
+        case ValueType.UInt64: value = reader.ReadEncodedUInt64s(length); break;
+        case ValueType.Guid: value = reader.ReadGuids(length); break;
+        case ValueType.TimeSpan:
+        {
+          TimeSpan[] array = new TimeSpan[length];
+          for(int i=0; i<array.Length; i++) array[i] = new TimeSpan(reader.ReadInt64());
+          value = array;
+          break;
+        }
+        case ValueType.DateTimeOffset:
+        {
+          DateTimeOffset[] array = new DateTimeOffset[length];
+          for(int i=0; i<array.Length; i++)
+          {
+            array[i] = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
+          }
+          value = array;
+          break;
+        }
+        case ValueType.XmlDuration:
+        {
+          XmlDuration[] array = new XmlDuration[length];
+          for(int i=0; i<array.Length; i++)
+          {
+            int months = reader.ReadEncodedInt32();
+            array[i] = new XmlDuration(Math.Abs(months), (long)reader.ReadEncodedUInt64(), months < 0);
+          }
+          value = array;
+          break;
+        }
+        case ValueType.XmlQualifiedName:
+        {
+          XmlQualifiedName[] array = new XmlQualifiedName[length];
+          for(int i=0; i<array.Length; i++)
+          {
+            string localName = reader.ReadStringWithLength();
+            if(localName != null) array[i] = new XmlQualifiedName(localName, reader.ReadStringWithLength());
+          }
+          value = array;
+          break;
+        }
+        default: throw new InvalidDataException("Unrecognized type: " + type.ToString());
+      }
+    }
+
+    return value;
+  }
+
+  /// <summary>Writes an object to the stream. All built-in non-pointer primitive types are supported, plus <see cref="DateTime"/>,
+  /// <see cref="DateTimeOffset"/>, <see cref="DBNull"/>, <see cref="Decimal"/>, <see cref="Guid"/>, <see cref="string"/>,
+  /// <see cref="TimeSpan"/>, <see cref="XmlDuration"/>, <see cref="XmlQualifiedName"/>, and one-dimensional arrays of the previous types.
+  /// Null values are also supported. The format in which the object will be written is not specified, but it can be read with
+  /// <see cref="ReadValueWithType"/>.
+  /// </summary>
+  internal static void WriteValueWithType(this AdamMil.IO.BinaryWriter writer, object value)
+  {
+    if(writer == null) throw new ArgumentNullException();
+    Type type = value == null ? null : value.GetType();
+    if(type == null || !type.IsArray) // if it's not an array...
+    {
+      switch(Type.GetTypeCode(type))
+      {
+        case TypeCode.Boolean:
+          writer.Write((byte)((bool)value ? ValueType.True : ValueType.False));
+          break;
+        case TypeCode.Byte:
+          writer.Write((byte)ValueType.Byte);
+          writer.Write((byte)value);
+          break;
+        case TypeCode.Char:
+          writer.Write((byte)ValueType.Char);
+          writer.Write((char)value);
+          break;
+        case TypeCode.DateTime:
+          writer.Write((byte)ValueType.DateTime);
+          writer.Write((DateTime)value);
+          break;
+        case TypeCode.DBNull:
+          writer.Write((byte)ValueType.DBNull);
+          break;
+        case TypeCode.Decimal:
+          writer.Write((byte)ValueType.Decimal);
+          writer.Write((decimal)value);
+          break;
+        case TypeCode.Double:
+          writer.Write((byte)ValueType.Double);
+          writer.Write((double)value);
+          break;
+        case TypeCode.Empty:
+          writer.Write((byte)ValueType.Null);
+          break;
+        case TypeCode.Int16:
+          writer.Write((byte)ValueType.Int16);
+          writer.Write((short)value);
+          break;
+        case TypeCode.Int32:
+          writer.Write((byte)ValueType.Int32);
+          writer.WriteEncoded((int)value);
+          break;
+        case TypeCode.Int64:
+          writer.Write((byte)ValueType.Int64);
+          writer.WriteEncoded((long)value);
+          break;
+        case TypeCode.SByte:
+          writer.Write((byte)ValueType.SByte);
+          writer.Write((sbyte)value);
+          break;
+        case TypeCode.Single:
+          writer.Write((byte)ValueType.Single);
+          writer.Write((float)value);
+          break;
+        case TypeCode.String:
+          writer.Write((byte)ValueType.String);
+          writer.WriteStringWithLength((string)value);
+          break;
+        case TypeCode.UInt16:
+          writer.Write((byte)ValueType.UInt16);
+          writer.Write((ushort)value);
+          break;
+        case TypeCode.UInt32:
+          writer.Write((byte)ValueType.UInt32);
+          writer.WriteEncoded((uint)value);
+          break;
+        case TypeCode.UInt64:
+          writer.Write((byte)ValueType.UInt64);
+          writer.WriteEncoded((ulong)value);
+          break;
+        default:
+          if(type == typeof(Guid))
+          {
+            writer.Write((byte)ValueType.Guid);
+            writer.Write((Guid)value);
+          }
+          else if(type == typeof(TimeSpan))
+          {
+            writer.Write((byte)ValueType.TimeSpan);
+            writer.Write(((TimeSpan)value).Ticks);
+          }
+          else if(type == typeof(DateTimeOffset))
+          {
+            DateTimeOffset dto = (DateTimeOffset)value;
+            writer.Write((byte)ValueType.DateTimeOffset);
+            writer.Write(dto.DateTime.Ticks);
+            writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
+          }
+          else if(type == typeof(XmlDuration))
+          {
+            XmlDuration xd = (XmlDuration)value;
+            int months = xd.TotalMonths;
+            if(xd.IsNegative) months = -months;
+            writer.Write((byte)ValueType.XmlDuration);
+            writer.WriteEncoded(months);
+            writer.WriteEncoded((ulong)xd.Ticks);
+          }
+          else if(type == typeof(XmlQualifiedName))
+          {
+            XmlQualifiedName name = (XmlQualifiedName)value;
+            writer.Write((byte)ValueType.XmlQualifiedName);
+            writer.WriteStringWithLength(name.Name);
+            writer.WriteStringWithLength(name.Namespace);
+          }
+          else
+          {
+            throw new ArgumentException("Unsupported type: " + type.FullName);
+          }
+          break;
+      }
+    }
+    else // it's an array
+    {
+      Array array = (Array)value;
+      if(array.Rank != 1) throw new ArgumentException("Multidimensional arrays are not supported.");
+      type = type.GetElementType();
+      switch(Type.GetTypeCode(type))
+      {
+        case TypeCode.Boolean:
+        {
+          writer.Write((byte)(ValueType.False | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          bool[] boolArray = (bool[])value;
+          for(int i=0; i<array.Length; )
+          {
+            int byteValue = 0;
+            for(int bits=8, mask=1; bits != 0; mask <<= 1, bits--)
+            {
+              byteValue |= (boolArray[i] ? mask : 0);
+              if(++i == array.Length) break;
+            }
+            writer.Write((byte)byteValue);
+          }
+          break;
+        }
+        case TypeCode.Byte:
+          writer.Write((byte)(ValueType.Byte | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((byte[])value);
+          break;
+        case TypeCode.Char:
+          writer.Write((byte)(ValueType.Char | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((char[])value);
+          break;
+        case TypeCode.DateTime:
+          writer.Write((byte)(ValueType.DateTime | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((DateTime[])value);
+          break;
+        case TypeCode.DBNull:
+          writer.Write((byte)(ValueType.DBNull | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          break;
+        case TypeCode.Decimal:
+          writer.Write((byte)(ValueType.Decimal | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((decimal[])value);
+          break;
+        case TypeCode.Double:
+          writer.Write((byte)(ValueType.Double | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((double[])value);
+          break;
+        case TypeCode.Int16:
+          writer.Write((byte)(ValueType.Int16 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((short[])value);
+          break;
+        case TypeCode.Int32:
+          writer.Write((byte)(ValueType.Int32 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          foreach(int intValue in (int[])value) writer.WriteEncoded(intValue);
+          break;
+        case TypeCode.Int64:
+          writer.Write((byte)(ValueType.Int64 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          foreach(long intValue in (long[])value) writer.WriteEncoded(intValue);
+          break;
+        case TypeCode.SByte:
+          writer.Write((byte)(ValueType.SByte | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((sbyte[])value);
+          break;
+        case TypeCode.Single:
+          writer.Write((byte)(ValueType.Single | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((float[])value);
+          break;
+        case TypeCode.String:
+          writer.Write((byte)(ValueType.String | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          foreach(string str in (string[])value) writer.WriteStringWithLength(str);
+          break;
+        case TypeCode.UInt16:
+          writer.Write((byte)(ValueType.UInt16 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          writer.Write((ushort[])value);
+          break;
+        case TypeCode.UInt32:
+          writer.Write((byte)(ValueType.UInt32 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          foreach(uint intValue in (uint[])value) writer.WriteEncoded(intValue);
+          break;
+        case TypeCode.UInt64:
+          writer.Write((byte)(ValueType.UInt64 | ValueType.IsArray));
+          writer.WriteEncoded((uint)array.Length);
+          foreach(ulong intValue in (ulong[])value) writer.WriteEncoded(intValue);
+          break;
+        default:
+          if(type == typeof(Guid))
+          {
+            writer.Write((byte)(ValueType.Guid | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            writer.Write((Guid[])value);
+          }
+          else if(type == typeof(TimeSpan))
+          {
+            writer.Write((byte)(ValueType.TimeSpan | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            foreach(TimeSpan timeSpan in (TimeSpan[])value) writer.Write(timeSpan.Ticks);
+          }
+          else if(type == typeof(DateTimeOffset))
+          {
+            writer.Write((byte)(ValueType.DateTimeOffset | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            foreach(DateTimeOffset dto in (DateTimeOffset[])value)
+            {
+              writer.Write(dto.DateTime.Ticks);
+              writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
+            }
+          }
+          else if(type == typeof(XmlDuration))
+          {
+            writer.Write((byte)(ValueType.XmlDuration | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            foreach(XmlDuration xd in (XmlDuration[])value)
+            {
+              int months = xd.TotalMonths;
+              if(xd.IsNegative) months = -months;
+              writer.WriteEncoded(months);
+              writer.WriteEncoded((ulong)xd.Ticks);
+            }
+          }
+          else if(type == typeof(XmlQualifiedName))
+          {
+            writer.Write((byte)(ValueType.XmlQualifiedName | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            foreach(XmlQualifiedName name in (XmlQualifiedName[])value)
+            {
+              if(name == null)
+              {
+                writer.WriteStringWithLength(null);
+              }
+              else
+              {
+                writer.WriteStringWithLength(name.Name);
+                writer.WriteStringWithLength(name.Namespace);
+              }
+            }
+          }
+          else
+          {
+            throw new ArgumentException("Unsupported type: " + value.GetType().FullName);
+          }
+          break;
+      }
+    }
+  }
+
+  enum ValueType : byte
+  {
+    Null=0, False=1, True=2, Byte=3, Char=4, DateTime=5, Decimal=6, Double=7, Int16=8, Int32=9, Int64=10, SByte=11, Single=12, String=13,
+    UInt16=14, UInt32=15, UInt64=16, Guid=17, DBNull=18, DateTimeOffset=19, TimeSpan=20, XmlDuration=21, XmlQualifiedName=22,
+    IsArray=0x80
+  }
+}
+#endregion
+
 #region ContentEncoding
 /// <summary>Represents a value from the <c>Content-Encoding</c> header.</summary>
 public enum ContentEncoding
@@ -111,6 +533,12 @@ public sealed class ContentRange
            (TotalLength == -1 ? "*" : TotalLength.ToStringInvariant());
   }
 
+  /// <inheritdoc/>
+  public override string ToString()
+  {
+    return ToHeaderString();
+  }
+
   /// <summary>Attempts to parse an HTTP <c>Content-Range</c> header value and return the <see cref="ContentRange"/> object representing
   /// it. If the value could not be parsed, null will be returned.
   /// </summary>
@@ -120,7 +548,7 @@ public sealed class ContentRange
     if(!TryParse(headerValue, out start, out length, out totalLength)) return null;
 
     return totalLength == -1 ? start == -1 ? new ContentRange() : new ContentRange(start, length)
-                              : start == -1 ? new ContentRange(totalLength) : new ContentRange(start, length, totalLength);
+                             : start == -1 ? new ContentRange(totalLength) : new ContentRange(start, length, totalLength);
   }
 
   static bool TryParse(string headerValue, out long start, out long length, out long totalLength)
@@ -453,7 +881,7 @@ public static class DAVUtility
     // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang needing to be inherited)
     string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
     if(!string.IsNullOrEmpty(xmlLang)) newElement.SetAttribute(DAVNames.xmlLang, xmlLang);
-    FixXsiTypes(element, newElement);
+    FixQNames(element, newElement);
     emptyDoc.AppendChild(newElement);
     return newElement;
   }
@@ -543,8 +971,9 @@ public static class DAVUtility
         case TypeCode.Object:
           if(value is DateTimeOffset) type = DAVNames.xsDateTime;
           else if(value is Guid) type = DAVNames.msGuid;
-          else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
           else if(value is byte[]) type = DAVNames.xsB64Binary;
+          else if(value is XmlQualifiedName) type = DAVNames.xsQName;
+          else if(value is XmlDuration || value is TimeSpan) type = DAVNames.xsDuration;
           break;
       }
     }
@@ -596,30 +1025,55 @@ public static class DAVUtility
     return headerString == null ? null : headerString.Split(',', s => s.Trim(), StringSplitOptions.RemoveEmptyEntries);
   }
 
-  internal static object ParseXmlValue(string text, XmlQualifiedName type)
+  internal static object ParseXmlValue(string text, XmlQualifiedName type, XmlNode context)
   {
+    if(type == null || context == null) throw new ArgumentNullException();
+
     object value;
-    if(string.IsNullOrEmpty(text)) value = null;
-    else if(type == DAVNames.xsString) value = text;
-    else if(type == DAVNames.xsDateTime || type == DAVNames.xsDate) value = XmlUtility.ParseDateTime(text);
-    else if(type == DAVNames.xsInt) value = XmlConvert.ToInt32(text);
-    else if(type == DAVNames.xsBoolean) value = XmlConvert.ToBoolean(text);
-    else if(type == DAVNames.xsDouble) value = XmlConvert.ToDouble(text);
-    else if(type == DAVNames.xsUri) value = new Uri(text, UriKind.RelativeOrAbsolute);
-    else if(type == DAVNames.msGuid) value = new Guid(text);
-    else if(type == DAVNames.xsB64Binary) value = Convert.FromBase64String(text);
-    else if(type == DAVNames.xsDuration) value = XmlDuration.Parse(text);
-    else if(type == DAVNames.xsFloat) value = XmlConvert.ToSingle(text);
-    else if(type == DAVNames.xsULong) value = XmlConvert.ToUInt64(text);
-    else if(type == DAVNames.xsLong) value = XmlConvert.ToInt64(text);
-    else if(type == DAVNames.xsDecimal) value = XmlConvert.ToDecimal(text);
-    else if(type == DAVNames.xsUInt) value = XmlConvert.ToUInt32(text);
-    else if(type == DAVNames.xsShort) value = XmlConvert.ToInt16(text);
-    else if(type == DAVNames.xsUShort) value = XmlConvert.ToUInt16(text);
-    else if(type == DAVNames.xsUByte) value = XmlConvert.ToByte(text);
-    else if(type == DAVNames.xsSByte) value = XmlConvert.ToSByte(text);
-    else if(type == DAVNames.xsHexBinary) value = BinaryUtility.ParseHex(text, true);
-    else value = text;
+    if(string.IsNullOrEmpty(text))
+    {
+      value = null;
+    }
+    else if(type.Namespace.OrdinalEquals(DAVNames.XmlSchema))
+    {
+      switch(type.Name)
+      {
+        case "anyURI": value = new Uri(text, UriKind.RelativeOrAbsolute); break;
+        case "base64Binary": value = Convert.FromBase64String(text); break;
+        case "boolean": value = XmlConvert.ToBoolean(text); break;
+        case "byte": value = XmlConvert.ToSByte(text); break;
+        case "dateTime": case "date": value = XmlUtility.ParseDateTime(text); break;
+        case "decimal": value = XmlConvert.ToDecimal(text); break;
+        case "double": value = XmlConvert.ToDouble(text); break;
+        case "duration": value = XmlDuration.Parse(text); break;
+        case "float": value = XmlConvert.ToSingle(text); break;
+        case "hexBinary": value = BinaryUtility.ParseHex(text, true); break;
+        case "int": value = XmlConvert.ToInt32(text); break;
+        case "long": value = XmlConvert.ToInt64(text); break;
+        case "QName":
+        {
+          XmlQualifiedName qname = context.ParseQualifiedName(text);
+          qname.Validate();
+          value = qname;
+          break;
+        }
+        case "short": value = XmlConvert.ToInt16(text); break;
+        case "string": value = text; break;
+        case "unsignedByte": value = XmlConvert.ToByte(text); break;
+        case "unsignedInt": value = XmlConvert.ToUInt32(text); break;
+        case "unsignedLong": value = XmlConvert.ToUInt64(text); break;
+        case "unsignedShort": value = XmlConvert.ToUInt16(text); break;
+        default: value = text; break;
+      }
+    }
+    else if(type == DAVNames.msGuid)
+    {
+      value = new Guid(text);
+    }
+    else
+    {
+      value = text;
+    }
     return value;
   }
 
@@ -686,85 +1140,71 @@ public static class DAVUtility
     {
       return value;
     }
-    else if(expectedType == DAVNames.xsString)
+    else if(expectedType.Namespace.OrdinalEquals(DAVNames.XmlSchema))
     {
-      if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
-      return value;
-    }
-    if(expectedType == DAVNames.xsDateTime || expectedType == DAVNames.xsDate)
-    {
-      if(value is DateTime || value is DateTimeOffset) return value;
-    }
-    else if(expectedType == DAVNames.xsInt)
-    {
-      return (int)ValidateSignedInteger(propertyName, value, int.MinValue, int.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsBoolean)
-    {
-      if(value is bool) return value;
-    }
-    else if(expectedType == DAVNames.xsUri)
-    {
-      if(value is Uri) return value;
-      Uri uri;
-      if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
+      switch(expectedType.Name)
+      {
+        case "anyURI":
+        {
+          if(value is Uri) return value;
+          Uri uri;
+          if(value is string && Uri.TryCreate((string)value, UriKind.RelativeOrAbsolute, out uri)) return uri;
+          break;
+        }
+        case "base64Binary": case "hexBinary":
+          if(value is byte[]) return value;
+          break;
+        case "boolean":
+          if(value is bool) return value;
+          break;
+        case "byte":
+          return (sbyte)ValidateSignedInteger(propertyName, value, sbyte.MinValue, sbyte.MaxValue);
+        case "dateTime": case "date":
+          if(value is DateTime || value is DateTimeOffset) return value;
+          break;
+        case "decimal":
+          if(value is double || value is float || value is decimal || IsInteger(value))
+          {
+            return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+          }
+          break;
+        case "double":
+          if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+          break;
+        case "duration":
+          if(value is XmlDuration || value is TimeSpan) return value;
+          break;
+        case "float":
+          if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+          break;
+        case "int":
+          return (int)ValidateSignedInteger(propertyName, value, int.MinValue, int.MaxValue);
+        case "long":
+          return ValidateSignedInteger(propertyName, value, long.MinValue, long.MaxValue);
+        case "QName":
+          if(value is XmlQualifiedName) return value;
+          break;
+        case "short":
+          return (short)ValidateSignedInteger(propertyName, value, short.MinValue, short.MaxValue);
+        case "string":
+          if(!(value is string)) value = Convert.ToString(value, CultureInfo.InvariantCulture);
+          return value;
+        case "unsignedByte":
+          return (byte)ValidateUnsignedInteger(propertyName, value, byte.MaxValue);
+        case "unsignedInt":
+          return (uint)ValidateUnsignedInteger(propertyName, value, uint.MaxValue);
+        case "unsignedLong":
+          return ValidateUnsignedInteger(propertyName, value, ulong.MaxValue);
+        case "unsignedShort":
+          return (ushort)ValidateUnsignedInteger(propertyName, value, ushort.MaxValue);
+        default:
+          return value;
+      }
     }
     else if(expectedType == DAVNames.msGuid)
     {
       if(value is Guid) return value;
-      Guid guid;
-      if(value is string && GuidUtility.TryParse((string)value, out guid)) return guid;
-    }
-    else if(expectedType == DAVNames.xsDouble)
-    {
-      if(value is double || value is float || IsInteger(value)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
-    }
-    else if(expectedType == DAVNames.xsLong)
-    {
-      return ValidateSignedInteger(propertyName, value, long.MinValue, long.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsULong)
-    {
-      return ValidateUnsignedInteger(propertyName, value, ulong.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsFloat)
-    {
-      if(value is float || IsInteger(value)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
-    }
-    else if(expectedType == DAVNames.xsDuration)
-    {
-      if(value is XmlDuration || value is TimeSpan) return value;
-    }
-    else if(expectedType == DAVNames.xsB64Binary || expectedType == DAVNames.xsHexBinary)
-    {
-      if(value is byte[]) return value;
-    }
-    else if(expectedType == DAVNames.xsDecimal)
-    {
-      if(value is double || value is float || value is decimal || IsInteger(value))
-      {
-        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-      }
-    }
-    else if(expectedType == DAVNames.xsUInt)
-    {
-      return (uint)ValidateUnsignedInteger(propertyName, value, uint.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsShort)
-    {
-      return (short)ValidateSignedInteger(propertyName, value, short.MinValue, short.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsUShort)
-    {
-      return (ushort)ValidateUnsignedInteger(propertyName, value, ushort.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsUByte)
-    {
-      return (byte)ValidateUnsignedInteger(propertyName, value, byte.MaxValue);
-    }
-    else if(expectedType == DAVNames.xsSByte)
-    {
-      return (sbyte)ValidateSignedInteger(propertyName, value, sbyte.MinValue, sbyte.MaxValue);
+      if(value is string) new Guid((string)value);
     }
     else
     {
@@ -831,17 +1271,26 @@ public static class DAVUtility
     return statusCode != (int)HttpStatusCode.NoContent && statusCode != (int)HttpStatusCode.NotModified;
   }
 
-  /// <summary>Recursively fixes QName values in xsi:type attributes to reference the correct namespaces in the new element.
-  /// Unfortunately, this doesn't correct QName values in other attributes because we don't know which other attributes expect QNames.
+  /// <summary>Recursively fixes QName values in xsi:type attributes and element content to reference the correct namespaces in the new
+  /// element context. Unfortunately, this doesn't correct QName values in other attributes because we don't know which other attributes
+  /// expect QNames.
   /// </summary>
-  static void FixXsiTypes(XmlElement oldElem, XmlElement newElem)
+  static void FixQNames(XmlElement oldElem, XmlElement newElem)
   {
     string xsiType = oldElem.GetAttribute(DAVNames.xsiType);
-    if(!string.IsNullOrEmpty(xsiType)) newElem.SetAttribute(DAVNames.xsiType, oldElem.ParseQualifiedName(xsiType).ToString(newElem));
+    if(!string.IsNullOrEmpty(xsiType)) // if the element has an xsi:type attribute...
+    {
+      XmlQualifiedName qname = oldElem.ParseQualifiedName(xsiType);
+      newElem.SetAttribute(DAVNames.xsiType, qname.ToString(newElem));
+      if(qname == DAVNames.xsQName && oldElem.HasSimpleNonSpaceContent()) // if the content is also (supposed to be) a QName...
+      {
+        newElem.InnerText = oldElem.ParseQualifiedName(oldElem.InnerText).ToString(newElem);
+      }
+    }
 
     for(XmlNode oc=oldElem.FirstChild, nc=newElem.FirstChild; oc != null; oc=oc.NextSibling, nc=nc.NextSibling)
     {
-      if(oc.NodeType == XmlNodeType.Element) FixXsiTypes((XmlElement)oc, (XmlElement)nc);
+      if(oc.NodeType == XmlNodeType.Element) FixQNames((XmlElement)oc, (XmlElement)nc);
     }
   }
 

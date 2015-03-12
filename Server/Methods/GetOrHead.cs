@@ -37,12 +37,12 @@ namespace AdamMil.WebDAV.Server
 /// <summary>Represents a range of bytes within an entity response, used to enable partial responses.</summary>
 public struct ByteRange
 {
-  /// <summary>Initializes a new <see cref="ByteRange"/> based on the given start and end positions.</summary>
+  /// <summary>Initializes a new <see cref="ByteRange"/> based on the given start position and length.</summary>
   public ByteRange(long start, long length) : this(start, length, true) { }
 
   internal ByteRange(long start, long length, bool validate)
   {
-    if(validate && (start < 0 || length < 0 || (start + length) < 0)) throw new ArgumentOutOfRangeException();
+    if(validate && (start < 0 || length <= 0 || (start + length) < 0)) throw new ArgumentOutOfRangeException();
     _start  = start;
     _length = length;
   }
@@ -332,6 +332,12 @@ public class GetOrHeadRequest : WebDAVRequest
 
     /// <summary>Gets or sets whether the item represents a directory (collection member) intsead of a file (non-collection member).</summary>
     public bool IsDirectory { get; set; }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+      return Name;
+    }
   }
   #endregion
 
@@ -386,7 +392,6 @@ public class GetOrHeadRequest : WebDAVRequest
     }
 
     // sort the children to put directories first and ensure they're in sorted order
-    IndexItem[] childArray = System.Linq.Enumerable.ToArray(children);
     {
       Comparison<IndexItem> secondComparison; // the comparison to use after files and directories have been separated
       Comparison<IndexItem> thirdComparison = (a, b) => string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
@@ -407,7 +412,7 @@ public class GetOrHeadRequest : WebDAVRequest
         secondComparison = thirdComparison;
         thirdComparison  = null;
       }
-      Array.Sort(childArray, (a, b) =>
+      children = children.Order((a, b) =>
       {
         if(a == b) return 0;
         if(a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
@@ -419,7 +424,7 @@ public class GetOrHeadRequest : WebDAVRequest
 
     // write links to the items
     basePath = HttpUtility.HtmlEncode(Context.ServiceRoot + basePath);
-    foreach(IndexItem item in childArray)
+    foreach(IndexItem item in children)
     {
       if(item == null) throw new ArgumentException("An item was null.");
       string encodedName = HttpUtility.HtmlEncode(item.Name), encodedType = HttpUtility.HtmlEncode(item.Type);
@@ -502,7 +507,7 @@ public class GetOrHeadRequest : WebDAVRequest
       }
 
       ConditionCode precondition = CheckPreconditions(metadata);
-      if(precondition != null && precondition.StatusCode != (int)HttpStatusCode.NotModified)
+      if(precondition != null && precondition.IsError)
       {
         Status = precondition;
       }

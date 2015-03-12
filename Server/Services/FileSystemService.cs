@@ -105,12 +105,6 @@ public class FileSystemService : WebDAVService
   /// <summary>Gets whether the service allows the creation, deletion, and modification of file system resources.</summary>
   public bool IsReadOnly { get; private set; }
 
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/IsReusable/node()" />
-  public override bool IsReusable
-  {
-    get { return true; }
-  }
-
   /// <summary>Gets the root path on the filesystem from which files will be served. If null, the root path will provide access to all
   /// files on all drives.
   /// </summary>
@@ -125,7 +119,8 @@ public class FileSystemService : WebDAVService
     }
     else
     {
-      CreateNewFile(request, s => request.ProcessStandardRequest(LockType.WriteLocks, request.Context.CanonicalPathIfKnown, null, false));
+      string canonicalPath = GetCanonicalPath(request.Context.RequestPath);
+      CreateNewFile(request, canonicalPath, s => request.ProcessStandardRequest(LockType.WriteLocks, canonicalPath, null, false));
       if(request.Status == null || request.Status.IsSuccessful)
       {
         request.Status = ConditionCodes.Created; // then return 201 Created
@@ -153,7 +148,7 @@ public class FileSystemService : WebDAVService
     else // the request might be valid...
     {
       // it's unlikely that the client will submit any preconditions with a MKCOL request, but check them just in case
-      ConditionCode precondition = request.CheckPreconditions(null);
+      ConditionCode precondition = request.CheckPreconditions(null, GetCanonicalPath(request.Context.RequestPath));
       if(precondition != null) // if the client specified that the entity must exist...
       {
         request.Status = precondition; // give an error
@@ -213,7 +208,8 @@ public class FileSystemService : WebDAVService
     }
     else
     {
-      CreateNewFile(request, stream => request.ProcessStandardRequest(stream, null));
+      string canonicalPath = GetCanonicalPath(request.Context.RequestPath);
+      CreateNewFile(request, canonicalPath, stream => request.ProcessStandardRequest(stream, null, canonicalPath));
     }
   }
 
@@ -229,7 +225,7 @@ public class FileSystemService : WebDAVService
   {
     if(request == null) throw new ArgumentNullException();
     if(IsReadOnly || request.Context.LockManager == null) base.Unlock(request); // deny the request if locking is not supported
-    else request.ProcessStandardRequest(); // otherwise, anyone can remove a dangling lock
+    else request.ProcessStandardRequest(GetCanonicalPath(request.Context.RequestPath)); // otherwise, remove the dangling lock
   }
 
   readonly StringComparison comparison;
@@ -284,10 +280,10 @@ public class FileSystemService : WebDAVService
     return name;
   }
 
-  void CreateNewFile(WebDAVRequest request, Action<Stream> processRequest)
+  void CreateNewFile(WebDAVRequest request, string canonicalPath, Action<Stream> processRequest)
   {
     // check preconditions in case the client expects the resource to exist
-    ConditionCode precondition = request.CheckPreconditions(null);
+    ConditionCode precondition = request.CheckPreconditions(null, canonicalPath);
     if(precondition != null)
     {
       request.Status = precondition;
@@ -323,7 +319,7 @@ public class FileSystemService : WebDAVService
             using(FileStream stream = File.Open(path, FileMode.CreateNew, FileAccess.ReadWrite))
             {
               processRequest(stream);
-              success = request.Status == null || request.Status.IsSuccessful;
+              success = request.Status == null || request.Status.IsSuccessful && request.Status.StatusCode != 207; // 207 is a lock error
               if(success) // if the request was successfully executed...
               {
                 // write the ETag and Last-Modified headers
@@ -347,6 +343,11 @@ public class FileSystemService : WebDAVService
         request.Status = FileSystemResource.GetStatusFromException(request, ex);
       }
     }
+  }
+
+  string GetCanonicalPath(string requestPath)
+  {
+    return CaseSensitive ? requestPath : requestPath.ToUpper();
   }
 
   IWebDAVResource ResolveResource(string resourcePath)
@@ -494,7 +495,7 @@ public abstract class FileSystemResource : WebDAVResource
     properties.Add(DAVNames.getlastmodified, new DateTimeOffset(info.LastWriteTime));
     if(!IsReadOnly && request.Context.LockManager != null)
     {
-      Func<object> getLocks = () => request.Context.LockManager.GetLocks(canonicalPath, true, false, null);
+      Func<object> getLocks = () => request.Context.LockManager.GetLocks(canonicalPath, LockSelection.SelfAndRecursiveAncestors, null);
       properties.Add(DAVNames.lockdiscovery, getLocks);
       properties.Add(DAVNames.supportedlock, LockType.WriteLocks);
     }
@@ -1040,7 +1041,7 @@ public class FileSystemRootResource : FileSystemResource
       properties.Add(DAVNames.resourcetype, ResourceType.Collection);
       if(!IsReadOnly && request.Context.LockManager != null)
       {
-        Func<object> getLocks = () => request.Context.LockManager.GetLocks("", true, false, null);
+        Func<object> getLocks = () => request.Context.LockManager.GetLocks("", LockSelection.SelfAndRecursiveAncestors, null);
         properties.Add(DAVNames.supportedlock, LockType.WriteLocks);
         properties.Add(DAVNames.lockdiscovery, getLocks);
       }

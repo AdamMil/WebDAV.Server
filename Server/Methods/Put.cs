@@ -56,38 +56,20 @@ public class PutRequest : SimpleRequest
   /// </summary>
   /// <remarks>If the client requested a partial <c>PUT</c>, then only the specified portion of the entity body should be replaced. If the
   /// client indicated knowledge of the entity body length and the length is incorrect, a 416 Requested Range Not Satisfiable response
-  /// should be returned to the client with the correct length in the <c>Content-Range</c> header. The <see cref="ProcessStandardRequest"/>
-  /// method handles partial <c>PUT</c> requests automatically, so you only need to use this property if you handle the response yourself.
+  /// should be returned to the client with the correct length in the <c>Content-Range</c> header. The
+  /// <see cref="ProcessStandardRequest(Stream,EntityMetadata)"/> method handles partial <c>PUT</c> requests automatically, so you only
+  /// need to use this property if you handle the response yourself.
   /// </remarks>
   public ContentRange ContentRange { get; private set; }
 
-  /// <summary>Performs standard processing of a <c>PUT</c> request.</summary>
-  /// <param name="entityBody">A <see cref="Stream"/> to which the new entity body should be written. The stream must be writable, and it
-  /// is best if the stream is also seekable and readable.
-  /// </param>
-  /// <param name="metadata">Metadata about the entity body. If null, the metadata will be retrieved by calling
-  /// <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if the request resource is
-  /// available. As much information should be provided as possible. If <see cref="EntityMetadata.Length"/> is null, the length will be
-  /// taken from the <paramref name="entityBody"/> if the stream is seekable. If <see cref="EntityMetadata.EntityTag"/> is null, an entity
-  /// tag will be computed from the stream (using <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/>) if the stream is readable and
-  /// seekable. If the entity tag or last modification time is unavailable, request preconditions (e.g. <c>If-Match</c> or
-  /// <c>If-Unmodified-Since</c> headers), which are particularly important for <c>PUT</c> requests, cannot be processed correctly.
-  /// </param>
-  /// <remarks>This method implements the standard <c>PUT</c> method, which replaces the entity body entirely. If
-  /// <paramref name="entityBody"/> is seekable, the method also supports a partial <c>PUT</c> extension that allows clients to specify the
-  /// portion of the entity body to overwrite in the <c>Content-Range</c> header. If <paramref name="entityBody"/> is readable, the method
-  /// additionally supports partial <c>PUT</c> invocations that replace a portion of the entity body with a larger or smaller portion (i.e.
-  /// that cause the entity body to contract or expand). This is why it is best for <paramref name="entityBody"/> to be readable and
-  /// seekable. If creating a readable, seekable stream is expensive, you can examine the <see cref="ContentRange"/> property and only
-  /// create a readable, seekable stream if <see cref="ContentRange"/> is not null (indicating a partial <c>PUT</c> request).
-  /// <para>This method does not provide any headers to the client (except the <c>Content-Range</c> header when the requested range is
-  /// invalid), but you can add additional headers either before or after the method returns. In particular, you should add the <c>ETag</c>
-  /// and <c>Last-Modified</c> headers if the <c>PUT</c> request was successfully processed (i.e. if <see cref="WebDAVRequest.Status"/> is
-  /// null or <see cref="ConditionCode.IsSuccessful"/> is true after this method returns). If you do not have your own method for computing
-  /// entity tags, you should use the <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/> method.
-  /// </para>
-  /// </remarks>
+  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequest/*[@name != 'canonicalPath']" />
   public void ProcessStandardRequest(Stream entityBody, EntityMetadata metadata)
+  {
+    ProcessStandardRequest(entityBody, metadata, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest(Stream entityBody, EntityMetadata metadata, string canonicalPath)
   {
     if(entityBody == null) throw new ArgumentNullException();
     if(!entityBody.CanWrite) throw new ArgumentException("The entity body is not writable.");
@@ -102,17 +84,17 @@ public class PutRequest : SimpleRequest
 
     // check request preconditions
     ConditionCode precondition = null;
-    // if no entity tag was provided and we may need one and the stream is readable and seekable, compute it using the default method
-    if(ClientSubmittedPreconditions && metadata.Exists && metadata.EntityTag == null && entityBody.CanSeek && entityBody.CanRead)
+    // if no entity tag was provided and we need one and the stream is readable and seekable, compute it using the default method
+    if(PreconditionsMayNeedEntityTag() && metadata.Exists && metadata.EntityTag == null && entityBody.CanSeek && entityBody.CanRead)
     {
       metadata = metadata.Clone();
       metadata.EntityTag = DAVUtility.ComputeEntityTag(entityBody, true); // compute an entity tag from the body
       entityBody.Position = 0;
     }
 
-    precondition = CheckPreconditions(metadata);
-    // as per the CheckPreconditions documentation, we'll allow other errors to take precedence over 304 Not Modified
-    if(precondition != null && precondition.StatusCode != (int)HttpStatusCode.NotModified)
+    precondition = CheckPreconditions(metadata, canonicalPath);
+    // as per the CheckPreconditions documentation, we'll allow errors to take precedence over 304 Not Modified
+    if(precondition != null && precondition.IsError)
     {
       Status = precondition;
       return;
@@ -258,9 +240,9 @@ public class PutRequest : SimpleRequest
   /// implementation does not support <c>PUT</c> requests made to collection resources. If <see cref="WebDAVContext.RequestResource"/> is
   /// null, the implementation assumes that the <c>PUT</c> request would create a new resource and checks the parent collection for locks.
   /// </remarks>
-  protected override ConditionCode CheckSubmittedLockTokens()
+  protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
-    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, Context.RequestResource == null, false);
+    return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, Context.RequestResource == null, false);
   }
 }
 

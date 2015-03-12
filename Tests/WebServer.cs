@@ -18,6 +18,12 @@ namespace AdamMil.WebDAV.Server.Tests
       Type = type;
     }
 
+    public string this[string paramName]
+    {
+      get { return Parameters[paramName]; }
+      set { Parameters[paramName] = value; }
+    }
+
     public static implicit operator TypeWithParameters(Type type)
     {
       return type == null ? null : new TypeWithParameters(type);
@@ -36,14 +42,36 @@ namespace AdamMil.WebDAV.Server.Tests
       StringBuilder sb = new StringBuilder();
       sb.Append('<').Append(elementName);
       WriteAttributes(sb, siteRoot);
-      sb.Append(" />");
+      if(HasChildren)
+      {
+        sb.AppendLine(">");
+        WriteChildren(sb, siteRoot);
+        sb.Append("</").Append(elementName).AppendLine(">");
+      }
+      else
+      {
+        sb.Append(" />");
+      }
       return sb.ToString();
+    }
+
+    protected virtual bool HasChildren
+    {
+      get { return false; }
     }
 
     protected virtual void WriteAttributes(StringBuilder sb, string siteRoot)
     {
       if(Type != null) WriteAttribute(sb, "type", Type.AssemblyQualifiedName);
-      foreach(KeyValuePair<string,string> pair in Parameters) WriteAttribute(sb, pair.Key, pair.Value);
+      foreach(KeyValuePair<string, string> pair in Parameters)
+      {
+        WriteAttribute(sb, pair.Key, pair.Value.Replace("{PhysicalPath}", siteRoot));
+      }
+    }
+
+    protected virtual void WriteChildren(StringBuilder sb, string siteRoot)
+    {
+      if(!HasChildren) throw new InvalidOperationException();
     }
 
     protected static void WriteAttribute(StringBuilder sb, string attributeName, string value)
@@ -66,13 +94,17 @@ namespace AdamMil.WebDAV.Server.Tests
   #region Location
   public class Location : TypeWithParameters
   {
-    public Location(string match, Type type, bool enabled) : base(type)
+    public Location(string match, Type type, bool enabled) : this (match, type, enabled, null) { }
+
+    public Location(string match, Type type, bool enabled, TypeWithParameters authFilterType) : base(type)
     {
       if(string.IsNullOrEmpty(match)) throw new ArgumentException();
-      Match   = match;
-      Enabled = enabled;
+      AuthFilterType = authFilterType;
+      Match          = match;
+      Enabled        = enabled;
     }
 
+    public readonly TypeWithParameters AuthFilterType;
     public bool? CaseSensitive, ServeRootOptions;
     public readonly bool Enabled;
     public string ID;
@@ -88,6 +120,11 @@ namespace AdamMil.WebDAV.Server.Tests
       return ToString("add", siteRoot);
     }
 
+    protected override bool HasChildren
+    {
+      get { return AuthFilterType != null; }
+    }
+
     protected override void WriteAttributes(StringBuilder sb, string siteRoot)
     {
  	    base.WriteAttributes(sb, siteRoot);
@@ -97,19 +134,30 @@ namespace AdamMil.WebDAV.Server.Tests
       WriteAttribute(sb, "caseSensitive", CaseSensitive);
       WriteAttribute(sb, "serveRootOptions", ServeRootOptions);
     }
+
+    protected override void WriteChildren(StringBuilder sb, string siteRoot)
+    {
+      base.WriteChildren(sb, siteRoot);
+      sb.AppendLine("<authorization>").AppendLine(AuthFilterType.ToString("add", siteRoot)).AppendLine("</authorization>");
+    }
   }
   #endregion
 
   #region FileSystemLocation
   public class FileSystemLocation : Location
   {
-    public FileSystemLocation(string match) : this(match, false) { }
-    public FileSystemLocation(string match, bool writable) : this(match, "{PhysicalPath}", writable) { }
+    public FileSystemLocation(string match) : this(match, null, false) { }
+    public FileSystemLocation(string match, bool writable) : this(match, null, writable) { }
     public FileSystemLocation(string match, string rootDirectory) : this(match, rootDirectory, false) { }
-    public FileSystemLocation(string match, string rootDirectory, bool writable) : base(match, typeof(FileSystemService), true)
+    public FileSystemLocation(string match, string rootDirectory, bool writable)
+      : this(typeof(FileSystemService), match, rootDirectory, writable, null) { }
+    public FileSystemLocation(Type type, string match, string rootDirectory, bool writable)
+      : this(type, match, rootDirectory, writable, null) { }
+    public FileSystemLocation(Type type, string match, string rootDirectory, bool writable, TypeWithParameters authFilterType)
+      : base(match, type, true, authFilterType)
     {
       AllowInfinitePropFind = true;
-      RootDirectory = rootDirectory;
+      RootDirectory = rootDirectory ?? "{PhysicalPath}";
       Writable      = writable;
     }
 

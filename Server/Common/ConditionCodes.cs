@@ -84,7 +84,7 @@ public class ConditionCode
   /// </summary>
   public bool IsRedirection
   {
-    get { return StatusCode < 200 && StatusCode >= 100; }
+    get { return StatusCode >= 300 && StatusCode < 400; }
   }
 
   /// <summary>Gets whether the <see cref="StatusCode"/> is a 5xx server error code.</summary>
@@ -314,6 +314,9 @@ public static class ConditionCodes
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 405 Method Not Allowed status code.</summary>
   public static readonly ConditionCode MethodNotAllowed = new ConditionCode(HttpStatusCode.MethodNotAllowed);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the WebDAV 207 Multi-Status status code.</summary>
+  public static readonly ConditionCode MultiStatus = new ConditionCode(207);
 
   /// <summary>The DAV:no-conflicting-lock precondition, used when a LOCK request fails due to the presence of a preexisting, conflicting
   /// lock. The condition code represented by this field does not provide the URL of the resource with the conflicting lock. If known, you
