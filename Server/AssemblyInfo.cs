@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -30,6 +31,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("AdamMil.net")]
 [assembly: AssemblyCopyright("Copyright © Adam Milazzo 2012-2015")]
 
+[assembly: CLSCompliant(false)]
 [assembly: ComVisible(false)]
 
 [assembly: AssemblyVersion("1.0.0.0")]

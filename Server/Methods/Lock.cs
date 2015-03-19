@@ -326,7 +326,7 @@ public class LockRequest : WebDAVRequest
     HashSet<string> paths =
       Context.LockManager.GetConflictingLocks(lockPath, LockType, GetLockSelection(recursive), Context.CurrentUserId)
         .Select(L => L.Path).ToSet();
-    foreach(string path in paths) FailedResources.Add(Context.ServiceRoot + path, ConditionCodes.Locked);
+    foreach(string path in paths) FailedResources.Add(Context.ServiceRoot, path, ConditionCodes.Locked);
 
     if(FailedResources.Count == 0) // if there weren't any known conflicting locks...
     {
@@ -336,7 +336,7 @@ public class LockRequest : WebDAVRequest
     else if(!paths.Contains(DAVUtility.RemoveTrailingSlash(lockPath))) // if the request path didn't conflict but other paths did...
     {
       // add the resource path with a 424 Failed Dependency error
-      FailedResources.Add(Context.ServiceRoot + Context.RequestPath, ConditionCodes.FailedDependency);
+      FailedResources.Add(Context.ServiceRoot, Context.RequestPath, ConditionCodes.FailedDependency);
     }
     else if(FailedResources.Count == 1) // if there was only one conflict, which related to the request path...
     {

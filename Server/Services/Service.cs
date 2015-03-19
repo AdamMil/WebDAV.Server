@@ -35,6 +35,9 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CanDeleteLock/node()" />
   bool CanDeleteLock(WebDAVContext context, ActiveLock lockObject);
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CopyResource/node()" />
+  ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, CopyOrMoveRequest.ISourceResource sourceResource);
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   void CreateAndLock(LockRequest request);
 
@@ -70,6 +73,9 @@ public interface IWebDAVService
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateUnlock/node()" />
   UnlockRequest CreateUnlock(WebDAVContext context);
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCanonicalPath/node()" />
+  string GetCanonicalPath(WebDAVContext context, string relativePath);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/node()" />
   string GetCurrentUserId(WebDAVContext context);
@@ -110,6 +116,16 @@ public abstract class WebDAVService : IWebDAVService
   {
     if(context == null || lockObject == null) throw new ArgumentNullException();
     return string.Equals(context.CurrentUserId, lockObject.OwnerId, StringComparison.Ordinal);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/CopyResource/node()" />
+  /// <remarks>The default implementation responds with 502 Bad Gateway, indicating that the service is not allowed to be the target of a
+  /// <c>COPY</c> or <c>MOVE</c> request.
+  /// </remarks>
+  public virtual ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath,
+                                            CopyOrMoveRequest.ISourceResource sourceResource)
+  {
+    return ConditionCodes.BadGateway;
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
@@ -199,6 +215,9 @@ public abstract class WebDAVService : IWebDAVService
   {
     return new UnlockRequest(context);
   }
+
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCanonicalPath/node()" />
+  public abstract string GetCanonicalPath(WebDAVContext context, string relativePath);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/node()" />
   /// <remarks>The default implementation returns a user ID based on ASP.NET authentication providers by combining the currently

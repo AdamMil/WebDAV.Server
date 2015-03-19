@@ -37,23 +37,31 @@ namespace AdamMil.WebDAV.Server
 
 #region XmlProperty
 /// <summary>Represents a WebDAV property value, which is usually a simple type but is capable of having an arbitrary XML element value.</summary>
+/// <remarks>An <see cref="XmlProperty"/> can store arbitrary XML along with simple values, where a simple value is considered to be any
+/// non-pointer primitive type (i.e. all basic numeric types), string, <see cref="DateTime"/>, <see cref="DateTimeOffset"/>,
+/// <see cref="DBNull"/>, <see cref="Decimal"/>, <see cref="Guid"/>, <see cref="TimeSpan"/>, <see cref="XmlDuration"/>, or
+/// <see cref="XmlQualifiedName"/>, or any one-dimensional array of the preceding, or a null value.
+/// </remarks>
 public sealed class XmlProperty
 {
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name and value. The type of the value will be inferred either from the
   /// value, or from the name, if the name matches a built-in WebDAV property, in which case the value will be validated against the type.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value) : this(name, value, null, null) { }
+
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, and type (specified as a legal xsi:type value). If the name
   /// matches a built-in WebDAV property, the known type of that property will be used instead of the given type. If the type (possibly
   /// inferred from the name) is not null, the value will be validated against the type. Otherwise, the type will be inferred from the
   /// value.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value, XmlQualifiedName type) : this(name, value, type, null) { }
+
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, and language (specified as a legal xml:lang value).
   /// The type of the value will be inferred either from the value, or from the name, if the name matches a built-in WebDAV property,
   /// in which case the value will be validated against the type.
   /// </summary>
   public XmlProperty(XmlQualifiedName name, object value, string language) : this(name, value, null, language) { }
+
   /// <summary>Initializes a new <see cref="XmlProperty"/> with a name, value, type (specified as a legal xsi:type value), and language
   /// (specified as a legal xml:lang value). If the name matches a built-in WebDAV property, the known type of that property will be used
   /// instead of the given type. If the type (possibly inferred from the name) is not null, the value will be validated against the type.
@@ -68,6 +76,11 @@ public sealed class XmlProperty
 
     if(type == null) type = DAVUtility.GetXsiType(value);
     else DAVUtility.ValidatePropertyValue(name, value, type);
+
+    if(value != null && !DAVUtility.IsStorablePropertyType(value))
+    {
+      throw new ArgumentException(value.GetType().FullName + " is not a type that can be stored by an XmlProperty.");
+    }
 
     Name     = name;
     Value    = value;
@@ -275,7 +288,7 @@ public interface IPropertyStore
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
   void RemoveProperties(string canonicalPath, IEnumerable<XmlQualifiedName> propertyNames);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/SetProperties/node()" />
-  void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties);
+  void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties, bool removeExisting);
 }
 #endregion
 
@@ -339,9 +352,8 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
     lock(this)
     {
       if(propertiesByUrl.TryGetValue(canonicalPath, out propDict)) propDict = new Dictionary<XmlQualifiedName, XmlProperty>(propDict);
-      else propDict = new Dictionary<XmlQualifiedName, XmlProperty>();
     }
-    return propDict;
+    return propDict ?? new Dictionary<XmlQualifiedName, XmlProperty>();
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
@@ -365,7 +377,7 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/SetProperties/node()" />
-  public void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties)
+  public void SetProperties(string canonicalPath, IEnumerable<XmlProperty> properties, bool removeExisting)
   {
     DAVUtility.ValidateRelativePath(canonicalPath);
     if(properties == null) throw new ArgumentNullException();
@@ -374,18 +386,22 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
     lock(this)
     {
       Dictionary<XmlQualifiedName,XmlProperty> propDict;
-      if(!propertiesByUrl.TryGetValue(canonicalPath, out propDict))
-      {
-        propertiesByUrl[canonicalPath] = propDict = new Dictionary<XmlQualifiedName,XmlProperty>();
-      }
-      bool changed = false;
+      bool newDict = !propertiesByUrl.TryGetValue(canonicalPath, out propDict);
+      if(newDict) propDict = new Dictionary<XmlQualifiedName, XmlProperty>();
+      else if(removeExisting) propDict.Clear();
+      bool changed = !newDict & removeExisting; // true if we cleared the dictionary on the previous line
       foreach(XmlProperty property in properties)
       {
         if(property == null) throw new ArgumentException("A property object was null.");
         propDict[property.Name] = property;
         changed = true;
       }
-      if(changed) OnPropertiesChanged(canonicalPath, propDict);
+      if(changed)
+      {
+        if(newDict) propertiesByUrl[canonicalPath] = propDict; // if changed & newDict is true, then propDict.Count != 0
+        else if(propDict.Count == 0) propertiesByUrl.Remove(canonicalPath);
+        OnPropertiesChanged(canonicalPath, propDict);
+      }
     }
   }
 

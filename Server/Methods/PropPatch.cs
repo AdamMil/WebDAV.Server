@@ -251,87 +251,9 @@ public class PropPatchRequest : WebDAVRequest
     if(canSetProperty == null) canSetProperty = (name, prop) => DAVUtility.IsDAVName(name) ? ConditionCodes.Forbidden : null;
     if(canRemoveProperty == null) canRemoveProperty = name => DAVUtility.IsDAVName(name) ? ConditionCodes.Forbidden : null;
 
-    // first verify that all of the values are valid
-    bool hadError = false;
-    foreach(PropertyPatch patch in Patches)
-    {
-      foreach(PropertyRemoval removal in patch.Remove)
-      {
-        ConditionCode status = IsProtected(removal.Name, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
-                                                                              : canRemoveProperty(removal.Name);
-        if(status != null && status.IsError)
-        {
-          removal.Status = status;
-          hadError       = true;
-        }
-      }
-
-      foreach(KeyValuePair<XmlQualifiedName,PropertyPatchValue> pair in patch.Set)
-      {
-        ConditionCode status = pair.Value.Status;
-        if(status != null && status.IsError) // if it already had an error status (from parsing the request), use it...
-        {
-          hadError = true;
-        }
-        else // otherwise, make sure it's not protected or otherwise forbidden
-        {
-          status = IsProtected(pair.Key, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
-                                                              : canSetProperty(pair.Key, pair.Value);
-          if(status == null && Context.PropertyStore == null) status = ConditionCodes.Forbidden; // can't set dead properties without a store
-          if(status != null && status.IsError)
-          {
-            pair.Value.Status = status;
-            hadError          = true;
-          }
-        }
-      }
-    }
-
-    if(!hadError) // if the everything should be able to succeed...
-    {
-      if(canonicalPath == null) canonicalPath = Context.RequestResource.CanonicalPath;
-      foreach(PropertyPatch patch in Patches) // try to do the actual work
-      {
-        // first, remove properties
-        List<XmlQualifiedName> deadPropsToRemove = null;
-        foreach(PropertyRemoval removal in patch.Remove)
-        {
-          if(removeProperty == null && canRemoveProperty(removal.Name) != null)
-          {
-            throw new ArgumentNullException("removeProperty must be specified if canRemoveProperty returns success.");
-          }
-          removal.Status = removeProperty == null ? null : removeProperty(removal.Name);
-          if(removal.Status == null && Context.PropertyStore != null)
-          {
-            if(deadPropsToRemove == null) deadPropsToRemove = new List<XmlQualifiedName>();
-            deadPropsToRemove.Add(removal.Name);
-          }
-        }
-        if(deadPropsToRemove != null && Context.PropertyStore != null)
-        {
-          Context.PropertyStore.RemoveProperties(canonicalPath, deadPropsToRemove);
-        }
-
-        // then set new ones (although only one of Remove or Set will contain elements in a given patch)
-        List<XmlProperty> deadPropsToSet = null;
-        foreach(KeyValuePair<XmlQualifiedName, PropertyPatchValue> pair in patch.Set)
-        {
-          if(setProperty == null && canSetProperty(pair.Key, pair.Value) != null)
-          {
-            throw new ArgumentNullException("setProperty must be specified if canSetProperty returns success.");
-          }
-          pair.Value.Status = setProperty == null ? null : setProperty(pair.Key, pair.Value);
-          if(pair.Value.Status == null)
-          {
-            if(deadPropsToSet == null) deadPropsToSet = new List<XmlProperty>();
-            deadPropsToSet.Add(pair.Value.Property);
-          }
-        }
-        if(deadPropsToSet != null && Context.PropertyStore != null) Context.PropertyStore.SetProperties(canonicalPath, deadPropsToSet);
-
-        if(applyChanges != null) applyChanges();
-      }
-    }
+    // first verify that all of the values are valid. if everything should be able to succeed, then apply the changes
+    bool hadError = ValidatePatches(protectedProperties, canSetProperty, canRemoveProperty, setProperty, removeProperty);
+    if(!hadError) ApplyPatches(canonicalPath, canSetProperty, canRemoveProperty, applyChanges);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
@@ -367,7 +289,6 @@ public class PropPatchRequest : WebDAVRequest
       {
         PropertyPatch patch = new PropertyPatch(false);
         XmlElement props = child.GetChild(DAVNames.prop); // the element containing individual property elements
-        string lang = props.GetInheritedAttributeValue(DAVNames.xmlLang); // get the default language for properties in the set
         foreach(XmlElement prop in props.EnumerateChildElements())
         {
           XmlProperty parsedProperty = TryParseValue(prop);
@@ -408,10 +329,115 @@ public class PropPatchRequest : WebDAVRequest
     else WriteResponseCore();
   }
 
+  void ApplyPatches(string canonicalPath, Func<XmlQualifiedName,PropertyPatchValue, ConditionCode> setProperty,
+                    Func<XmlQualifiedName,ConditionCode> removeProperty, Action applyChanges)
+  {
+    if(canonicalPath == null) canonicalPath = Context.RequestResource.CanonicalPath;
+    foreach(PropertyPatch patch in Patches) // try to do the actual work
+    {
+      // first, remove properties
+      List<XmlQualifiedName> deadPropsToRemove = null;
+      foreach(PropertyRemoval removal in patch.Remove)
+      {
+        if(removal.Status != null && removal.Status.IsError) continue; // skip removals that failed validation
+        removal.Status = removeProperty == null ? null : removeProperty(removal.Name);
+        if(removal.Status == null) // if this is a dead property...
+        {
+          if(deadPropsToRemove == null) deadPropsToRemove = new List<XmlQualifiedName>();
+          deadPropsToRemove.Add(removal.Name);
+        }
+      }
+      if(deadPropsToRemove != null && Context.PropertyStore != null) // remove dead properties if we can
+      {
+        Context.PropertyStore.RemoveProperties(canonicalPath, deadPropsToRemove);
+      }
+
+      // then set new ones (although only one of Remove or Set will contain elements in a given patch)
+      List<XmlProperty> deadPropsToSet = null;
+      foreach(KeyValuePair<XmlQualifiedName, PropertyPatchValue> pair in patch.Set)
+      {
+        if(pair.Value.Status != null && pair.Value.Status.IsError) continue; // skip changes that failed validation
+        pair.Value.Status = setProperty == null ? null : setProperty(pair.Key, pair.Value);
+        if(pair.Value.Status == null) // if this is a dead property...
+        {
+          if(deadPropsToSet == null) deadPropsToSet = new List<XmlProperty>();
+          deadPropsToSet.Add(pair.Value.Property);
+        }
+      }
+      if(deadPropsToSet != null) // set dead properties if there are any
+      {
+        if(Context.PropertyStore == null) // there should be a store because ValidatePatches already checked the result of canSetProperty,
+        {                                 // but if canSetProperty and/or setProperty gave the wrong result, then there might not be
+          throw new ContractViolationException("canSetProperty returned success but setProperty returned null (or was null)");
+        }
+        Context.PropertyStore.SetProperties(canonicalPath, deadPropsToSet, false);
+      }
+
+      if(applyChanges != null) applyChanges();
+    }
+  }
+
   /// <summary>Determines whether the named WebDAV property is protected (i.e. whether it is not allowed to be changed by the client).</summary>
   bool IsProtected(XmlQualifiedName propertyName, HashSet<XmlQualifiedName> protectedProperties)
   {
     return protectedProperties != null && protectedProperties.Contains(propertyName) || IsProtected(propertyName);
+  }
+  
+  bool ValidatePatches(HashSet<XmlQualifiedName> protectedProperties,
+                       Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
+                       Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
+                       Func<XmlQualifiedName,PropertyPatchValue, ConditionCode> setProperty,
+                       Func<XmlQualifiedName,ConditionCode> removeProperty)
+  {
+    bool hadError = false;
+    foreach(PropertyPatch patch in Patches)
+    {
+      foreach(PropertyRemoval removal in patch.Remove)
+      {
+        ConditionCode status = IsProtected(removal.Name, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
+                                                                              : canRemoveProperty(removal.Name);
+        if(status != null)
+        {
+          if(status.IsError)
+          {
+            removal.Status = status;
+            hadError       = true;
+          }
+          else if(removeProperty == null)
+          {
+            throw new ArgumentNullException("removeProperty must be specified if canRemoveProperty returns success.");
+          }
+        }
+      }
+
+      foreach(KeyValuePair<XmlQualifiedName, PropertyPatchValue> pair in patch.Set)
+      {
+        ConditionCode status = pair.Value.Status;
+        if(status != null && status.IsError) // if it already had an error status (from parsing the request), use it...
+        {
+          hadError = true;
+        }
+        else // otherwise, make sure it's not protected or otherwise forbidden
+        {
+          status = IsProtected(pair.Key, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
+                                                              : canSetProperty(pair.Key, pair.Value);
+          if(status == null && Context.PropertyStore == null) status = ConditionCodes.Forbidden; // can't set dead properties with no store
+          if(status != null)
+          {
+            if(status.IsError)
+            {
+              pair.Value.Status = status;
+              hadError          = true;
+            }
+            else if(setProperty == null)
+            {
+              throw new ArgumentNullException("setProperty must be specified if canSetProperty returns success.");
+            }
+          }
+        }
+      }
+    }
+    return hadError;
   }
 
   void WriteResponseCore()
@@ -458,7 +484,7 @@ public class PropPatchRequest : WebDAVRequest
     {
       XmlWriter writer = response.Writer;
       writer.WriteStartElement(DAVNames.response);
-      writer.WriteElementString(DAVNames.href, Context.ServiceRoot + Context.RequestPath);
+      writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathEncode(Context.RequestPath));
 
       foreach(KeyValuePair<ConditionCode, HashSet<XmlQualifiedName>> pair in namesByStatus)
       {

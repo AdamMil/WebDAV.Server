@@ -255,7 +255,10 @@ public sealed class ActiveLock : IElementValue
     writer.WriteElementString(DAVNames.href, Token);
     writer.WriteEndElement(); // locktoken
     writer.WriteStartElement(DAVNames.lockroot);
-    writer.WriteElementString(DAVNames.href, context.ServiceRoot + Path);
+    writer.WriteStartElement(DAVNames.href);
+    writer.WriteString(context.ServiceRoot);
+    writer.WriteString(DAVUtility.UriPathEncode(Path));
+    writer.WriteEndElement(); // href
     writer.WriteEndElement(); // lockroot
     writer.WriteEndElement(); // activelock
   }

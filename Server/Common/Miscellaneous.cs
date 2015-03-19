@@ -48,14 +48,17 @@ static class BinaryReaderWriterExtensions
     {
       switch(type)
       {
-        case ValueType.False: value = false; break;
-        case ValueType.True: value = true; break;
         case ValueType.Byte: value = reader.ReadByte(); break;
         case ValueType.Char: value = reader.ReadChar(); break;
         case ValueType.DateTime: value = reader.ReadDateTime(); break;
+        case ValueType.DateTimeOffset:
+          value = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
+          break;
         case ValueType.DBNull: value = DBNull.Value; break;
         case ValueType.Decimal: value = reader.ReadDecimal(); break;
         case ValueType.Double: value = reader.ReadDouble(); break;
+        case ValueType.False: value = false; break;
+        case ValueType.Guid: value = reader.ReadGuid(); break;
         case ValueType.Int16: value = reader.ReadInt16(); break;
         case ValueType.Int32: value = reader.ReadEncodedInt32(); break;
         case ValueType.Int64: value = reader.ReadEncodedInt64(); break;
@@ -63,14 +66,11 @@ static class BinaryReaderWriterExtensions
         case ValueType.SByte: value = reader.ReadSByte(); break;
         case ValueType.Single: value = reader.ReadSingle(); break;
         case ValueType.String: value = reader.ReadStringWithLength(); break;
+        case ValueType.True: value = true; break;
         case ValueType.UInt16: value = reader.ReadUInt16(); break;
         case ValueType.UInt32: value = reader.ReadEncodedUInt32(); break;
         case ValueType.UInt64: value = reader.ReadEncodedUInt64(); break;
-        case ValueType.Guid: value = reader.ReadGuid(); break;
         case ValueType.TimeSpan: value = new TimeSpan(reader.ReadInt64()); break;
-        case ValueType.DateTimeOffset:
-          value = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
-          break;
         case ValueType.XmlDuration:
         {
           int months = reader.ReadEncodedInt32();
@@ -86,7 +86,29 @@ static class BinaryReaderWriterExtensions
       int length = (int)reader.ReadEncodedUInt32();
       switch(type & ~ValueType.IsArray)
       {
-        case ValueType.False:
+        case ValueType.Byte: value = reader.ReadBytes(length); break;
+        case ValueType.Char: value = reader.ReadChars(length); break;
+        case ValueType.DateTime: value = reader.ReadDateTimes(length); break;
+        case ValueType.DateTimeOffset:
+        {
+          DateTimeOffset[] array = new DateTimeOffset[length];
+          for(int i=0; i<array.Length; i++)
+          {
+            array[i] = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
+          }
+          value = array;
+          break;
+        }
+        case ValueType.DBNull:
+        {
+          DBNull[] array = new DBNull[length];
+          for(int i=0; i<array.Length; i++) array[i] = DBNull.Value;
+          value = array;
+          break;
+        }
+        case ValueType.Decimal: value = reader.ReadDecimals(length); break;
+        case ValueType.Double: value = reader.ReadDoubles(length); break;
+        case ValueType.False: // this stands for Boolean
         {
           bool[] array = new bool[length];
           for(int i=0; length != 0; )
@@ -101,28 +123,13 @@ static class BinaryReaderWriterExtensions
           value = array;
           break;
         }
-        case ValueType.Byte: value = reader.ReadBytes(length); break;
-        case ValueType.Char: value = reader.ReadChars(length); break;
-        case ValueType.DateTime: value = reader.ReadDateTimes(length); break;
-        case ValueType.DBNull:
-        {
-          DBNull[] array = new DBNull[length];
-          for(int i=0; i<array.Length; i++) array[i] = DBNull.Value;
-          value = array;
-          break;
-        }
-        case ValueType.Decimal: value = reader.ReadDecimals(length); break;
-        case ValueType.Double: value = reader.ReadDoubles(length); break;
+        case ValueType.Guid: value = reader.ReadGuids(length); break;
         case ValueType.Int16: value = reader.ReadInt16s(length); break;
         case ValueType.Int32: value = reader.ReadEncodedInt32s(length); break;
         case ValueType.Int64: value = reader.ReadEncodedInt64s(length); break;
         case ValueType.SByte: value = reader.ReadSBytes(length); break;
         case ValueType.Single: value = reader.ReadSingles(length); break;
         case ValueType.String: value = reader.ReadStringsWithLengths(length); break;
-        case ValueType.UInt16: value = reader.ReadUInt16s(length); break;
-        case ValueType.UInt32: value = reader.ReadEncodedUInt32s(length); break;
-        case ValueType.UInt64: value = reader.ReadEncodedUInt64s(length); break;
-        case ValueType.Guid: value = reader.ReadGuids(length); break;
         case ValueType.TimeSpan:
         {
           TimeSpan[] array = new TimeSpan[length];
@@ -130,16 +137,9 @@ static class BinaryReaderWriterExtensions
           value = array;
           break;
         }
-        case ValueType.DateTimeOffset:
-        {
-          DateTimeOffset[] array = new DateTimeOffset[length];
-          for(int i=0; i<array.Length; i++)
-          {
-            array[i] = new DateTimeOffset(reader.ReadInt64(), new TimeSpan(reader.ReadEncodedInt32() * TimeSpan.TicksPerMinute));
-          }
-          value = array;
-          break;
-        }
+        case ValueType.UInt16: value = reader.ReadUInt16s(length); break;
+        case ValueType.UInt32: value = reader.ReadEncodedUInt32s(length); break;
+        case ValueType.UInt64: value = reader.ReadEncodedUInt64s(length); break;
         case ValueType.XmlDuration:
         {
           XmlDuration[] array = new XmlDuration[length];
@@ -249,7 +249,14 @@ static class BinaryReaderWriterExtensions
           writer.WriteEncoded((ulong)value);
           break;
         default:
-          if(type == typeof(Guid))
+          if(type == typeof(DateTimeOffset))
+          {
+            DateTimeOffset dto = (DateTimeOffset)value;
+            writer.Write((byte)ValueType.DateTimeOffset);
+            writer.Write(dto.DateTime.Ticks);
+            writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
+          }
+          else if(type == typeof(Guid))
           {
             writer.Write((byte)ValueType.Guid);
             writer.Write((Guid)value);
@@ -258,13 +265,6 @@ static class BinaryReaderWriterExtensions
           {
             writer.Write((byte)ValueType.TimeSpan);
             writer.Write(((TimeSpan)value).Ticks);
-          }
-          else if(type == typeof(DateTimeOffset))
-          {
-            DateTimeOffset dto = (DateTimeOffset)value;
-            writer.Write((byte)ValueType.DateTimeOffset);
-            writer.Write(dto.DateTime.Ticks);
-            writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
           }
           else if(type == typeof(XmlDuration))
           {
@@ -298,7 +298,7 @@ static class BinaryReaderWriterExtensions
       {
         case TypeCode.Boolean:
         {
-          writer.Write((byte)(ValueType.False | ValueType.IsArray));
+          writer.Write((byte)(ValueType.False | ValueType.IsArray)); // use False to represent arrays of booleans
           writer.WriteEncoded((uint)array.Length);
           bool[] boolArray = (bool[])value;
           for(int i=0; i<array.Length; )
@@ -388,7 +388,17 @@ static class BinaryReaderWriterExtensions
           foreach(ulong intValue in (ulong[])value) writer.WriteEncoded(intValue);
           break;
         default:
-          if(type == typeof(Guid))
+          if(type == typeof(DateTimeOffset))
+          {
+            writer.Write((byte)(ValueType.DateTimeOffset | ValueType.IsArray));
+            writer.WriteEncoded((uint)array.Length);
+            foreach(DateTimeOffset dto in (DateTimeOffset[])value)
+            {
+              writer.Write(dto.DateTime.Ticks);
+              writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
+            }
+          }
+          else if(type == typeof(Guid))
           {
             writer.Write((byte)(ValueType.Guid | ValueType.IsArray));
             writer.WriteEncoded((uint)array.Length);
@@ -399,16 +409,6 @@ static class BinaryReaderWriterExtensions
             writer.Write((byte)(ValueType.TimeSpan | ValueType.IsArray));
             writer.WriteEncoded((uint)array.Length);
             foreach(TimeSpan timeSpan in (TimeSpan[])value) writer.Write(timeSpan.Ticks);
-          }
-          else if(type == typeof(DateTimeOffset))
-          {
-            writer.Write((byte)(ValueType.DateTimeOffset | ValueType.IsArray));
-            writer.WriteEncoded((uint)array.Length);
-            foreach(DateTimeOffset dto in (DateTimeOffset[])value)
-            {
-              writer.Write(dto.DateTime.Ticks);
-              writer.WriteEncoded((int)(dto.Offset.Ticks / TimeSpan.TicksPerMinute)); // truncate the offset to whole minutes
-            }
           }
           else if(type == typeof(XmlDuration))
           {
@@ -673,10 +673,18 @@ public static class DAVMethods
 /// <summary>Contains useful utilities for DAV services.</summary>
 public static class DAVUtility
 {
-  // TODO: is it correct to encode percent signs?
-  /// <summary>Encodes a string into the canonical URL path form so that it can be used to construct URL paths.</summary>
-  /// <remarks>This method only encodes the question mark (<c>?</c>), number sign (<c>#</c>), and percent sign (<c>%</c>), which is the
-  /// minimal encoding required within a URL path.
+  /// <summary>Encodes a string representing an unescaped path into a minimally escaped form so that it can be used to construct
+  /// canonical paths. This is suitable for encoding complete paths, partial paths, or path segments, assuming that the service does not
+  /// allow path segments to contain slash (<c>/</c>) characters. (Otherwise, the service must construct paths by individually escaping
+  /// path segments and separating them with slashes. <see cref="CanonicalSegmentEncode"/> can be used to escape segments.)
+  /// </summary>
+  /// <remarks>This method only encodes the percent sign (<c>%</c>) character. The resulting path is not legal to insert into a URI because
+  /// not all reserved characters are escaped. If the service reserves additional characters (such as using a semicolon to separate a
+  /// resource name from parameters to that resource, as in <c>/dir;version=1.1/file</c>), the service is responsible for minimally
+  /// URL-escaping those characters after calling this method, for instance if a resource name itself may contain a semicolon using the
+  /// previous example. The hex digits used in such additional escaping must be normalized to uppercase. A service must not use any
+  /// characters that must be escaped in URLs for this purpose. (See RFC 3986. Common safe delimiters are semicolon, comma, and equals.)
+  /// Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathEncode"/>.
   /// </remarks>
   public static string CanonicalPathEncode(string path)
   {
@@ -685,15 +693,13 @@ public static class DAVUtility
       for(int i=0; i<path.Length; i++)
       {
         char c = path[i];
-        if(c == '#' || c == '%' || c == '?')
+        if(c == '%')
         {
-          StringBuilder sb = new StringBuilder(path.Length + 10);
+          StringBuilder sb = new StringBuilder(path.Length + 12);
           sb.Append(path, 0, i);
           while(true)
           {
-            if(c == '#') sb.Append("%23");
-            else if(c == '%') sb.Append("%25");
-            else if(c == '?') sb.Append("%3f");
+            if(c == '%') sb.Append("%25");
             else sb.Append(c);
             if(++i == path.Length) break;
             c = path[i];
@@ -705,6 +711,48 @@ public static class DAVUtility
     }
 
     return path;
+  }
+
+  /// <summary>Encodes a string representing an unescaped path segment into a minimally escaped form so that it can be used to construct
+  /// canonical paths. This is suitable for encoding a single path segment, but is not suitable for encoding complete paths or partial
+  /// paths containing multiple segments. (These are already minimally encoded, assuming their segments were minimally encoded.) For
+  /// example, you may use this method to encode a single file name <c>fileName</c> in order to append it to <c>dir/</c>, but you must
+  /// not use it to encode a complete path such as <c>dir/fileName</c>.
+  /// </summary>
+  /// <remarks>This method only encodes the forward slash (<c>/</c>) and percent sign (<c>%</c>) characters. The resulting path segment is
+  /// not legal to insert into a URI because not all reserved characters are escaped. If the service reserves additional characters (such
+  /// as using a semicolon to separate a resource name from parameters to that resource, as in <c>/dir;version=1.1/file</c>), the service
+  /// is responsible for minimally URL-escaping those characters after calling this method, for instance if a resource name itself may
+  /// contain a semicolon using the previous example. The hex digits used in such additional escaping must be normalized to uppercase.
+  /// A service must not use any characters that must be escaped in URLs for this purpose. (See RFC 3986. Common safe delimiters are
+  /// semicolon, comma, and equals.) Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathEncode"/>.
+  /// </remarks>
+  public static string CanonicalSegmentEncode(string pathSegment)
+  {
+    if(!string.IsNullOrEmpty(pathSegment))
+    {
+      for(int i=0; i<pathSegment.Length; i++)
+      {
+        char c = pathSegment[i];
+        if(c == '/' || c == '%')
+        {
+          StringBuilder sb = new StringBuilder(pathSegment.Length + 9);
+          sb.Append(pathSegment, 0, i);
+          while(true)
+          {
+            if(c == '/') sb.Append("%2F"); // hex digits should be normalized to uppercase (RFC 3986 section 6.2.2.1)
+            else if(c == '%') sb.Append("%25");
+            else sb.Append(c);
+            if(++i == pathSegment.Length) break;
+            c = pathSegment[i];
+          }
+          pathSegment = sb.ToString();
+          break;
+        }
+      }
+    }
+
+    return pathSegment;
   }
 
   /// <summary>Computes an entity tag by hashing the given entity body. The entity body stream is not rewound before or after computing
@@ -886,6 +934,140 @@ public static class DAVUtility
     return newElement;
   }
 
+  /// <summary>Decodes a path from a URI into a minimally escaped form (see <see cref="CanonicalPathEncode"/>) that can be used in the
+  /// construction of canonical paths.
+  /// </summary>
+  public static string UriPathDecode(string path)
+  {
+    if(!string.IsNullOrEmpty(path))
+    {
+      for(int i=0; i<path.Length; i++)
+      {
+        char c = path[i];
+        if(c == '%')
+        {
+          StringBuilder sb = new StringBuilder(path.Length);
+          sb.Append(path, 0, i);
+          Decoder decoder = null;
+          byte[] bytes = null;
+          char[] chars = null;
+          while(true)
+          {
+            if(c != '%')
+            {
+              sb.Append(c);
+            }
+            else
+            {
+              byte hi, lo;
+              if(i+2 >= path.Length || !BinaryUtility.TryParseHex(path[++i], out hi) || !BinaryUtility.TryParseHex(path[++i], out lo))
+              {
+                throw new FormatException();
+              }
+
+              c = (char)((hi<<4) | lo);
+              if(c >= 128) // UTF-8 characters less than 128 are mapped directly to low ASCII. characters greater than that must be decoded
+              {
+                if(bytes == null)
+                {
+                  bytes   = new byte[1];
+                  chars   = new char[1];
+                  decoder = Encoding.UTF8.GetDecoder();
+                }
+
+                bytes[0] = (byte)c;
+                for(int length=1; ; length++)
+                {
+                  if(decoder.GetChars(bytes, 0, 1, chars, 0, false) != 0) break;
+                  if(length == 4) throw new FormatException(); // as Bill Gates said, 4 bytes ought to be enough for anybody decoding UTF-8
+                  if(i+2 >= path.Length || !BinaryUtility.TryParseHex(path[++i], out hi) || !BinaryUtility.TryParseHex(path[++i], out lo))
+                  {
+                    throw new FormatException("Invalid UTF-8-encoded character in URL.");
+                  }
+                  bytes[0] = (byte)((hi<<4) | lo);
+                }
+                c = chars[0];
+              }
+
+              // slash and percent remain encoded in minimally encoded paths
+              if(c == '/') sb.Append("%2F"); // hex digits should be normalized to uppercase (RFC 3986 section 6.2.2.1)
+              else if(c == '%') sb.Append("%25");
+              else sb.Append(c);
+            }
+
+            if(++i == path.Length) break;
+            c = path[i];
+          }
+          path = sb.ToString();
+          break;
+        }
+      }
+    }
+    return path;
+  }
+
+  /// <summary>Further encodes a path that is already minimally encoded (see <see cref="CanonicalPathEncode"/>) into a form that can be
+  /// legally used within a URI. This must be done before a path is emitted into a URI reference such as a <c>DAV:href</c> element or an
+  /// HTML page.
+  /// </summary>
+  /// <remarks>This encodes characters that are reserved within paths according to RFC 3986, except for the two characters assumed to have
+  /// already been encoded by <see cref="CanonicalSegmentEncode"/>.
+  /// </remarks>
+  public static string UriPathEncode(string path)
+  {
+    if(!string.IsNullOrEmpty(path))
+    {
+      for(int i=0; i<path.Length; i++)
+      {
+        char c = path[i];
+        if(MustBeEscapedInPath(c))
+        {
+          StringBuilder sb = new StringBuilder(path.Length + 33);
+          sb.Append(path, 0, i);
+          byte[] bytes = null;
+          while(true)
+          {
+            if(!MustBeEscapedInPath(c))
+            {
+              sb.Append(c);
+            }
+            else // otherwise, it's reserved and must be percent-encoded in UTF-8
+            {
+              if(c <= 127) // if the character is low ASCII, then it can be represented as UTF-8 with the same byte value
+              {
+                sb.Append('%').Append(BinaryUtility.ToHexChar((byte)(c >> 4))).Append(BinaryUtility.ToHexChar((byte)(c & 15)));
+              }
+              else // otherwise, we have to go through the whole encoding process
+              {
+                if(bytes == null) bytes = new byte[4]; // all UTF-8 characters fit in 4 bytes
+                for(int j=0, count=Encoding.UTF8.GetBytes(path, j, 1, bytes, 0); j<count; j++)
+                {
+                  byte value = bytes[j];
+                  sb.Append('%').Append(BinaryUtility.ToHexChar((byte)(value >> 4))).Append(BinaryUtility.ToHexChar((byte)(value & 15)));
+                }
+              }
+            }
+            if(++i == path.Length) break;
+            c = path[i];
+          }
+          path = sb.ToString();
+          break;
+        }
+      }
+    }
+
+    return path;
+  }
+
+  /// <summary>Ensures that the given path has a trailing slash if it's not an empty string. Empty strings will be returned as-is, to
+  /// avoid converting relative paths to absolute paths.
+  /// </summary>
+  public static string WithTrailingSlash(string path)
+  {
+    if(path == null) throw new ArgumentNullException();
+    return path.Length == 0 || path[path.Length-1] == '/' ? path : path + "/";
+  }
+
   /// <summary>Uniquely encodes a string into a valid file name.</summary>
   internal static string FileNameEncode(string str)
   {
@@ -939,7 +1121,7 @@ public static class DAVUtility
     return lastSlash == -1 ? "" : lastSlash == 0 ? "/" : path.Substring(0, lastSlash+slashOffset);
   }
 
-  /// <summary>Gets the XML Schema type name (e.g. xsi:string) representing the type of the given value, or null if the type cannot be
+  /// <summary>Gets the XML Schema type name (e.g. xs:string) representing the type of the given value, or null if the type cannot be
   /// determined.
   /// </summary>
   internal static XmlQualifiedName GetXsiType(object value)
@@ -978,6 +1160,21 @@ public static class DAVUtility
       }
     }
     return type;
+  }
+
+  /// <summary>Determines whether a property value of the given type can be stored .</summary>
+  internal static bool IsStorablePropertyType(object value)
+  {
+    if(value == null) return true;
+    Type type = value.GetType();
+    if(type.IsArray)
+    {
+      if(((Array)value).Rank != 1) return false; // we only support one-dimensional arrays
+      type = type.GetElementType();
+    }
+    if(Type.GetTypeCode(type) != TypeCode.Object) return true;
+    return type == typeof(DateTimeOffset) || type == typeof(Guid) || type == typeof(XmlQualifiedName) ||
+           type == typeof(XmlDuration) || type == typeof(TimeSpan);
   }
 
   /// <summary>Determines whether the value is a token as defined by section 3.2.6 of RFC 7230.</summary>
@@ -1204,7 +1401,7 @@ public static class DAVUtility
     else if(expectedType == DAVNames.msGuid)
     {
       if(value is Guid) return value;
-      if(value is string) new Guid((string)value);
+      if(value is string) return new Guid((string)value);
     }
     else
     {
@@ -1213,15 +1410,6 @@ public static class DAVUtility
 
     throw new ArgumentException(propertyName.ToString() + " is expected to be of type " + expectedType.ToString() + " but was of type " +
                                 value.GetType().FullName);
-  }
-
-  /// <summary>Ensures that the given path has a trailing slash if it's not an empty string. Empty strings will be returned as-is, to
-  /// avoid converting relative paths to absolute paths.
-  /// </summary>
-  internal static string WithTrailingSlash(string path)
-  {
-    if(path == null) throw new ArgumentNullException();
-    return path.Length == 0 || path[path.Length-1] == '/' ? path : path + "/";
   }
 
   /// <summary>Sets the response status code to the given status code and writes an message to the page. This method does not terminate
@@ -1319,6 +1507,14 @@ public static class DAVUtility
       default: return false;
     }
   }
+
+  static bool MustBeEscapedInPath(char c)
+  {
+    return c >= 'a' ? c > 'z' && c != '~' :
+           c >= 'A' ? c > 'Z' && (c == '`' || c == '^' || c == '\\') :
+           c >= '0' ? c > '9' && (c <= '=' ? c == ':' || c == '<' : c == '>' || c == '?') :
+           c <= ' ' || c == '"' || c == '#'; // % must also be escaped, but we'll assume it's already been
+  }                                          // because 'c' comes from a minimally encoded path 
 
   static long ValidateSignedInteger(XmlQualifiedName propertyName, object value, long min, long max)
   {

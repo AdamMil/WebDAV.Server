@@ -97,6 +97,14 @@ namespace AdamMil.WebDAV.Server.Tests
       info = Lock("temp");
       File.Delete(Path.Combine(Server.Directory, "temp")); // delete the file outside WebDAV so the resource disappears
       Unlock("temp", info); // make sure we can unlock the nonexistent resource
+
+      // test that submitting a lock token to a tag outside the lock scope (but to an ancestor or descendant) doesn't work
+      info = Lock("dir/file1");
+      TestRequest("PUT", "dir/file1", MakeIfHeaders(info, "dir"), new byte[0], 412);
+      Unlock("dir/file1", info);
+      info = Lock("dir");
+      TestRequest("DELETE", "dir", MakeIfHeaders(info, "dir/file1"), null, 412);
+      Unlock("dir", info);
     }
 
     [Test]
@@ -297,31 +305,6 @@ namespace AdamMil.WebDAV.Server.Tests
     {
       return "<multistatus xmlns=\"DAV:\"><response><href>/" + rootPath.ToUpper() + "</href><status>HTTP/1.1 423 Locked</status></response><response><href>/" +
              path + "</href><status>HTTP/1.1 424 Failed Dependency</status></response></multistatus>";
-    }
-
-    static string MakeIfClause(LockInfo info)
-    {
-      return "<" + info.LockToken.ToString() + ">";
-    }
-
-    static string MakeIfHeader(LockInfo info)
-    {
-      return "(<" + info.LockToken.ToString() + ">)";
-    }
-
-    static string MakeIfHeader(LockInfo info, string tagPath)
-    {
-      return "</" + tagPath + "> (<" + info.LockToken.ToString() + ">)";
-    }
-
-    static string[] MakeIfHeaders(LockInfo info)
-    {
-      return new string[] { DAVHeaders.If, MakeIfHeader(info) };
-    }
-
-    static string[] MakeIfHeaders(LockInfo info, string tagPath)
-    {
-      return new string[] { DAVHeaders.If, MakeIfHeader(info, tagPath) };
     }
   }
 }

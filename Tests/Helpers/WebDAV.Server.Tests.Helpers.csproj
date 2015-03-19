@@ -31,11 +31,16 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Web" />
+    <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">
       <Project>{d9724c65-c54a-4671-ba0b-40b0b38464dd}</Project>
       <Name>AdamMil.Collections</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\AdamMil.net\IO\AdamMil.IO.csproj">
+      <Project>{ceb9bc77-b63f-40a1-bede-7c32e9b90d55}</Project>
+      <Name>AdamMil.IO</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Server\WebDAV.Server.csproj">
       <Project>{2c80b8ca-aa29-4f20-9225-fb77c46f9d32}</Project>

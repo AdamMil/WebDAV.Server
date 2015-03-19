@@ -21,6 +21,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using AdamMil.Collections;
+using AdamMil.Utilities;
 
 // TODO: add processing examples and documentation
 
@@ -203,8 +204,10 @@ public class OptionsRequest : SimpleRequest
         Context.Response.Headers[DAVHeaders.DAV] = sb.ToString();
 
         // the Microsoft Web Folder client prefers to use the Frontend protocol so much that it may refuse to use WebDAV unless we
-        // add a special header. it also fails to process 204 No Content responses correctly, so we'll use 200 OK instead
-        if(Context.Request.UserAgent != null && Context.Request.UserAgent.StartsWith("Microsoft ", StringComparison.Ordinal))
+        // add a special header. also, various Microsoft clients fail to process 204 No Content responses correctly, so we'll use
+        // 200 OK instead
+        if(Context.Request.UserAgent != null && (Context.Request.UserAgent.StartsWith("Microsoft ", StringComparison.Ordinal) ||
+                                                 Context.Request.UserAgent.OrdinalEquals("DavClnt") || Context.UseExplorerHacks()))
         {
           Context.Response.Headers["MS-Author-Via"] = "DAV";
           Status = ConditionCodes.OK;

@@ -138,9 +138,9 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive
   /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
   /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null). Dead properties only need to be added if you want to override properties from the configured <see cref="IPropertyStore"/>.
-  /// In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates which will provide
-  /// the values when executed. This allows you to add delegates that compute expensive properties only when needed.
+  /// be null). Dead properties should not be added unless you need to override properties from the configured
+  /// <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates
+  /// that will provide the values when executed. This allows you to add delegates that compute expensive properties only when needed.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
@@ -154,7 +154,8 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive to
   /// compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
   /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null). Dead properties only need to be added if you want to override properties from the configured <see cref="IPropertyStore"/>.
+  /// be null). Dead properties should not be added unless you need to override properties from the configured
+  /// <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
@@ -168,9 +169,9 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
   /// properties. Live properties that are expensive to compute or transmit only need to be returned if they are referenced by the
   /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
-  /// the property values are ignored and can be null). Dead properties only need to be returned if you want to override properties from
+  /// the property values are ignored and can be null). Dead properties should not be returned unless you need to override properties from
   /// the configured <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain
-  /// <c>Func&lt;object&gt;</c> delegates which will provide the values when executed. This allows you to add delegates that compute
+  /// <c>Func&lt;object&gt;</c> delegates that will provide the values when executed. This allows you to add delegates that compute
   /// expensive properties only when needed.
   /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
@@ -194,7 +195,7 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
   /// properties. Live Properties that are expensive to compute or transmit only need to be returned if they are referenced by the
   /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
-  /// the property values are ignored and can be null). Dead properties only need to be added if you want to override properties from the
+  /// the property values are ignored and can be null). Dead properties should not be added unless you need to override properties from the
   /// configured <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
@@ -289,7 +290,7 @@ public class PropFindRequest : WebDAVRequest
       foreach(PropFindResource resource in Resources)
       {
         writer.WriteStartElement(DAVNames.response);
-        writer.WriteElementString(DAVNames.href, Context.ServiceRoot + resource.RelativePath); // <href> required by RFC 4918 section 9.1
+        writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathEncode(resource.RelativePath)); // RFC 4918 s. 9.1
 
         if(resource.properties.Count == 0) // if the resource has no properties, quickly render an empty properties collection
         {
@@ -324,88 +325,8 @@ public class PropFindRequest : WebDAVRequest
               else // otherwise, we're outputting a value
               {
                 writer.WriteStartElement(ppair.Key); // write the property name
-                if(ppair.Value != null) // if the property has a type or value or language...
-                {
-                  // if the property has a type that should be reported, write it in an xsi:type attribute
-                  XmlQualifiedName type = ppair.Value.Type;
-                  if(type != null)
-                  {
-                    writer.WriteAttributeString(DAVNames.xsiType,
-                                                StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
-                  }
-
-                  // if the property has a language, write it in an xml:lang attribute
-                  if(!string.IsNullOrEmpty(ppair.Value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, ppair.Value.Language);
-
-                  object value = ppair.Value.Value;
-                  if(value != null) // if the property has a value...
-                  {
-                    // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
-                    IElementValue elementValue = value as IElementValue;
-                    System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(value) : null;
-                    if(elementValue != null) // if the value implements IElementValue...
-                    {
-                      elementValue.WriteValue(writer, Context); // let IElementValue do the writing
-                    }
-                    else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
-                    {
-                      foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
-                    }
-                    else if(type != null && value is byte[]) // if it's a byte array, write a base64 array or hex array depending on the type
-                    {
-                      byte[] binaryValue = (byte[])value;
-                      if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
-                      else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
-                    }
-                    else if(type == DAVNames.xsDate) // if the type is xs:date, write only the date portions of any datetime values
-                    {
-                      if(value is DateTime) writer.WriteDate((DateTime)value);
-                      else if(value is DateTimeOffset) writer.WriteDate(((DateTimeOffset)value).Date);
-                      else writer.WriteValue(value); // if the value type is unrecognized, fall back on .WriteValue(object)
-                    }
-                    else if(value is XmlDuration || value is Guid || value is Uri)
-                    {
-                      // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values and puts unwanted extra space around URIs
-                      writer.WriteString(value.ToString());
-                    }
-                    else if(ppair.Key == DAVNames.getlastmodified) // RFC 4918 section 15.7 requires rfc1123-date values for
-                    {                                              // getlastmodified, in order to match the HTTP Last-Modified header
-                      if(value is DateTime)
-                      {
-                        writer.WriteString(DAVUtility.GetHttpDateHeader((DateTime)value));
-                      }
-                      else if(value is DateTimeOffset)
-                      {
-                        writer.WriteString(DAVUtility.GetHttpDateHeader(((DateTimeOffset)value).UtcDateTime));
-                      }
-                      else // if the value type is unrecognized, fall back on .WriteValue(object)
-                      {
-                        writer.WriteValue(value);
-                      }
-                    }
-                    else if(trucateCreationDates && ppair.Key == DAVNames.creationdate) // if we need the date hack for Windows Explorer...
-                    {
-                      if(value is DateTime)
-                      {
-                        DateTime dt = (DateTime)value;
-                        writer.WriteValue(dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMillisecond)));
-                      }
-                      else
-                      {
-                        if(value is DateTimeOffset)
-                        {
-                          DateTimeOffset dto = (DateTimeOffset)value;
-                          value = dto.AddTicks(-(dto.Ticks % TimeSpan.TicksPerMillisecond));
-                        }
-                        writer.WriteValue(value);
-                      }
-                    }
-                    else // in the general case, just use .WriteValue(object) to write the value appropriately
-                    {
-                      writer.WriteValue(value);
-                    }
-                  }
-                }
+                // if the property has a type, language, or value (content), write them
+                if(ppair.Value != null) WritePropertyValue(writer, ppair.Key, ppair.Value, trucateCreationDates);
                 writer.WriteEndElement(); // end property name (i.e. ppair.Key)
               }
             }
@@ -553,6 +474,88 @@ public class PropFindRequest : WebDAVRequest
           ProcessStandardRequest(child, requestPath + name, canonicalPath + name,
                                  getMemberName, getProperties, getChildren, setValue, depth+1);
         }
+      }
+    }
+  }
+
+  void WritePropertyValue(XmlWriter writer, XmlQualifiedName name, PropFindResource.PropertyValue value, bool trucateCreationDates)
+  {
+    // if the property has a type that should be reported, write it in an xsi:type attribute
+    XmlQualifiedName type = value.Type;
+    if(type != null)
+    {
+      writer.WriteAttributeString(DAVNames.xsiType, StringUtility.Combine(":", writer.LookupPrefix(type.Namespace), type.Name));
+    }
+
+    // if the property has a language, write it in an xml:lang attribute
+    if(!string.IsNullOrEmpty(value.Language)) writer.WriteAttributeString(DAVNames.xmlLang, value.Language);
+
+    object objValue = value.Value;
+    if(objValue != null) // if the property has a value...
+    {
+      // first check for values that implement IElementValue, or IEnumerable<T> values where T implements IElementValue
+      IElementValue elementValue = objValue as IElementValue;
+      System.Collections.IEnumerable elementValues = elementValue == null ? GetElementValuesEnumerable(objValue) : null;
+      byte[] binaryValue;
+      if(elementValue != null) // if the value implements IElementValue...
+      {
+        elementValue.WriteValue(writer, Context); // let IElementValue do the writing
+      }
+      else if(elementValues != null) // if the value is IEnumerable<T> where T implements IElementValue...
+      {
+        foreach(IElementValue elemValue in elementValues) elemValue.WriteValue(writer, Context); // write them all out
+      }
+      else if(type != null && (binaryValue = objValue as byte[]) != null) // if it's a byte array, write base64 or hex data
+      {
+        if(type == DAVNames.xsHexBinary) writer.WriteString(BinaryUtility.ToHex(binaryValue)); // hexBinary gets hex
+        else writer.WriteBase64(binaryValue, 0, binaryValue.Length); // and xsB64Binary and unknown binary types get base64
+      }
+      else if(type == DAVNames.xsDate) // if the type is xs:date, write only the date portions of any datetime values
+      {
+        if(objValue is DateTime) writer.WriteDate((DateTime)objValue);
+        else if(objValue is DateTimeOffset) writer.WriteDate(((DateTimeOffset)objValue).Date);
+        else writer.WriteValue(objValue); // if the value type is unrecognized, fall back on .WriteValue(object)
+      }
+      else if(objValue is XmlDuration || objValue is Guid || objValue is Uri)
+      {
+        // XmlWriter.WriteValue() doesn't know about XmlDuration or Guid values and puts unwanted extra space around URIs
+        writer.WriteString(objValue.ToString());
+      }
+      else if(name == DAVNames.getlastmodified) // RFC 4918 section 15.7 requires rfc1123-date values for
+      {                                         // getlastmodified, in order to match the HTTP Last-Modified header
+        if(objValue is DateTime)
+        {
+          writer.WriteString(DAVUtility.GetHttpDateHeader((DateTime)objValue));
+        }
+        else if(objValue is DateTimeOffset)
+        {
+          writer.WriteString(DAVUtility.GetHttpDateHeader(((DateTimeOffset)objValue).UtcDateTime));
+        }
+        else // if the value type is unrecognized, fall back on .WriteValue(object)
+        {
+          writer.WriteValue(objValue);
+        }
+      }
+      else if(trucateCreationDates && name == DAVNames.creationdate) // if we need the date hack for Windows Explorer...
+      {
+        if(objValue is DateTime)
+        {
+          DateTime dt = (DateTime)objValue;
+          writer.WriteValue(dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMillisecond)));
+        }
+        else
+        {
+          if(objValue is DateTimeOffset)
+          {
+            DateTimeOffset dto = (DateTimeOffset)objValue;
+            objValue = dto.AddTicks(-(dto.Ticks % TimeSpan.TicksPerMillisecond));
+          }
+          writer.WriteValue(objValue);
+        }
+      }
+      else // in the general case, just use .WriteValue(object) to write the value appropriately
+      {
+        writer.WriteValue(objValue);
       }
     }
   }

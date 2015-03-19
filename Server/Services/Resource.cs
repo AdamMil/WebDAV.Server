@@ -85,12 +85,7 @@ public abstract class WebDAVResource : IWebDAVResource
   public abstract string CanonicalPath { get; }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/CopyOrMove/node()" />
-  /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource does not support being copied or moved.</remarks>
-  public virtual void CopyOrMove(CopyOrMoveRequest request)
-  {
-    if(request == null) throw new ArgumentNullException();
-    request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support being copied or moved.");
-  }
+  public abstract void CopyOrMove(CopyOrMoveRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Delete/node()" />
   /// <remarks>The default implementation responds with 403 Forbidden, indicating that the resource does not support deletion.</remarks>
@@ -144,18 +139,11 @@ public abstract class WebDAVResource : IWebDAVResource
   public abstract void PropFind(PropFindRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/PropPatch/node()" />
-  /// <remarks>The default implementation disallows the setting of any properties.</remarks>
+  /// <remarks>The default implementation allows the setting of dead properties outside the <c>DAV:</c> namespace.</remarks>
   public virtual void PropPatch(PropPatchRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-
-    // decline to set any property
-    ConditionCode errorStatus = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support setting properties.");
-    foreach(PropertyPatch patch in request.Patches)
-    {
-      foreach(PropertyRemoval removal in patch.Remove) removal.Status = errorStatus;
-      foreach(PropertyPatchValue value in patch.Set.Values) value.Status = errorStatus;
-    }
+    request.ProcessStandardRequest(CanonicalPath);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />

@@ -118,12 +118,10 @@ public sealed class FailedResourceCollection : CollectionBase<ResourceStatus>
 {
   internal FailedResourceCollection() { }
 
-  /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the absolute path to the resource and the status of the
-  /// resource.
-  /// </summary>
-  public void Add(string absolutePath, ConditionCode status)
+  /// <summary>Adds a new <see cref="ResourceStatus"/> to the collection, given the path to the resource and the status of the resource.</summary>
+  public void Add(string serviceRoot, string relativePath, ConditionCode status)
   {
-    Add(new ResourceStatus(absolutePath, status));
+    Add(new ResourceStatus(serviceRoot, relativePath, status));
   }
 }
 #endregion
@@ -164,16 +162,27 @@ public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedNa
 /// </summary>
 public sealed class ResourceStatus
 {
-  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the absolute path to the resource and the status of the resource.</summary>
-  public ResourceStatus(string absolutePath, ConditionCode status)
+  /// <summary>Initializes a new <see cref="ResourceStatus"/>, given the path to the resource and the status of the resource.</summary>
+  /// <param name="serviceRoot">The root of the service containing the resource, as either an absolute path or an absolute URI, including
+  /// a trailing slash.
+  /// </param>
+  /// <param name="relativePath">The path to the resource, relative to <paramref name="serviceRoot"/>.</param>
+  /// <param name="status">The status of the resource.</param>
+  public ResourceStatus(string serviceRoot, string relativePath, ConditionCode status)
   {
-    if(absolutePath == null || status == null) throw new ArgumentNullException();
-    AbsolutePath = absolutePath;
+    if(serviceRoot == null || relativePath == null || status == null) throw new ArgumentNullException();
+    RelativePath = relativePath;
+    ServiceRoot  = serviceRoot;
     Status       = status;
   }
 
-  /// <summary>Gets the absolute path to the resource.</summary>
-  public string AbsolutePath { get; private set; }
+  /// <summary>Gets the path to the resource, relative to <see cref="ServiceRoot"/>.</summary>
+  public string RelativePath { get; private set; }
+
+  /// <summary>Gets the root of the service containing the resource, as either an absolute path or an absolute URI, including a trailing
+  /// slash.
+  /// </summary>
+  public string ServiceRoot { get; private set; }
 
   /// <summary>Gets the status of the resource.</summary>
   public ConditionCode Status { get; private set; }
@@ -351,15 +360,10 @@ public abstract class WebDAVRequest
     return lockTokens;
   }
 
-  /// <summary>Gets whether the client has submitted any precondition headers that require a match against an <see cref="EntityTag"/>. If
-  /// true, or if processing the request might conflict with any resource locks, you must call the
-  /// <see cref="CheckPreconditions(EntityMetadata)"/> method to ensure that the preconditions are satisfied before proceeding with the
-  /// request. If false, it is okay (and inexpensive) to call <see cref="CheckPreconditions(EntityMetadata)"/>, so in general you do not
-  /// need to call this method.
-  /// </summary>
+  /// <summary>Gets whether the client has submitted any precondition headers that may require a match against an <see cref="EntityTag"/>.</summary>
   /// <remarks>The main usage of this method is to avoid computing the <see cref="EntityMetadata.EntityTag"/> in cases when it won't be
-  /// needed. In particular, if this property is false, then the <see cref="EntityMetadata"/> object passed to
-  /// <see cref="CheckPreconditions(EntityMetadata)"/> will not require an <see cref="EntityTag"/>.
+  /// needed. If this property is false, then the <see cref="EntityMetadata"/> object passed to
+  /// <see cref="CheckPreconditions(EntityMetadata)"/> will not require an <see cref="EntityTag"/>. Otherwise, it probably will.
   /// </remarks>
   public bool PreconditionsMayNeedEntityTag()
   {
@@ -391,29 +395,32 @@ public abstract class WebDAVRequest
   /// </param>
   protected ConditionCode CheckSubmittedLockTokens(LockType lockType, string canonicalPath, bool checkParent, bool checkDescendants)
   {
-    return CheckSubmittedLockTokens(lockType, canonicalPath, checkParent, checkDescendants, null);
+    return CheckSubmittedLockTokens(lockType, canonicalPath, checkParent, checkDescendants, null, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensCore/node()" />
   /// <param name="canonicalPath">The canonical, relative path to the resource whose locks will be examined. If null, the request resource
-  /// will be used and <paramref name="service"/> must also be null.
+  /// will be used.
   /// </param>
-  /// <param name="service">The <see cref="IWebDAVService"/> containing the resource whose locks will be examined. If null, the request
-  /// service will be used. If not null, <paramref name="canonicalPath"/> cannot be null either.
+  /// <param name="serviceRoot">The service root for the service containing the resource named by <paramref name="canonicalPath"/>. If the
+  /// <see cref="Uri.Scheme"/> or <see cref="Uri.Authority"/> of the resource URI is different from the authority of the request resource,
+  /// this must be an absolute URI (e.g. <c>http://othersite/otherRoot/</c>). If null, the <see cref="WebDAVContext.ServiceRoot"/> for the
+  /// request service will be used.
+  /// </param>
+  /// <param name="lockManager">The <see cref="ILockManager"/> for the service containing the resource named by
+  /// <paramref name="canonicalPath"/>. If null, the lock manager for the request service will be used.
   /// </param>
   protected ConditionCode CheckSubmittedLockTokens(LockType lockType, string canonicalPath, bool checkParent, bool checkDescendants,
-                                                   IWebDAVService service)
+                                                   string serviceRoot, ILockManager lockManager)
   {
     if(lockType == null) throw new ArgumentNullException();
 
-    if(canonicalPath == null)
+    if(lockManager == null) lockManager = Context.LockManager;
+    if(lockManager != null)
     {
-      if(service != null) throw new ArgumentException("If canonicalPath is null, service must also be null.");
-      canonicalPath = Context.CanonicalPathIfKnown;
-    }
+      if(canonicalPath == null) canonicalPath = Context.CanonicalPathIfKnown;
+      serviceRoot = serviceRoot == null ? Context.ServiceRoot : DAVUtility.WithTrailingSlash(serviceRoot);
 
-    if(Context.LockManager != null)
-    {
       HashSet<string> submittedTokens = GetSubmittedLockTokens();
       Predicate<ActiveLock> filter = L => lockType.ConflictsWith(L.Type);
       bool isBuiltInType = lockType.GetType() == typeof(LockType); // can we make assumptions about the LockType implementation?
@@ -423,11 +430,11 @@ public abstract class WebDAVRequest
         string parentPath = DAVUtility.GetParentPath(canonicalPath);
         if(parentPath != null) // if the resource has a parent...
         {
-          IList<ActiveLock> locks = Context.LockManager.GetLocks(parentPath, LockSelection.SelfAndRecursiveAncestors, filter);
+          IList<ActiveLock> locks = lockManager.GetLocks(parentPath, LockSelection.SelfAndRecursiveAncestors, filter);
           if(locks.Count != 0) // and the parent is locked (directly or indirectly)...
           {
             ActiveLock lockObject = GetSubmittedLock(locks, submittedTokens); // see if a relevant token was submitted
-            if(lockObject == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + parentPath); // error: none submitted
+            if(lockObject == null) return new LockTokenSubmittedConditionCode(serviceRoot, parentPath); // error: none submitted
             if(lockObject.Recursive)
             {
               // if it's recursive and we know the implementation, we can avoid checking anything else because the built-in LockType class
@@ -443,11 +450,11 @@ public abstract class WebDAVRequest
 
       // now check locks directly on the resource, and indirect locks too if we didn't already check them in the checkParent path above
       IList<ActiveLock> directLocks =
-        Context.LockManager.GetLocks(canonicalPath, checkParent ? LockSelection.Self : LockSelection.SelfAndRecursiveAncestors, filter);
+        lockManager.GetLocks(canonicalPath, checkParent ? LockSelection.Self : LockSelection.SelfAndRecursiveAncestors, filter);
       if(directLocks.Count != 0)
       {
         ActiveLock lockObject = GetSubmittedLock(directLocks, submittedTokens); // see if a relevant token was submitted
-        if(lockObject == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + canonicalPath); // error: none submitted
+        if(lockObject == null) return new LockTokenSubmittedConditionCode(serviceRoot, canonicalPath); // error: none submitted
         if(lockObject.Recursive && checkDescendants)
         {
           if(isBuiltInType) return null; // see above for a description of this code
@@ -458,13 +465,14 @@ public abstract class WebDAVRequest
       // now look at locks that are descendants of the resource
       if(checkDescendants)
       {
-        List<ActiveLock> descendantLocks = GetList(Context.LockManager.GetLocks(canonicalPath, LockSelection.Descendants, filter));
+        List<ActiveLock> descendantLocks = GetList(lockManager.GetLocks(canonicalPath, LockSelection.Descendants, filter));
         if(descendantLocks.Count != 0)
         {
           descendantLocks.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.Ordinal));
           for(int i=0; i<descendantLocks.Count; )
           {
-            ConditionCode status = CheckDescendantLocks(descendantLocks, ref i, submittedTokens, isBuiltInType ? null : filter);
+            ConditionCode status = CheckDescendantLocks(descendantLocks, ref i, submittedTokens, serviceRoot,
+                                                        isBuiltInType ? null : filter);
             if(status != null) return status;
           }
         }
@@ -594,7 +602,8 @@ public abstract class WebDAVRequest
   /// <summary>Checks the lock at the given index along with some or all of its descendants, and advances the index to the next unchecked
   /// lock. This method assumes that the locks have been sorted by path.
   /// </summary>
-  ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens, Predicate<ActiveLock> filter)
+  ConditionCode CheckDescendantLocks(List<ActiveLock> locks, ref int index, HashSet<string> submittedTokens, string serviceRoot,
+                                     Predicate<ActiveLock> filter)
   {
     // find the first lock that passes the filter
     int start = index;
@@ -634,7 +643,7 @@ public abstract class WebDAVRequest
       baseLock = GetSubmittedLock(baseLocks, submittedTokens);
     }
 
-    if(baseLock == null) return new LockTokenSubmittedConditionCode(Context.ServiceRoot + basePath); // error: base lock not submitted
+    if(baseLock == null) return new LockTokenSubmittedConditionCode(serviceRoot, basePath); // error: base lock not submitted
 
     basePath = DAVUtility.WithTrailingSlash(basePath);
     if(baseLock.Recursive) // if the submitted lock was recursive...
@@ -654,7 +663,7 @@ public abstract class WebDAVRequest
     // in any case, now look at the descendants
     while(index < locks.Count && locks[index].Path.StartsWith(basePath, StringComparison.Ordinal))
     {
-      ConditionCode status = CheckDescendantLocks(locks, ref index, submittedTokens, filter);
+      ConditionCode status = CheckDescendantLocks(locks, ref index, submittedTokens, serviceRoot, filter);
       if(status != null) return status;
     }
 
@@ -687,16 +696,12 @@ public abstract class WebDAVRequest
       }
       else // otherwise, the clause doesn't obviously match the request URI, so do a full resolution step
       {
-        IWebDAVResource resource;
-        IWebDAVService service;
-        string serviceRoot;
-        IPropertyStore propertyStore;
-        bool accessDenied;
-        if(WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false, out service, out resource, out serviceRoot, out canonicalClausePath,
-                                   out accessDenied, out lockManager, out propertyStore))
+        UriResolution info = WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false);
+        if(info.Resource != null)
         {
-          canonicalClausePath = resource.CanonicalPath;
-          metadata            = resource.GetEntityMetadata(clause.ChecksEntityTag());
+          canonicalClausePath = info.Resource.CanonicalPath;
+          metadata            = info.Resource.GetEntityMetadata(clause.ChecksEntityTag());
+          lockManager         = info.LockManager;
         }
       }
 
@@ -875,7 +880,7 @@ public abstract class WebDAVRequest
   static EntityTag[] ParseIfMatch(string value, string headerName)
   {
     int start, length;
-    StringUtility.Trim(value, out start, out length);
+    value.Trim(out start, out length);
     // if there was no header value, return null. otherwise, if the value is *, return an empty array
     if(length == 0) return null;
     if(string.Compare(value, start, "*", 0, length, StringComparison.Ordinal) == 0) return MatchAny;

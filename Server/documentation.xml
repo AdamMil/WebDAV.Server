@@ -214,7 +214,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </ClearProperties>
     <GetProperties>
-      <summary>Returns all dead properties associated with a resource.</summary>
+      <summary>Returns a dictionary containing all dead properties associated with a resource.</summary>
       <param name="canonicalPath">The canonical, relative path to the resource whose properties will be returned.</param>
       <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
       <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
@@ -230,11 +230,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     </RemoveProperties>
     <SetProperties>
       <summary>
-        Associates dead properties with a resource. This method will overwrite existing properties with the same name, but other
-        existing properties will not be removed.
+        Associates dead properties with a resource. This method will overwrite existing properties with the same name, and other
+        existing properties may or may not be removed, depending on the value of the <paramref name="removeExisting"/> parameter.
       </summary>
       <param name="canonicalPath">The canonical, relative path to the resource whose properties will be set.</param>
       <param name="properties">A collection of dead properties to add.</param>
+      <param name="removeExisting">
+        If true, all existing properties will be replaced by those in <paramref name="properties"/>. If false, the properties in
+        <paramref name="properties"/> will be merged with the existing properties, replacing existing properties with the same name.
+      </param>
       <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> or <paramref name="properties"/> is null.</exception>
       <exception cref="ArgumentException">
         Thrown if <paramref name="canonicalPath"/> is not relative or if <paramref name="properties"/> contains a null value.
@@ -246,13 +250,18 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     <CanonicalPath>
       <summary>Gets the canonical path to this resource, relative to the <see cref="WebDAVContext.ServiceRoot"/>.</summary>
       <remarks>
-        Since it's relative, the path must not begin with a slash. The path for a collection resource should end with a slash, but not if
-        it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
-        it's canonical, the path must not contain any unnecessarily encoded characters. In particular, you should not use
-        <see cref="System.Web.HttpUtility.UrlPathEncode"/> to construct the path, since it encodes characters unnecessarily and so does not
-        produce a canonical path. Only the question mark (<c>?</c>), percent sign (<c>%</c>), and number sign (<c>#</c>) should be escaped
-        (as <c>%3f</c>, <c>%25</c>, and <c>%23</c>, respectively). <see cref="DAVUtility.CanonicalPathEncode"/> will perform the
-        appropriate encoding for you.
+        <para>
+          Since it's relative, the path must not begin with a slash. The path for a collection resource should end with a slash, but not if
+          it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
+          it's canonical, the path must not contain any unnecessarily encoded characters. In particular, you should not use the URL
+          encoding methods of <see cref="System.Web.HttpUtility"/> to construct the path, since it encodes characters unnecessarily and so
+          does not produce a canonical path. You can normally use <see cref="DAVUtility.CanonicalSegmentEncode"/> or
+          <see cref="DAVUtility.CanonicalPathEncode"/> to perform the encoding.
+        </para>
+        <para>
+          If the service treats paths case-insensitively, this method must also normalize the case (e.g. to all uppercase), so that
+          canonical URLs can be safely compared case-sensitively.
+        </para>
       </remarks>
     </CanonicalPath>
     <CopyOrMove>
@@ -350,6 +359,81 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         from <see cref="ActiveLock.OwnerId"/>.
       </param>
     </CanDeleteLock>
+    <CopyResource>
+      <summary>Creates a new resource in response to a <c>COPY</c> or <c>MOVE</c> request.</summary>
+      <param name="request">
+        A <see cref="CopyOrMoveRequest"/> representing the client's request. Note that the request relates to the request resource and thus
+        the source service, but this method is called on the destination service.
+        <para>
+          <see cref="CopyOrMoveRequest.IsMove"/> determines whether the resource is being moved to the new location. This may affect which
+          properties are copied from the source resource. For example, if a resource is copied it might receive a new creation date,
+          whereas if it is moved the creation date may be preserved. (The preservation of the last modification date is more complex; see
+          the remarks.) This should not cause the method to actually perform a move instead of a copy, i.e. the method must not attempt to
+          remove the <paramref name="sourceResource"/>.
+        </para>
+        <para>
+          <see cref="CopyOrMoveRequest.Overwrite"/> determines whether the source resource can overwrite the destination resource.
+          If false, a <see cref="ConditionCodes.PreconditionFailed"/> status should be returned if a resource already exists at the
+          <paramref name="destinationPath"/>. If true, the destination resource should be overwritten. Usually this is done by deleting the
+          destination if it exists before the source resource is copied, as though a <c>DELETE</c> request was issued (including deleting
+          any existing locks and dead properties), and this is the way that it must effectively be done if the request is a move. If the
+          request is a copy, the service may choose to effectively delete the existing resource and its properties before the copy, or to
+          merge properties from the source into the destination (so that source properties overwrite destination properties with the same
+          name, but other properties remain intact). However, this choice does not apply to the members of collections. After a successful
+          recursive request, the members of any destination collection must be the same as those of the corresponding source collection,
+          regardless of whether the request was a copy or a move. It is not valid behavior to merge the members of a source collection into
+          a destination collection.
+        </para>
+      </param>
+      <param name="destinationPath">
+        The relative path at which the new resource should be created. The path is not necessarily canonical, and may have a trailing slash
+        (if <paramref name="sourceResource"/> is a collection) which should be ignored. For instance, if the source collection has a name
+        of "a" and this method is called with a destination path <c>/dest/b/</c>. This means that a new collection should be created at
+        <c>/dest/b/</c>, not <c>/dest/b/a/</c>.
+      </param>
+      <param name="sourceResource">
+        An <see cref="CopyOrMoveRequest.ISourceResource"/> object that gives information about the source resource that is being copied or
+        moved.
+      </param>
+      <returns>
+        Returns a status code in line with the processing requirements of the <c>COPY</c> and <c>MOVE</c> requests (and <c>DELETE</c> if
+        <see cref="CopyOrMoveRequest.Overwrite"/> is true) described in sections 9.8 and 9.9 of RFC 4918.
+      </returns>
+      <remarks>
+        <para>Even if <see cref="CopyOrMoveRequest.IsMove"/> is true, the resource should be copied, not moved, by this method.</para>
+        <para>
+          This method should create a non-recursive copy of the source resource, including its entity body and properties, excluding
+          properties that according to section 15 of RFC 4918 should not be preserved. The set of live properties preserved may vary
+          depending on the value of <see cref="CopyOrMoveRequest.IsMove"/>. All dead properties must be preserved if the destination
+          supports dead properties. If the semantics (not necessarily the values) of any live properties cannot be preserved at the
+          destination, the method may choose to fail with <see cref="ConditionCodes.PreservedLiveProperties"/>, but if not, then a live
+          property from the source should not be transformed into a dead property at the destination. A service must be careful if it wants
+          to preserve the value of the <c>DAV:getlastmodified</c> property. According to RFC 4918 section 8.8, the modification time must
+          increase when the entity body for a URL changes, since clients may use it for cache validation. (Similarly, <c>DAV:getetag</c>
+          must change when the entity body changes.) However, because clients are required to use entity tags for cache validation when
+          available, a service that reliably and consistently reports entity tags to the client may be able to get away with preserving the
+          last modification time during a move. (This possibility is alluded to in RFC 4918 section 15.7.) Additionally, a service should
+          attempt to preserve all preservable live properties when servicing <c>MOVE</c> requests where
+          <see cref="CopyOrMoveRequest.Overwrite"/> is false, since that is the standard mechanism for renaming a resource and it is
+          expected that creation and modification dates, etc. will not change during a simple rename.
+        </para>
+        <para>
+          Locks on the source resource must not be copied or moved to the destination.
+        </para>
+        <para>
+          If <paramref name="sourceResource"/> is a collection resource, its members should not be copied or moved by this method. (An
+          <see cref="IWebDAVResource"/> or <see cref="CopyOrMoveRequest"/> may have special handling that facilitates direct copies or moves
+          of entire collection/directory trees between services, but this method should handle the general case of resources being copied
+          individually.)
+        </para>
+        <para>
+          Access checks should have already been performed for the source resource, but not necessarily the destination resource. If the
+          current user does not have access to modify the <paramref name="destinationPath"/>, <see cref="ConditionCodes.Forbidden"/> should
+          be returned.
+        </para>
+        <para>See also RFC 4918 section 8.8.</para>
+      </remarks>
+    </CopyResource>
     <CreateAndLock>
       <summary>
         Executes a <see cref="LockRequest"/> against an unmapped URL. See the <see cref="LockRequest"/> documentation for details on
@@ -394,6 +478,27 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     <CreateUnlock>
       <summary>Creates a new <see cref="UnlockRequest"/> object (or an object of a derived type) to serve an <c>UNLOCK</c> request.</summary>
     </CreateUnlock>
+    <GetCanonicalPath>
+      <summary>Given a path relative to the service's root, returns the canonical version of that path.</summary>
+      <param name="context">The <see cref="WebDAVContext"/> for the request.</param>
+      <param name="relativePath">
+        A relative path that may not have resolved to any resource, relative to the service's root. This path will already have had
+        unnecessary URL escape codes removed from it.
+      </param>
+      <remarks>
+        This method should canonicalize the URL in the same way as <see cref="IWebDAVResource.CanonicalPath"/>, at least as much as
+        possible. For instance, if the given path is <c>/dir/subdir/file</c>, which doesn't exist, but <c>/dir</c> does exist, this method
+        should return the same URL that would be returned if a new collection called "subdir" was created under <c>/dir</c> by a
+        <c>MKCOL</c> request, and then a new file called "file" was created under <c>/dir/subdir</c> by a <c>PUT</c> request, and then the
+        canonical URL of the new <c>/dir/subdir/file</c> resource was queried. (Similarly, <c>/dir/a/b/</c> would return the same URL as if
+        two new subcollections were creating using <c>MKCOL /dir/a/</c> and <c>MKCOL /dir/b/</c>. The trailing slash implies that <c>b</c>
+        is a collection rather than a file.) If this is impossible, for instance because canonical URLs are based on autogenerated IDs from
+        a database, the method should canonicalize the URL as much as possible. If <c>/dir</c> exists and has a canonical path of
+        <c>/Resources/Dir/</c>, this method might return <c>/Resources/Dir/subdir/file</c>. If the service treats paths case-insensitively,
+        this method must also normalize the case of the path segments (for instance to all uppercase), so that canonical URLs can be safely
+        compared case-sensitively. See <see cref="IWebDAVResource.CanonicalPath"/> for additional requirements.
+      </remarks>
+    </GetCanonicalPath>
     <GetCurrentUserId>
       <summary>Returns the ID of the user making the current request, or null if the user is unknown or anonymous.</summary>
       <remarks>
@@ -445,7 +550,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       <param name="context">The <see cref="WebDAVContext"/> for the request. See the remarks for important details.</param>
       <param name="resourcePath">
         The relative path to the resource. This path is relative to the root of the current service, but that may not match
-        <see cref="WebDAVContext.ServiceRoot"/>. See the remarks for more details.
+        <see cref="WebDAVContext.ServiceRoot"/>. See the remarks for more details. This path will already have had
+        unnecessary URL escape codes removed from it.
       </param>
       <remarks>
         <note type="caution">
@@ -592,54 +698,29 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         closed when you are done writing to it.
       </summary>
       <param name="enableCompression">
-        Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
+        Specifies whether compression is enabled. If true, a compressed content encoding will be chosen if
         it's preferred by the client. Otherwise, only the uncompressed <c>identity</c> encoding can be chosen.
       </param>
-      <param name="buffered">
-        If not null, the <see cref="HttpResponse.BufferOutput"/> property will be set to this value before the stream
-        is opened.
+      <param name="encoding">
+        Specifies the <see cref="ContentEncoding"/> that will used to encode the output. This is normally the value returned from
+        <see cref="ChooseResponseEncoding"/>.
+      </param>
+      <param name="disableBuffering">
+        If true, the <see cref="HttpResponse.BufferOutput"/> property will be set to false before the stream is opened.
+        If false, it will not be changed.
       </param>
       <remarks>
         This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
         cause a <see cref="WebDAVException"/> to be thrown with a 406 Not Acceptable status. If you need to support additional content
         encodings, you must do so yourself, using the <see cref="HttpResponse.OutputStream"/> directly. If you need to know the
-        <see cref="ContentEncoding"/> that was or would be used, call <see cref="ChooseResponseEncoding"/> while passing false to its
-        <c>setHeader</c> parameter.
+        <see cref="ContentEncoding"/> that was or would be used, call <see cref="ChooseResponseEncoding"/> method. This method sets the
+        <c>Content-Encoding</c> header if buffering is enabled at the time the method is called. (This is not related to the
+        <paramref name="disableBuffering"/> parameter, if any.)
       </remarks>
     </OpenResponseBody>
   </WebDAVContext>
 
   <WebDAVModule>
-    <ResolveUri>
-      <summary>
-        In the context of the given <paramref name="context"/>, attempts to resolve a URL into an <see cref="IWebDAVService"/> and
-        <see cref="IWebDAVResource"/>. Returns true if the URL could be successfully resolved into an <see cref="IWebDAVResource"/>, and
-        false otherwise. (Note that even if the method returns false, variables besides <paramref name="resource"/> may still be set.)
-      </summary>
-      <param name="context">The <see cref="WebDAVContext"/> in which the request is being executed.</param>
-      <param name="uri">
-        A <see cref="Uri"/> to resolve. This can either be an absolute URI (i.e. a URI with a scheme and authority) or a
-        relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
-        authority of the request URI will be used.
-      </param>
-      <param name="service">
-        A variable that will receive the <see cref="IWebDAVService"/> corresponding to the <paramref name="uri"/>, or
-        null if the <paramref name="uri"/> does not correspond to any defined service location. This variable may be set to a valid service
-        even if the method returns false.
-      </param>
-      <param name="resource">
-        A variable that will receive the <see cref="IWebDAVResource"/> corresponding to the <paramref name="uri"/>.
-      </param>
-      <param name="serviceRoot">
-        A variable that will receive the absolute path to the <paramref name="service"/> root. This variable will
-        be valid whenever <paramref name="service"/> is not null.
-      </param>
-      <param name="relativePath">
-        A variable that will receive the path to the resource named by the <paramref name="uri"/>, relative to
-        the <paramref name="serviceRoot"/>. This variable will be valid whenever <paramref name="service"/> is not null.
-      </param>
-    </ResolveUri>
-
     <ShouldDenyAccess>
       <summary>
         Determines whether the user should be denied access to the resource at the given <see cref="Uri"/>. If the URI does not map
@@ -743,8 +824,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     <IndexItem>
       <Cons>
         <param name="name">
-          The name of the item displayed in the index and also the path segment appended to the request URL to form the
-          URL of the item's resource.
+          The name of the item displayed in the index. This may be different from the path segment used to construct the item's URL.
+        </param>
+        <param name="pathSegment">
+          The canonical (minimally escaped) path segment appended to the request URL to form the URL of the item's resource. See 
+          <see cref="DAVUtility.CanonicalSegmentEncode"/> for details on minimally escaped path segments.
         </param>
         <param name="isDirectory">Indicates whether the item represents a directory (collection member) or a file (non-collection member).</param>
         <param name="lastModificationTime">The time that the item content was last changed, or null if the time is unknown.</param>
@@ -793,9 +877,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         parameter is not directly interpreted by the method, but is passed to <paramref name="getChildren"/>, etc.
       </param>
       <param name="getMemberName">
-        Given a value representing a resource, returns the canonical name of the path segment that maps to the resource within the
-        collection. If the resource is the request resource itself, an empty string should be returned. Otherwise, if the resource is a
-        child collection, the member name should end with a trailing slash.
+        Given a value representing a resource, returns the canonical name of the path segment that maps to the resource within its parent
+        collection. If the resource is at the root of a DAV service and thus has no name, an empty string should be returned (although the
+        method should not be called with such an argument). Otherwise, if the resource is a child collection, the member name should end
+        with a trailing slash.
       </param>
       <param name="getChildren">
         Given a value representing a resource and its path, returns the values representing the resource's children, if any. If

@@ -175,17 +175,27 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   /// <param name="httpStatusCode">The HTTP status code related to the error condition.</param>
   /// <param name="errorElement">The name of the WebDAV precondition error element. This parameter is required.</param>
   /// <param name="message">An additional message to send to the client.</param>
-  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
-  protected LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, string[] absoluteResourcePaths)
-    : base(httpStatusCode, errorElement, message)
+  /// <param name="serviceRoot">The absolute path of the root of the service to which the resource paths are relative, including the
+  /// trailing slash. This may be either an absolute path or an absolute URI.
+  /// </param>
+  /// <param name="relativeResourcePaths">An array of paths, relative to <paramref name="serviceRoot"/>, to the locked resources related
+  /// to the error.
+  /// </param>
+  protected LockConditionCodeWithUrls(int httpStatusCode, XmlQualifiedName errorElement, string message, string serviceRoot,
+                                      string[] relativeResourcePaths) : base(httpStatusCode, errorElement, message)
   {
-    if(absoluteResourcePaths == null || errorElement == null) throw new ArgumentNullException();
-    foreach(string path in absoluteResourcePaths)
+    if(relativeResourcePaths == null || serviceRoot == null || errorElement == null) throw new ArgumentNullException();
+    if(serviceRoot.Length == 0 || serviceRoot[serviceRoot.Length-1] != '/')
+    {
+      throw new ArgumentException("The service root must end in a slash.");
+    }
+    foreach(string path in relativeResourcePaths)
     {
       if(path == null) throw new ArgumentException("The list of locked resource paths contained a null value.");
-      if(path.Length == 0 || path[0] != '/') throw new ArgumentException("All paths must be absolute.");
+      if(path.Length != 0 && path[0] == '/') throw new ArgumentException("All paths must be relative.");
     }
-    this.resourcePaths = (string[])absoluteResourcePaths.Clone(); // clone the array to prevent later modifications
+    this.serviceRoot   = serviceRoot;
+    this.resourcePaths = (string[])relativeResourcePaths.Clone(); // clone the array to prevent later modifications
   }
 
   /// <include file="documentation.xml" path="/DAV/ConditionCode/Equals/node()" />
@@ -214,11 +224,12 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   {
     if(writer == null) throw new ArgumentNullException();
     writer.WriteStartElement(ErrorElement);
-    foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, path);
+    foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, serviceRoot + DAVUtility.UriPathEncode(path));
     writer.WriteEndElement();
   }
 
   readonly string[] resourcePaths;
+  readonly string serviceRoot;
 }
 #endregion
 
@@ -229,14 +240,17 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
 public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 {
   /// <summary>Initializes a new <see cref="LockTokenSubmittedConditionCode"/>.</summary>
-  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error. There must be at
-  /// least one path in the array.
+  /// <param name="serviceRoot">The absolute path of the root of the service to which the resource paths are relative, including the
+  /// trailing slash. This may be either an absolute path or an absolute URI.
   /// </param>
-  public LockTokenSubmittedConditionCode(params string[] absoluteResourcePaths)
+  /// <param name="relativeResourcePaths">An array of paths, relative to <paramref name="serviceRoot"/>, to the locked resources related
+  /// to the error. There must be at least one path in the array.
+  /// </param>
+  public LockTokenSubmittedConditionCode(string serviceRoot, params string[] relativeResourcePaths)
     : base(423, new XmlQualifiedName("lock-token-submitted", DAVNames.DAV),
-           "A lock token was not submitted for one or more locked resources.", absoluteResourcePaths)
+           "A lock token was not submitted for one or more locked resources.", serviceRoot, relativeResourcePaths)
   {
-    if(absoluteResourcePaths.Length == 0) throw new ArgumentException("The list of locked resource paths was empty.");
+    if(relativeResourcePaths.Length == 0) throw new ArgumentException("The list of locked resource paths was empty.");
   }
 }
 #endregion
@@ -248,14 +262,25 @@ public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
 {
   /// <summary>Initializes a new <see cref="NoConflictingLockConditionCode"/>.</summary>
-  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
-  public NoConflictingLockConditionCode(params string[] absoluteResourcePaths) : this(423, absoluteResourcePaths) { }
+  /// <param name="serviceRoot">The absolute path of the root of the service to which the resource paths are relative, including the
+  /// trailing slash. This may be either an absolute path or an absolute URI.
+  /// </param>
+  /// <param name="relativeResourcePaths">An array of paths, relative to <paramref name="serviceRoot"/>, to the locked resources related
+  /// to the error.
+  /// </param>
+  public NoConflictingLockConditionCode(string serviceRoot, params string[] relativeResourcePaths)
+    : this(423, serviceRoot, relativeResourcePaths) { }
   /// <summary>Initializes a new <see cref="NoConflictingLockConditionCode"/> with a particular HTTP status code.</summary>
   /// <param name="httpStatusCode">The HTTP status code related to the error condition.</param>
-  /// <param name="absoluteResourcePaths">An array of absolute paths to the locked resources related to the error.</param>
-  public NoConflictingLockConditionCode(int httpStatusCode, params string[] absoluteResourcePaths)
-    : base(httpStatusCode, new XmlQualifiedName("no-conflicting-lock", DAVNames.DAV), "The requested lock conflicts with an existing lock.",
-           absoluteResourcePaths) { }
+  /// <param name="serviceRoot">The absolute path of the root of the service to which the resource paths are relative, including the
+  /// trailing slash.
+  /// </param>
+  /// <param name="relativeResourcePaths">An array of paths, relative to <paramref name="serviceRoot"/>, to the locked resources related
+  /// to the error.
+  /// </param>
+  public NoConflictingLockConditionCode(int httpStatusCode, string serviceRoot, params string[] relativeResourcePaths)
+    : base(httpStatusCode, new XmlQualifiedName("no-conflicting-lock", DAVNames.DAV),
+           "The requested lock conflicts with an existing lock.", serviceRoot, relativeResourcePaths) { }
 }
 #endregion
 
@@ -267,6 +292,12 @@ public static class ConditionCodes
 {
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 202 Accepted status code.</summary>
   public static readonly ConditionCode Accepted = new ConditionCode(HttpStatusCode.Accepted);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 403 Forbidden status code, with a message stating that it's forbidden to
+  /// copy or move a resource to an ancestor or descendant.
+  /// </summary>
+  public static readonly ConditionCode BadCopyOrMovePath =
+    new ConditionCode(HttpStatusCode.Forbidden, "You cannot copy or move a resource to its own descendant or ancestor.");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 502 Bad Gateway status code.</summary>
   public static readonly ConditionCode BadGateway = new ConditionCode(HttpStatusCode.BadGateway);
@@ -292,6 +323,9 @@ public static class ConditionCodes
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 507 Insufficient Storage status code.</summary>
   public static readonly ConditionCode InsufficientStorage = new ConditionCode(507);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 500 Internal Server Error status code.</summary>
+  public static readonly ConditionCode InternalServerError = new ConditionCode(500);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 423 Locked status code. You may want to use the more specific
   /// <see cref="LockTokenSubmittedConditionCode"/> and <see cref="NoConflictingLockConditionCode"/> condition codes.
@@ -322,7 +356,7 @@ public static class ConditionCodes
   /// lock. The condition code represented by this field does not provide the URL of the resource with the conflicting lock. If known, you
   /// should construct and use a <see cref="NoConflictingLockConditionCode"/> instead.
   /// </summary>
-  public static readonly ConditionCode NoConflictingLock = new NoConflictingLockConditionCode();
+  public static readonly ConditionCode NoConflictingLock = new NoConflictingLockConditionCode("/");
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 204 No Content status code.</summary>
   public static readonly ConditionCode NoContent = new ConditionCode(HttpStatusCode.NoContent);
@@ -360,7 +394,7 @@ public static class ConditionCodes
   /// </summary>
   public static readonly ConditionCode PreservedLiveProperties =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("preserved-live-properties", DAVNames.DAV),
-                      "The server received a valid COPY or MOVE request, but was unable to preserve all of the live properties at the " +
+                      "The server received a valid COPY or MOVE request, but was unable to preserve some live properties at the " +
                       "destination.");
 
   /// <summary>The DAV:propfind-finite-depth precondition, used when an infinite-depth PROPFIND request is not supported by a collection.</summary>
