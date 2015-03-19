@@ -44,6 +44,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Globals.cs" />
+    <Compile Include="Methods\CopyOrMove.cs" />
     <Compile Include="Methods\Delete.cs" />
     <Compile Include="Methods\Locks.cs" />
     <Compile Include="Methods\MkCol.cs" />

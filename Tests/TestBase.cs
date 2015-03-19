@@ -94,7 +94,7 @@ namespace AdamMil.WebDAV.Server.Tests
       {
         Test(expected.LockRoot.ToString(), expected.Depth, expected.Scope, exactTimeout ? (int)expected.Timeout : -1,
              expected.OwnerData == null ? null : expected.OwnerData.OuterXml);
-        if(!exactTimeout) Assert.LessOrEqual(expected.Timeout, Timeout);
+        if(!exactTimeout) Assert.LessOrEqual(Timeout, expected.Timeout);
       }
 
       public void Test(string lockRoot, Depth depth, XmlQualifiedName scope, int timeout, string ownerXml)
@@ -245,6 +245,37 @@ namespace AdamMil.WebDAV.Server.Tests
       });
 
       return info;
+    }
+
+    protected static string MakeIfClause(LockInfo info)
+    {
+      return "<" + info.LockToken.ToString() + ">";
+    }
+
+    protected static string MakeIfHeader(params LockInfo[] info)
+    {
+      StringBuilder sb = new StringBuilder();
+      foreach(LockInfo i in info)
+      {
+        if(sb.Length != 0) sb.Append(' ');
+        sb.Append("(<").Append(i.LockToken.ToString()).Append(">)");
+      }
+      return sb.ToString();
+    }
+
+    protected static string MakeIfHeader(LockInfo info, string tagPath)
+    {
+      return "</" + tagPath + "> (<" + info.LockToken.ToString() + ">)";
+    }
+
+    protected static string[] MakeIfHeaders(params LockInfo[] info)
+    {
+      return new string[] { DAVHeaders.If, MakeIfHeader(info) };
+    }
+
+    protected static string[] MakeIfHeaders(LockInfo info, string tagPath)
+    {
+      return new string[] { DAVHeaders.If, MakeIfHeader(info, tagPath) };
     }
 
     protected LockInfo[] QueryLocks(string requestPath, Depth depth)

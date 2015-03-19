@@ -103,23 +103,21 @@
              location matches a request URI, the request is ignored by the AdamMil.WebDAV service. This allows you to carve out a subtree from
              a WebDAV service that is excluded from WebDAV processing by adding a disabled location matching that subtree. Locations have
              the following attributes, all of which are optional except for 'match':
-             * match     A string matching the request URI, of the form [[scheme://](hostname|IP)[:port]][/path/to/davroot/]
+             * match     A string matching the request URI, of the form [[scheme://]hostname[:port]][/path/to/davroot/]
                          If the scheme portion is unspecified, the location matches any scheme. If a hostname is used, it must match the
-                         host within the request URI; otherwise, if an IP is used, it must match the IP of the network interface
-                         servicing the connection. If the port is unspecified, the location matches any port, even if the scheme normally
-                         implies a port. If the entire authority portion is unspecified, the location matches any authority. If the path
-                         is specified, it identifies the root of a WebDAV service, and all URIs under that path are matched by the
-                         location; otherwise, it matches all paths. The URI must be in its canonical form, with no unnecessarily escaped
-                         characters. The match attribute is required, and must be unique among locations in the collection. If you want a
-                         match attribute value that matches all URIs, use "/". Examples:
+                         host within the request URI. Unfortunately, it is not possible to match by IP address due to a limitation of
+                         ASP.NET. If the port is unspecified, the location matches any port, even if the scheme normally implies a port.
+                         If the entire authority portion is unspecified, the location matches any authority. If the path is specified, it
+                         identifies the root of a WebDAV service, and all URIs under that path are matched by the location; otherwise, it
+                         matches all paths. The URI must be in its canonical form, with no unnecessarily escaped characters. The match
+                         attribute is required, and must be unique among locations in the collection. Examples:
                            https://www.example.com:8080/webdav/  - matches HTTPS requests to www.example.com on port 8080 under /webdav/
                            http://www.example.com/webdav/        - matches HTTP requests to www.example.com on any port under /webdav/
-                           www.example.com:8080/webdav/          - matches both HTTP and HTTPS requests
-                           www.example.com/webdav/               - matches requests to any port
-                           123.234.99.88/webdav/                 - matches requests serviced by the interface bound to 123.234.99.88
-                           [2001:db8:85a3::8a2e:370:7334]/path/  - matches an IPv6 address
+                           www.example.com:8080/webdav/          - matches both HTTP and HTTPS requests on port 8080
+                           www.example.com/webdav/               - matches both HTTP and HTTPS requests to any port
                            /webdav/                              - matches requests on any hostname, as long as the path is under /webdav/
                            www.example.com                       - matches all requests to www.example.com
+                           /                                     - matches all requests
              * enabled   If true (the default), the location will respond to WebDAV requests. If false, the location will ignore them, but
                          they will not be processed by other locations in the list.
              * type      The full type name of a class that implements the AdamMil.WebDAV.Server.IWebDAVService interface. The class must
@@ -136,9 +134,9 @@
              * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
                                   requests to the root of the server and to the "*" URL. This option is provided as a workaround for
                                   WebDAV clients that incorrectly submit OPTIONS requests to the root of the server. (Microsoft Office
-                                  misbehaves in this way.) Using this option is not necessary if the 'match' attribute is such that the
-                                  service would serve requests to the root anyway. If this option is enabled, the service must be prepared
-                                  to handle URLs outside its scope, at least for OPTIONS requests. The default is false.
+                                  and Windows Explorer misbehave in this way.) Using this option is not necessary if the 'match' attribute
+                                  is such that the service would serve requests to the root anyway. If this option is enabled, the service
+                                  must be prepared to handle URLs outside its scope, at least for OPTIONS requests. The default is false.
              * <other>   Attributes not listed above will be collected and passed to the AdamMil.WebDAV.Server.IWebDAVService instance as
                          parameters if it has a public constructor that accepts an AdamMil.WebDAV.Server.Configuration.ParameterCollection.
                          Be aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
@@ -148,7 +146,13 @@
                o allowInfinitePropFind - Specifies whether the service allows infinite-depth PROPFIND queries. This may be disabled if
                                          clients can't be trusted to use them responsibly. The default is true.
                o fsRoot   - Specifies the root within the filesystem from which files will be served. Effectively, this maps the service
-                            root to the given filesystem root. If empty or omitted, all files on all drives will be served.
+                            root to the given filesystem root. If empty or omitted, all files on all drives will be served. If you're using
+                            a version of .NET before 4.0 for the site, then you should be aware that ASP.NET will restart the web
+                            application whenever a directory is deleted anywhere within the web site. This means that writable filesystem
+                            services attached to directories within the web site may cause application restarts whenever a user deletes a
+                            directory over DAV. If users might do this regularly, it may be best to serve files outside of the web site or
+                            run the web application on .NET 4+. And even on .NET 4+, ASP.NET may still sometimes restart the application
+                            based on changes to the filesystem that occur within the web site directory.
                o writable - Boolean. Determines whether the DAV service allows the creation, deletion, and modification of files and
                             directories. The default is false.
         -->

@@ -94,7 +94,9 @@ namespace AdamMil.WebDAV.Server.Tests
   #region Location
   public class Location : TypeWithParameters
   {
-    public Location(string match, Type type, bool enabled) : this (match, type, enabled, null) { }
+    public Location(string match, Type type) : this(match, type, true, null) { }
+
+    public Location(string match, Type type, bool enabled) : this(match, type, enabled, null) { }
 
     public Location(string match, Type type, bool enabled, TypeWithParameters authFilterType) : base(type)
     {
@@ -167,9 +169,7 @@ namespace AdamMil.WebDAV.Server.Tests
     protected override void WriteAttributes(StringBuilder sb, string siteRoot)
     {
       base.WriteAttributes(sb, siteRoot);
-      string fsRoot = RootDirectory;
-      if(fsRoot == "{PhysicalPath}") fsRoot = siteRoot;
-      WriteAttribute(sb, "fsRoot", fsRoot);
+      WriteAttribute(sb, "fsRoot", RootDirectory.Replace("{PhysicalPath}", siteRoot));
       WriteAttribute(sb, "writable", Writable);
       WriteAttribute(sb, "allowInfinitePropFind", AllowInfinitePropFind);
     }
@@ -226,6 +226,13 @@ namespace AdamMil.WebDAV.Server.Tests
     {
       AssertStarted();
       File.WriteAllBytes(Path.Combine(Directory, name), content);
+    }
+
+    public void DeleteDirectory(string name)
+    {
+      AssertStarted();
+      string path = Path.Combine(Directory, name);
+      if(System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
     }
 
     public void Dispose()

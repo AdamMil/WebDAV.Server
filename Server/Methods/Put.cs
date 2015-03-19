@@ -104,58 +104,8 @@ public class PutRequest : SimpleRequest
     try
     {
       replacementStream = Context.OpenRequestBody();
-      bool isPartialUpdate = false;
-      if(ContentRange != null) // if the client requested a partial PUT and/or indicated knowledge of the entity length...
-      {
-        // note that partial PUT support was never really specified or documented in the RFC 2616, but it seems like a fairly
-        // straightforward extension/interpretation. however, i'm not 100% sure how error cases should be reported to the client. (for
-        // instance, if partial PUTs are not allowed, what should we reply with? 416 Requested Range Not Satisfiable is for Range headers
-        // rather than Content-Range headers and may cause the client to retry with another partial PUT, while 403 Forbidden or 501 Not
-        // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope it works.)
-        // TODO: do a bit more research on this. in particular, see if we can find and read some existing client and server code
-        // NOTE: partial PUTs are now explicitly disallowed by the latest HTTP specification (RFC 7231). technically we should stop
-        // supporting them, but they seem useful for a WebDAV server, especially given that RFC 4918 says that PUT requests should not
-        // alter the properties of an existing resource, so WebDAV PUT requests are already a kind of partial update even if they replace
-        // the entire entity body. so i'll keep the support in here for now
-
-        // if the client indicated knowledge of the entity length but was incorrect...
-        if(ContentRange.TotalLength >= 0 && entityLength >= 0 && ContentRange.TotalLength != entityLength)
-        {
-          // respond with a 416 Requested Range Not Satisfiable status that includes the correct entity length
-          Context.Response.Headers[DAVHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
-          Status = ConditionCodes.RequestedRangeNotSatisfiable;
-          return;
-        }
-
-        // if the client requested a partial PUT...
-        if(ContentRange.Start >= 0)
-        {
-          // we need to know how long the replacement stream is, so copy it to a temporary location if necessary
-          if(!replacementStream.CanSeek)
-          {
-            Impersonation.RunWithImpersonation(Impersonation.RevertToSelf, false, delegate // revert to self so we can open a temp file
-            {                                                                              // if necessary
-              replacementStream = new SeekableStreamWrapper(replacementStream);
-            });
-          }
-
-          // whether it's really updating only a subset of the entity body (assuming entityLength is valid)...
-          isPartialUpdate = ContentRange.Start != 0 || ContentRange.Start + ContentRange.Length < entityLength;
-
-          // if the range doesn't start at the beginning or if the client is replacing a piece of the entity with a smaller one, or if the
-          // client is not known to be replacing data through the end of the entity, then we'll need to be able to seek within the file.
-          // also, if we need to shift any data over (i.e. the part we're replacing isn't the same length as the new data), then we'll need
-          // the ability to read from the stream as well. we also disallow the start position to be past the end of the stream, because
-          // there's unlikely to be a good use case and it makes DOS attacks too easy. (a client could ask to write at the trillionth byte)
-          if((isPartialUpdate || entityLength < 0) && // if it's a partial update or we can't be sure...
-             (!entityBody.CanSeek || ContentRange.Start > Math.Max(0, entityLength) ||
-              !entityBody.CanRead && ContentRange.Length != replacementStream.Length))
-          {
-            Status = ConditionCodes.RequestedRangeNotSatisfiable; // if we can't, reply with a 416 status without a Content-Range header
-            return;
-          }
-        }
-      }
+      bool isPartialUpdate; // verify that any requested partial update is valid
+      if(!CheckPartialUpdate(entityBody, entityLength, ref replacementStream, out isPartialUpdate)) return;
 
       if(precondition != null) // if we have a 304 Not Modified precondition status
       {
@@ -170,59 +120,7 @@ public class PutRequest : SimpleRequest
         }
         else // otherwise, it's a partial update...
         {
-          long rangeEnd = ContentRange.Start + ContentRange.Length;
-          bool hasDataPastEnd = rangeEnd < entityLength; // is there any data after the end of the update region?
-          // if we need to move data from beyond the end of the range into a temporary location (to prevent it from being overwritten)...
-          byte[] saved = null;
-          if(hasDataPastEnd && replacementStream.Length > ContentRange.Length)
-          {
-            entityBody.Position = ContentRange.Start + ContentRange.Length;
-            saved = entityBody.LongRead(replacementStream.Length - ContentRange.Length);
-          }
-
-          // now we need to move to the beginning of the update range. if we can't seek, then the stream is already at the right place
-          if(entityBody.CanSeek) entityBody.Position = ContentRange.Start;
-
-          // write the replacement data into the entity body
-          replacementStream.CopyTo(entityBody);
-
-          if(hasDataPastEnd && replacementStream.Length != ContentRange.Length) // if we have to shift any data over
-          {
-            byte[] buffer = new byte[64*1024];
-            if(replacementStream.Length < ContentRange.Length) // if we need to shift the remaining data to the left...
-            {
-              long offset = ContentRange.Length - replacementStream.Length; // how far we need to shift it
-              do
-              {
-                entityBody.Position = rangeEnd; // move to the start of the data we need to shift
-                int read = entityBody.FullRead(buffer, 0, buffer.Length); // read as much data as we can
-                entityBody.Position = rangeEnd - offset; // move over
-                entityBody.Write(buffer, 0, read); // write it
-                rangeEnd += read; // move to the next chunk of data
-              } while(rangeEnd < entityBody.Length);
-
-              entityBody.SetLength(rangeEnd - offset); // truncate the stream to the new length now that we've shifted the data over
-            }
-            else // otherwise, if we need to shift the remaining data to the right...
-            {
-              // 'end' is the end of the replacement data. readPtr points to the end of the block we want to shift
-              long end = ContentRange.Start + replacementStream.Length, readPtr = entityLength;
-              long offset = replacementStream.Length - ContentRange.Length; // the distance the data needs to be moved
-              do
-              {
-                int read = (int)Math.Min(readPtr - end, buffer.Length); // read up to a full buffer backwards from readPtr
-                readPtr -= read; // move the readPtr to the start of the block that we're going to read (and end of the next block)
-                entityBody.Position = readPtr; // seek to the start of the block we're going to read
-                entityBody.ReadOrThrow(buffer, 0, read); // read the full block
-                entityBody.Position = readPtr + offset; // move over to the write position
-                entityBody.Write(buffer, 0, read); // and write it
-              } while(readPtr > end); // if the end of the block to shift is after the start of the data, there's more work to do
-
-              // now there should be a gap into which we can place the extra bytes we saved previously
-              entityBody.Position = end; // seek to the start of that gap
-              entityBody.Write(saved); // and write the saved bytes into it
-            }
-          }
+          PartialPut(entityBody, entityLength, replacementStream);
         }
 
         // at this point, the entity body stream has been updated
@@ -243,6 +141,124 @@ public class PutRequest : SimpleRequest
   protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
     return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, Context.RequestResource == null, false);
+  }
+
+  bool CheckPartialUpdate(Stream entityBody, long entityLength, ref Stream replacementStream, out bool isPartialUpdate)
+  {
+    isPartialUpdate = false;
+
+    if(ContentRange != null) // if the client requested a partial PUT and/or indicated knowledge of the entity length...
+    {
+      // note that partial PUT support was never really specified or documented in the RFC 2616, but it seems like a fairly
+      // straightforward extension/interpretation. however, i'm not 100% sure how error cases should be reported to the client. (for
+      // instance, if partial PUTs are not allowed, what should we reply with? 416 Requested Range Not Satisfiable is for Range headers
+      // rather than Content-Range headers and may cause the client to retry with another partial PUT, while 403 Forbidden or 501 Not
+      // Implemented may cause the client to give up entirely. we'll use 416 with no Content-Range header and hope it works.)
+      // TODO: do a bit more research on this. in particular, see if we can find and read some existing client and server code
+      // NOTE: partial PUTs are now explicitly disallowed by the latest HTTP specification (RFC 7231). technically we should stop
+      // supporting them, but they seem useful for a WebDAV server, especially given that RFC 4918 says that PUT requests should not
+      // alter the properties of an existing resource, so WebDAV PUT requests are already a kind of partial update even if they replace
+      // the entire entity body. so i'll keep the support in here for now
+
+      // if the client indicated knowledge of the entity length but was incorrect...
+      if(ContentRange.TotalLength >= 0 && entityLength >= 0 && ContentRange.TotalLength != entityLength)
+      {
+        // respond with a 416 Requested Range Not Satisfiable status that includes the correct entity length
+        Context.Response.Headers[DAVHeaders.ContentRange] = new ContentRange(entityLength).ToHeaderString();
+        Status = ConditionCodes.RequestedRangeNotSatisfiable;
+        return false;
+      }
+
+      // if the client requested a partial PUT...
+      if(ContentRange.Start >= 0)
+      {
+        // we need to know how long the replacement stream is, so copy it to a temporary location if necessary
+        if(!replacementStream.CanSeek)
+        {
+          Stream replacement = replacementStream;
+          Impersonation.RunWithImpersonation(Impersonation.RevertToSelf, false, delegate // revert to self so we can open a temp file
+          {                                                                              // if necessary
+            replacement = new SeekableStreamWrapper(replacement);
+          });
+          replacementStream = replacement;
+        }
+
+        // whether it's really updating only a subset of the entity body (assuming entityLength is valid)...
+        isPartialUpdate = ContentRange.Start != 0 || ContentRange.Start + ContentRange.Length < entityLength;
+
+        // if the range doesn't start at the beginning or if the client is replacing a piece of the entity with a smaller one, or if the
+        // client is not known to be replacing data through the end of the entity, then we'll need to be able to seek within the file.
+        // also, if we need to shift any data over (i.e. the part we're replacing isn't the same length as the new data), then we'll need
+        // the ability to read from the stream as well. we also disallow the start position to be past the end of the stream, because
+        // there's unlikely to be a good use case and it makes DOS attacks too easy. (a client could ask to write at the trillionth byte)
+        if((isPartialUpdate || entityLength < 0) && // if it's a partial update or we can't be sure...
+            (!entityBody.CanSeek || ContentRange.Start > Math.Max(0, entityLength) ||
+            !entityBody.CanRead && ContentRange.Length != replacementStream.Length))
+        {
+          Status = ConditionCodes.RequestedRangeNotSatisfiable; // if we can't, reply with a 416 status without a Content-Range header
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  void PartialPut(Stream entityBody, long entityLength, Stream replacementStream)
+  {
+    long rangeEnd = ContentRange.Start + ContentRange.Length;
+    bool hasDataPastEnd = rangeEnd < entityLength; // is there any data after the end of the update region?
+    // if we need to move data from beyond the end of the range into a temporary location (to prevent it from being overwritten)...
+    byte[] saved = null;
+    if(hasDataPastEnd && replacementStream.Length > ContentRange.Length)
+    {
+      entityBody.Position = ContentRange.Start + ContentRange.Length;
+      saved = entityBody.LongRead(replacementStream.Length - ContentRange.Length);
+    }
+
+    // now we need to move to the beginning of the update range. if we can't seek, then the stream is already at the right place
+    if(entityBody.CanSeek) entityBody.Position = ContentRange.Start;
+
+    // write the replacement data into the entity body
+    replacementStream.CopyTo(entityBody);
+
+    if(hasDataPastEnd && replacementStream.Length != ContentRange.Length) // if we have to shift any data over
+    {
+      byte[] buffer = new byte[64*1024];
+      if(replacementStream.Length < ContentRange.Length) // if we need to shift the remaining data to the left...
+      {
+        long offset = ContentRange.Length - replacementStream.Length; // how far we need to shift it
+        do
+        {
+          entityBody.Position = rangeEnd; // move to the start of the data we need to shift
+          int read = entityBody.FullRead(buffer, 0, buffer.Length); // read as much data as we can
+          entityBody.Position = rangeEnd - offset; // move over
+          entityBody.Write(buffer, 0, read); // write it
+          rangeEnd += read; // move to the next chunk of data
+        } while(rangeEnd < entityBody.Length);
+
+        entityBody.SetLength(rangeEnd - offset); // truncate the stream to the new length now that we've shifted the data over
+      }
+      else // otherwise, if we need to shift the remaining data to the right...
+      {
+        // 'end' is the end of the replacement data. readPtr points to the end of the block we want to shift
+        long end = ContentRange.Start + replacementStream.Length, readPtr = entityLength;
+        long offset = replacementStream.Length - ContentRange.Length; // the distance the data needs to be moved
+        do
+        {
+          int read = (int)Math.Min(readPtr - end, buffer.Length); // read up to a full buffer backwards from readPtr
+          readPtr -= read; // move the readPtr to the start of the block that we're going to read (and end of the next block)
+          entityBody.Position = readPtr; // seek to the start of the block we're going to read
+          entityBody.ReadOrThrow(buffer, 0, read); // read the full block
+          entityBody.Position = readPtr + offset; // move over to the write position
+          entityBody.Write(buffer, 0, read); // and write it
+        } while(readPtr > end); // if the end of the block to shift is after the start of the data, there's more work to do
+
+        // now there should be a gap into which we can place the extra bytes we saved previously
+        entityBody.Position = end; // seek to the start of that gap
+        entityBody.Write(saved); // and write the saved bytes into it
+      }
+    }
   }
 }
 

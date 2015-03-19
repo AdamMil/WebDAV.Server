@@ -85,7 +85,7 @@ namespace AdamMil.WebDAV.Server.Tests
 
       // test recursive, empty <prop> requests
       TestHelpers.AssertXmlEquals("<multistatus xmlns=\"DAV:\" xmlns:T=\"TEST:\"><response><href>/dir/</href><propstat><prop/><status>HTTP/1.1 200 OK</status></propstat></response>" +
-                                  "<response><href>/dir/FILE</href><propstat><prop/><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>",
+                                  "<response><href>/dir/file</href><propstat><prop/><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>",
                                   RequestXml("PROPFIND", "dir/", new string[] { DAVHeaders.Depth, "1" }, "<propfind xmlns=\"DAV:\"><prop/></propfind>", 207));
 
       // make sure infinite-depth PROPFIND requests are disallowed, as configured
@@ -144,7 +144,7 @@ namespace AdamMil.WebDAV.Server.Tests
 
       TestHelpers.AssertXmlEquals(
           @"<D:multistatus xmlns:D=""DAV:"" xmlns=""TEST:""><D:response><D:href>/file</D:href><D:propstat><D:prop>
-          <b64/><bool/><byte/><custom/><date/><dateTime/><dateTimeZ/><decimal/><double/><duration/><float/><guid/><hex/><inf/><int/><long/><qname/><short/><sbyte/><uint/><ulong/><uri/><ushort/>
+          <b64/><bool/><byte/><custom/><date/><dateTime/><dateTimeZ/><decimal/><double/><duration/><empty/><float/><guid/><hex/><inf/><int/><long/><qname/><short/><sbyte/><uint/><ulong/><uri/><ushort/>
           </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>",
         RequestXml("PROPPATCH", "file", null,
           "<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><set><prop>" +
@@ -158,6 +158,7 @@ namespace AdamMil.WebDAV.Server.Tests
           "<T:decimal xsi:type=\"xs:decimal\"> \t\n+12678967.543233\t\n </T:decimal>" +
           "<T:double xsi:type=\"xs:double\"> \t\n1267.43233E12\t\n </T:double>" +
           "<T:duration xsi:type=\"xs:duration\"> \t\nP1Y2MT2H\t\n </T:duration>" +
+          "<T:empty xml:lang=\"nun\"/>" +
           "<T:float xsi:type=\"xs:float\"> \t\n1267.43233E12\t\n </T:float>" +
           "<T:guid xmlns:ms=\"http://microsoft.com/wsdl/types/\" xsi:type=\"ms:guid\"> \t\n{046a1990-a762-4157-9636-D340FF0BF01A}\t\n </T:guid>" +
           "<T:hex xsi:type=\"xs:hexBinary\"> \t\n48656c6c6f2c20776f726c6421\t\n </T:hex>" +
@@ -178,14 +179,16 @@ namespace AdamMil.WebDAV.Server.Tests
                                   "<a:custom xml:lang=\"en\" xmlns:f=\"foo:\" xsi:type=\"f:bar\"> \t\nhi\t\n </a:custom><a:date xsi:type=\"xs:date\">2002-10-10</a:date>" +
                                   "<a:dateTime xsi:type=\"xs:dateTime\">2002-10-10T12:00:00</a:dateTime><a:dateTimeZ xsi:type=\"xs:dateTime\">2002-10-10T12:00:00Z</a:dateTimeZ>" +
                                   "<a:decimal xsi:type=\"xs:decimal\">12678967.543233</a:decimal><a:double xsi:type=\"xs:double\">1.26743233E+15</a:double><a:duration xsi:type=\"xs:duration\">P1Y2MT2H</a:duration>" +
-                                  "<a:float xsi:type=\"xs:float\">1.26743237E+15</a:float><a:guid xmlns:ms=\"http://microsoft.com/wsdl/types/\" xsi:type=\"ms:guid\">046a1990-a762-4157-9636-d340ff0bf01a</a:guid>" +
+                                  "<a:empty xml:lang=\"nun\"/><a:float xsi:type=\"xs:float\">1.26743237E+15</a:float>" +
+                                  "<a:guid xmlns:ms=\"http://microsoft.com/wsdl/types/\" xsi:type=\"ms:guid\">046a1990-a762-4157-9636-d340ff0bf01a</a:guid>" +
                                   "<a:hex xsi:type=\"xs:hexBinary\">48656C6C6F2C20776F726C6421</a:hex><a:inf xsi:type=\"xs:double\">INF</a:inf><a:int xsi:type=\"xs:int\">1234567890</a:int>" +
                                   "<a:long xsi:type=\"xs:long\">12345678901</a:long><a:qname xsi:type=\"xs:QName\">xs:short</a:qname><a:short xsi:type=\"xs:short\">30000</a:short>" +
                                   "<a:sbyte xsi:type=\"xs:byte\">120</a:sbyte><a:uint xsi:type=\"xs:unsignedInt\">3456789012</a:uint><a:ulong xsi:type=\"xs:unsignedLong\">10223372036854775807</a:ulong>" +
                                   "<a:uri xsi:type=\"xs:anyURI\">http://www.froogle.com/foo/bar</a:uri><a:ushort xsi:type=\"xs:unsignedShort\">60000</a:ushort>" +
                                   "</prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>",
         RequestXml("PROPFIND", "file", null,
-                   "<D:propfind xmlns=\"TEST:\" xmlns:D=\"DAV:\"><D:prop><b64/><bool/><byte/><custom/><date/><dateTime/><dateTimeZ/><decimal/><double/><duration/><float/><guid/><hex/><inf/><int/><long/><qname/><short/><sbyte/><uint/><ulong/><uri/><ushort/></D:prop></D:propfind>", 207));
+                   "<D:propfind xmlns=\"TEST:\" xmlns:D=\"DAV:\"><D:prop><b64/><bool/><byte/><custom/><date/><dateTime/><dateTimeZ/><decimal/><double/><duration/><empty/>" +
+                   "<float/><guid/><hex/><inf/><int/><long/><qname/><short/><sbyte/><uint/><ulong/><uri/><ushort/></D:prop></D:propfind>", 207));
 
       // test xml:lang inheritence
       TestHelpers.AssertXmlEquals(

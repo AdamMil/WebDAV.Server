@@ -168,8 +168,7 @@ public sealed class WebDAVContext
   /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
   /// it's preferred by the client. Otherwise, only the uncompressed <see cref="ContentEncoding.Identity"/> encoding can be chosen.
   /// </param>
-  /// <param name="setHeader">If true, the <c>Content-Encoding</c> header will be set to the chosen encoding.</param>
-  public ContentEncoding ChooseResponseEncoding(bool enableCompression, bool setHeader)
+  public ContentEncoding ChooseResponseEncoding(bool enableCompression)
   {
     // the identity encoding is assumed to always be available unless it's explicitly disallowed
     ContentEncoding encoding = ContentEncoding.Identity;
@@ -243,8 +242,6 @@ public sealed class WebDAVContext
       if(encodingName.OrdinalEquals("gzip")) encoding = ContentEncoding.GZip;
       else if(encodingName.OrdinalEquals("deflate")) encoding = ContentEncoding.Deflate;
     }
-
-    if(setHeader) Response.SetContentEncodingHeader(encoding);
 
     return encoding;
   }
@@ -348,17 +345,23 @@ public sealed class WebDAVContext
     return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression' and @name != 'buffered' and @name != 'encoding']" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression' and @name != 'encoding' and @name != 'disableBuffering']" />
   public Stream OpenResponseBody()
   {
-    return OpenResponseBody(true, null);
+    return OpenResponseBody(true, false);
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/node()" />
-  public Stream OpenResponseBody(bool enableCompression, bool? buffered)
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'encoding']" />
+  public Stream OpenResponseBody(bool enableCompression, bool disableBuffering)
   {
-    ContentEncoding encoding = ChooseResponseEncoding(enableCompression, true); // this sets a header, so call it before changing buffering
-    if(buffered.HasValue) Response.BufferOutput = buffered.Value;
+    return OpenResponseBody(ChooseResponseEncoding(enableCompression), disableBuffering);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression']" />
+  public Stream OpenResponseBody(ContentEncoding encoding, bool disableBuffering)
+  {
+    if(Response.BufferOutput) Response.SetContentEncodingHeader(encoding); // set the Content-Encoding header if we still can
+    if(disableBuffering) Response.BufferOutput = false;
     return DAVUtility.EncodeOutputStream(Response.OutputStream, encoding, true);
   }
 
@@ -408,7 +411,7 @@ public sealed class WebDAVContext
     // at the very least we need to 1) specify a prefix for the DAV: namespace (e.g. <D:prop>). Explorer can't understand responses that
     // use the default namespace. 2) truncate timestamp precision to no more than 3 decimal places. Explorer can't parse timestamps with
     // greater than millisecond precision
-    return Request.UserAgent != null && Request.UserAgent.StartsWith("Microsoft-WebDAV-MiniRedir/");
+    return Request.UserAgent != null && Request.UserAgent.StartsWith("Microsoft-WebDAV-MiniRedir/", StringComparison.Ordinal);
   }
 
   /// <summary>Writes a 207 Multi-Status response describing the members that failed the operation. The failed members collection must not
@@ -424,7 +427,10 @@ public sealed class WebDAVContext
       foreach(ResourceStatus member in failedMembers)
       {
         response.Writer.WriteStartElement(DAVNames.response);
-        response.Writer.WriteElementString(DAVNames.href, member.AbsolutePath);
+        response.Writer.WriteStartElement(DAVNames.href);
+        response.Writer.WriteString(member.ServiceRoot);
+        response.Writer.WriteString(DAVUtility.UriPathEncode(member.RelativePath));
+        response.Writer.WriteEndElement();
         response.WriteStatus(member.Status);
         response.Writer.WriteEndElement();
       }

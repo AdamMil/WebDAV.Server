@@ -325,7 +325,7 @@ public sealed class LocationElement : ConfigurationElement
     get { return (LockManagerElement)this["davLockManager"]; }
   }
 
-  /// <summary>Gets a string matching request URIs, of the form [[scheme://](hostname|IP)[:port]][/path/]</summary>
+  /// <summary>Gets a string matching request URIs, of the form [[scheme://]hostname[:port]][/path/]</summary>
   [ConfigurationProperty("match", IsKey=true, IsRequired=true), RegexStringValidator(MatchPattern)]
   public string Match
   {
@@ -365,7 +365,7 @@ public sealed class LocationElement : ConfigurationElement
     return true;
   }
 
-  internal const string MatchPattern = @"^(?:(?:(?<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*)://)?(?:(?<ipv4>(?:\d{1,3}\.){3}\d{1,3})|(?<hostname>[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9]))*)|\[(:ipv6(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{1,4})\])(?::(?<port>\d{1,5}))?)?(?:/(?<path>[^/]+(?:/[^/]+)*/?)?)?$";
+  internal const string MatchPattern = @"^(?:(?:(?<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*)://)?(?:(?<hostname>[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9]))*))(?::(?<port>\d{1,5}))?)?(?:/(?<path>[^/]+(?:/[^/]+)*/?)?)?$";
 }
 #endregion
 

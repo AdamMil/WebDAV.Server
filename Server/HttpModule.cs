@@ -26,116 +26,136 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.RegularExpressions;
 using System.Web;
+using AdamMil.Collections;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
-// TODO: we should use 405 Method Not Found in more places, but it's difficult because RFC 7231 section 6.5.5 requires supplying an Allow
-// header containing a list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally,
-// though, in WebDAVModule, perhaps by adding an IWebDAVRequest.GetSupportedMethods method
+// TODO: in places where we use 405 Method Not Found, RFC 7231 section 6.5.5 requires supplying an Allow header containing a
+// list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally, though, in
+// WebDAVModule, or by adding an IWebDAVResource/Service.GetSupportedMethods method
 // TODO: look into Microsoft's WebDAV extensions
 // TODO: support the Expects header (RFC 7231 section 5.1.1) if IIS doesn't do it for us
-// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI.
+// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI. double-check our output
 // check to make sure we don't do that
 // TODO: see if we can annotate the code with reliability attributes. (http://msdn.microsoft.com/en-us/magazine/cc163716.aspx)
 
 namespace AdamMil.WebDAV.Server
 {
 
+#region UriResolution
+/// <summary>Contains the results of an attempt by <see cref="WebDAVModule.ResolveUri"/> to resolve a <see cref="Uri"/> to an
+/// <see cref="IWebDAVService"/> and <see cref="IWebDAVResource"/>.
+/// </summary>
+public sealed class UriResolution
+{
+  /// <summary>Gets whether access should be denied to the resource. This will always be false if <c>performAccessChecks</c> argument to
+  /// <see cref="WebDAVModule.ResolveUri"/> was false.
+  /// </summary>
+  public bool AccessDenied { get; internal set; }
+
+  /// <summary>Gets a collection of <see cref="IAuthorizationFilter">authorization filters</see> associated with the URI.</summary>
+  public ReadOnlyListWrapper<IAuthorizationFilter> AuthorizationFilters
+  {
+    get
+    {
+      if(_filterWrapper == null)
+      {
+        _filterWrapper = filterArray == null ? NoFilters : new ReadOnlyListWrapper<IAuthorizationFilter>(filterArray);
+      }
+      return _filterWrapper;
+    }
+  }
+
+  /// <summary>Gets the <see cref="ILockManager"/> responsible for the URI, if any.</summary>
+  public ILockManager LockManager { get; internal set; }
+
+  /// <summary>Gets the <see cref="IPropertyStore"/> responsible for the URI, if any.</summary>
+  public IPropertyStore PropertyStore { get; internal set; }
+
+  /// <summary>Gets the path to the resource named by the URI, relative to the <see cref="ServiceRoot"/>. This variable will be valid
+  /// whenever <see cref="Service"/> is not null.
+  /// </summary>
+  public string RelativePath { get; internal set; }
+
+  /// <summary>Gets the <see cref="IWebDAVResource"/> corresponding to the URI, or null if the URI could not be resolved to a resource.</summary>
+  public IWebDAVResource Resource { get; internal set; }
+
+  /// <summary>Gets the <see cref="IWebDAVService"/> corresponding to the URI, or null if the URI did not correspond to any defined service
+  /// location. This variable may be set to a valid service even if the URI could not be resolved to a resource.
+  /// </summary>
+  public IWebDAVService Service { get; internal set; }
+
+  /// <summary>Gets the absolute path to the <see cref="Service"/> root. If the <see cref="Uri.Scheme"/> or <see cref="Uri.Authority"/> of
+  /// the URI was different from the request URI, this will be an absolute URI (e.g. <c>http://othersite/otherRoot/</c>) rather than an
+  /// absolute path (e.g. <c>/otherRoot/</c>). This variable will be valid whenever <see cref="Service"/> is not null.
+  /// </summary>
+  public string ServiceRoot { get; internal set; }
+
+  internal IAuthorizationFilter[] filterArray;
+  ReadOnlyListWrapper<IAuthorizationFilter> _filterWrapper;
+
+  static readonly ReadOnlyListWrapper<IAuthorizationFilter> NoFilters =
+    new ReadOnlyListWrapper<IAuthorizationFilter>(new IAuthorizationFilter[0]);
+}
+#endregion
+
+#region WebDAVModule
 /// <summary>Implements an <see cref="IHttpModule"/> that provides WebDAV services.</summary>
 public class WebDAVModule : IHttpModule
 {
-  /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline if the module has not been disabled in the application
-  /// configuration file.
+  /// <summary>Returns the given string or null, depending on the value of <see cref="Configuration.ShowSensitiveErrors"/>.</summary>
+  public static string FilterErrorMessage(string message)
+  {
+    return config.ShowSensitiveErrors ? message : null;
+  }
+
+  /// <summary>In the context of the given <paramref name="context"/>, attempts to resolve a URL into an <see cref="IWebDAVService"/> and
+  /// <see cref="IWebDAVResource"/>. Returns a <see cref="UriResolution"/> object that describes the results of the resolution attempt.
   /// </summary>
-  public void Init(HttpApplication context)
-  {
-    if(config.Enabled) // if the WebDAV module is enabled...
-    {
-      if(context == null) throw new ArgumentNullException();     // validate the argument
-      context.PostAuthenticateRequest += OnRequestAuthenticated; // and attach to the ASP.NET pipeline after authentication is complete
-    }
-  }
-
-  /// <include file="documentation.xml" path="/DAV/WebDAVModule/ResolveUri/*[@name != 'service' and @name != 'resource' and @name != 'serviceRoot' and @name != 'relativePath']" />
-  /// <remarks>No access checks will be performed.</remarks>
-  public static IWebDAVResource ResolveUri(WebDAVContext context, Uri uri)
-  {
-    IWebDAVService service;
-    IWebDAVResource resource = ResolveUri(context, uri, out service);
-    return resource;
-  }
-
-  /// <include file="documentation.xml" path="/DAV/WebDAVModule/ResolveUri/*[@name != 'resource' and @name != 'serviceRoot' and @name != 'relativePath']" />
-  /// <remarks>No access checks will be performed.</remarks>
-  public static IWebDAVResource ResolveUri(WebDAVContext context, Uri uri, out IWebDAVService service)
-  {
-    string serviceRoot, relativePath;
-    IWebDAVResource resource;
-    ILockManager lockManager;
-    IPropertyStore propertyStore;
-    bool accessDenied;
-    ResolveUri(context, uri, false, out service, out resource, out serviceRoot, out relativePath, out accessDenied,
-               out lockManager, out propertyStore);
-    return resource;
-  }
-
-  /// <include file="documentation.xml" path="/DAV/WebDAVModule/ResolveUri/node()" />
-  /// <remarks>No access checks will be performed.</remarks>
-  public static bool ResolveUri(WebDAVContext context, Uri uri, out IWebDAVService service, out IWebDAVResource resource,
-                                out string serviceRoot, out string relativePath)
-  {
-    ILockManager lockManager;
-    IPropertyStore propertyStore;
-    bool accessDenied;
-    return ResolveUri(context, uri, false, out service, out resource, out serviceRoot, out relativePath, out accessDenied,
-                      out lockManager, out propertyStore);
-  }
-
-  /// <include file="documentation.xml" path="/DAV/WebDAVModule/ResolveUri/node()" />
+  /// <param name="context">The <see cref="WebDAVContext"/> in which the request is being executed.</param>
+  /// <param name="uri">
+  ///   A <see cref="Uri"/> to resolve. This can either be an absolute URI (i.e. a URI with a scheme and authority) or a
+  ///   relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
+  ///   authority of the request URI will be used.
+  /// </param>
   /// <param name="performAccessChecks">If true, authorization checks will be performed against the resource. If access is denied, the
   /// resource may not be resolved. Note that authorization checks may consider details of the request, such as the HTTP method, when
   /// deciding whether to grant or deny access, so if just validating an <c>If</c> header, for example, you should skip the access checks.
+  /// The result of the check will be placed in the <see cref="UriResolution.AccessDenied"/> property.
   /// </param>
-  /// <param name="accessDenied">A variable that will receive a value indicating whether access should be denied to the resource if
-  /// <paramref name="performAccessChecks"/> is true. If <paramref name="performAccessChecks"/> is false, this variable will not be set.
-  /// </param>
-  /// <param name="lockManager">A variable that will receive the <see cref="ILockManager"/> responsible for the given
-  /// <paramref name="uri"/>, if any.
-  /// </param>
-  /// <param name="propertyStore">A variable that will receive the <see cref="IPropertyStore"/> responsible for the given
-  /// <paramref name="uri"/>, if any.
-  /// </param>
-  public static bool ResolveUri(WebDAVContext context, Uri uri, bool performAccessChecks, out IWebDAVService service,
-                                out IWebDAVResource resource, out string serviceRoot, out string relativePath, out bool accessDenied,
-                                out ILockManager lockManager, out IPropertyStore propertyStore)
+  public static UriResolution ResolveUri(WebDAVContext context, Uri uri, bool performAccessChecks)
   {
-    service       = null;
-    resource      = null;
-    serviceRoot   = null;
-    relativePath  = null;
-    accessDenied  = false;
-    lockManager   = null;
-    propertyStore = null;
+    if(context == null) throw new ArgumentNullException();
 
     LocationConfig location = ResolveLocation(context, uri);
+    UriResolution info = new UriResolution();
     if(location != null)
     {
-      serviceRoot   = location.RootPath;
-      relativePath  = location.GetRelativeUrl(uri, context);
-      lockManager   = location.LockManager;
-      propertyStore = location.PropertyStore;
-      service       = location.GetService();
-      resource      = service.ResolveResource(context, relativePath);
+      info.ServiceRoot   = location.RootPath;
+      info.RelativePath  = location.GetRelativeUrl(uri, context);
+      info.LockManager   = location.LockManager;
+      info.PropertyStore = location.PropertyStore;
+      info.Service       = location.GetService();
+      info.Resource      = info.Service.ResolveResource(context, info.RelativePath);
+      info.filterArray   = location.AuthFilters;
+
+      // convert the service root to an absolute URI if its scheme and authority aren't the same as those of the request URI
+      if(uri.IsAbsoluteUri &&
+         (!uri.Authority.OrdinalEquals(context.Request.Url.Authority) || !uri.Scheme.OrdinalEquals(context.Request.Url.Scheme)))
+      {
+        info.ServiceRoot = DAVUtility.RemoveTrailingSlash(uri.GetLeftPart(UriPartial.Authority)) + info.ServiceRoot;
+      }
 
       bool denyExistence;
-      if(performAccessChecks && resource != null && ShouldDenyAccess(context, service, resource, location, out denyExistence))
+      if(performAccessChecks && info.Resource != null &&
+         ShouldDenyAccess(context, info.Service, info.Resource, location, out denyExistence))
       {
-        accessDenied = true;
-        if(denyExistence) resource = null;
+        info.AccessDenied = true;
+        if(denyExistence) info.Resource = null;
       }
     }
 
-    return resource != null;
+    return info;
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
@@ -161,6 +181,25 @@ public class WebDAVModule : IHttpModule
       denyAccess = resource != null && ShouldDenyAccess(context, service, resource, location, out denyExistence);
     }
     return denyAccess;
+  }
+
+  /// <summary>Disposes resources related to the <see cref="IHttpModule"/>. Note that this method is distinct from
+  /// <see cref="IDisposable.Dispose"/>.
+  /// </summary>
+  /// <remarks>Derived classes that override this method must call the base class implementation.</remarks>
+  protected virtual void Dispose()
+  {
+    // we have nothing to dispose (and we don't need to remove the event handler delegate because we hold no reference to HttpApplication)
+  }
+
+  /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline.</summary>
+  /// <remarks>Derived classes that override this method must call the base implementation, and if you store a reference to
+  /// <paramref name="context"/>, you must release the reference in <see cref="Dispose"/>.
+  /// </remarks>
+  protected virtual void Initialize(HttpApplication context)
+  {
+    if(context == null) throw new ArgumentNullException();     // validate the argument
+    context.PostAuthenticateRequest += OnRequestAuthenticated; // and attach to the ASP.NET pipeline after authentication is complete
   }
 
   #region Configuration
@@ -229,10 +268,9 @@ public class WebDAVModule : IHttpModule
       if(Enabled)
       {
         ID = config.ID;
-        if(string.IsNullOrEmpty(ID))
+        if(string.IsNullOrEmpty(ID)) // if there's no ID, generate one in the form scheme_hostname_port_path/to/dav
         {
-          ID = scheme + "_" + (hostname ?? (ip != null ? ip.ToString() : null)) + "_" + (port != 0 ? port.ToStringInvariant() : null) +
-               "_" + RootPath.Trim('/'); // scheme_host_port_path/to/dav
+          ID = scheme + "_" + hostname + "_" + (port != 0 ? port.ToStringInvariant() : null) + "_" + RootPath.Trim('/');
         }
         ID = ID.ToLowerInvariant();
 
@@ -284,8 +322,8 @@ public class WebDAVModule : IHttpModule
     /// </param>
     public string GetRelativeUrl(Uri requestUri, WebDAVContext context)
     {
-      string requestPath = GetAbsoluteUri(requestUri, context).GetComponents(UriComponents.Path, UriFormat.Unescaped);
-      return path == null ? requestPath : path.Length >= requestPath.Length ? "" : requestPath.Substring(path.Length);
+      string requestPath = DAVUtility.UriPathDecode(GetAbsoluteUri(requestUri, context).AbsolutePath);
+      return RootPath.Length >= requestPath.Length ? "" : requestPath.Substring(RootPath.Length);
     }
 
     public IWebDAVService GetService()
@@ -297,7 +335,7 @@ public class WebDAVModule : IHttpModule
 
     public bool MatchesRequest(HttpRequest request)
     {
-      return MatchesRequest(request.Url) && (ip == null || IpMatches(request));
+      return MatchesRequest(request.Url);
     }
 
     public bool MatchesRequest(Uri uri)
@@ -312,31 +350,13 @@ public class WebDAVModule : IHttpModule
     public readonly bool Enabled;
     public readonly IAuthorizationFilter[] AuthFilters;
 
-    bool IpMatches(HttpRequest request)
-    {
-      throw new NotImplementedException(); // TODO: implement IP-based matching, if possible
-    }
-
     void ParseMatch(string matchString)
     {
       Match m = new Regex(LocationElement.MatchPattern).Match(matchString);
       if(!m.Success) throw new ConfigurationErrorsException(matchString + " is not a valid AdamMil.WebDAV.Server location match string.");
-
       if(m.Groups["scheme"].Success) scheme = m.Groups["scheme"].Value.ToLowerInvariant();
-
-      if(m.Groups["hostname"].Success)
-      {
-        hostname = m.Groups["hostname"].Value.ToLowerInvariant();
-      }
-      else if(m.Groups["ipv4"].Success || m.Groups["ipv6"].Success)
-      {
-        string ipStr = m.Groups["ipv4"].Success ? m.Groups["ipv4"].Value : m.Groups["ipv6"].Value;
-        try { ip = IPAddress.Parse(ipStr); }
-        catch(FormatException ex) { throw new ConfigurationErrorsException(ipStr + " is not a valid IP address.", ex); }
-      }
-
+      if(m.Groups["hostname"].Success) hostname = m.Groups["hostname"].Value.ToLowerInvariant();
       if(m.Groups["port"].Success) port = int.Parse(m.Groups["port"].Value, CultureInfo.InvariantCulture);
-
       if(m.Groups["path"].Success) path = DAVUtility.WithTrailingSlash(m.Groups["path"].Value);
       RootPath = "/" + path;
     }
@@ -347,14 +367,13 @@ public class WebDAVModule : IHttpModule
       string requestPath = requestUri.GetComponents(UriComponents.Path, UriFormat.Unescaped);
       // the match path includes the trailing slash, so if the request path is greater or equal in length, then the match path must be a
       // prefix of it. otherwise, if the request path is shorter, they can only match if the request path is equal to the match path when
-      // the trailing slash of the match path is ignored (e.g. the match path is /dav/ but the user type /dav -- we'll accept this).
+      // the trailing slash of the match path is ignored (e.g. the match path is /dav/ but the user types /dav -- we'll accept this).
       return requestPath.Length >= path.Length ? requestPath.StartsWith(path, comparison)
                                                : requestPath.Length+1 == path.Length && path.StartsWith(requestPath, comparison);
     }
 
     readonly Func<IWebDAVService> serviceCreator;
     string scheme, hostname, path;
-    IPAddress ip;
     IWebDAVService service;
     int port;
     readonly bool caseSensitive;
@@ -422,12 +441,14 @@ public class WebDAVModule : IHttpModule
     }
   }
 
-  /// <summary>Disposes resources related to the <see cref="IHttpModule"/>. Note that this method is distinct from
-  /// <see cref="IDisposable.Dispose"/>.
-  /// </summary>
   void IHttpModule.Dispose()
   {
-    // we have nothing to dispose (and we don't need to remove the event handler delegate because we hold no reference to HttpApplication)
+    Dispose();
+  }
+
+  void IHttpModule.Init(HttpApplication context)
+  {
+    if(config.Enabled) Initialize(context);
   }
 
   /// <summary>Constructs an object specified in the server configuration.</summary>
@@ -496,12 +517,6 @@ public class WebDAVModule : IHttpModule
     }
 
     return false;
-  }
-
-  /// <summary>Returns the given string or null, depending on the value of <see cref="Configuration.ShowSensitiveErrors"/>.</summary>
-  static string FilterErrorMessage(string message)
-  {
-    return config.ShowSensitiveErrors ? message : null;
   }
 
   /// <summary>Converts a <see cref="Uri"/> into an absolute <see cref="Uri"/>, for which <see cref="Uri.IsAbsoluteUri"/> is true.</summary>
@@ -776,5 +791,6 @@ public class WebDAVModule : IHttpModule
   /// <summary>The configuration of the WebDAV module.</summary>
   static readonly Configuration config = new Configuration(WebDAVServerSection.Get());
 }
+#endregion
 
 } // namespace AdamMil.WebDAV.Server
