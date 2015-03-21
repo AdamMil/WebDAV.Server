@@ -920,20 +920,6 @@ public static class DAVUtility
     return true;
   }
 
-  /// <summary>Extracts an <see cref="XmlElement"/> into its own <see cref="XmlDocument"/>.</summary>
-  internal static XmlElement Extract(this XmlElement element)
-  {
-    if(element == null) throw new ArgumentNullException();
-    XmlDocument emptyDoc = new XmlDocument();
-    XmlElement newElement = (XmlElement)emptyDoc.ImportNode(element, true);
-    // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang needing to be inherited)
-    string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
-    if(!string.IsNullOrEmpty(xmlLang)) newElement.SetAttribute(DAVNames.xmlLang, xmlLang);
-    FixQNames(element, newElement);
-    emptyDoc.AppendChild(newElement);
-    return newElement;
-  }
-
   /// <summary>Decodes a path from a URI into a minimally escaped form (see <see cref="CanonicalPathEncode"/>) that can be used in the
   /// construction of canonical paths.
   /// </summary>
@@ -1066,6 +1052,20 @@ public static class DAVUtility
   {
     if(path == null) throw new ArgumentNullException();
     return path.Length == 0 || path[path.Length-1] == '/' ? path : path + "/";
+  }
+
+  /// <summary>Extracts an <see cref="XmlElement"/> into its own <see cref="XmlDocument"/>.</summary>
+  internal static XmlElement Extract(this XmlElement element)
+  {
+    if(element == null) throw new ArgumentNullException();
+    XmlDocument emptyDoc = new XmlDocument();
+    XmlElement newElement = (XmlElement)emptyDoc.ImportNode(element, true);
+    // include the xml:lang attribute, which may not have been imported along with the node (due to xml:lang needing to be inherited)
+    string xmlLang = element.GetInheritedAttributeValue(DAVNames.xmlLang);
+    if(!string.IsNullOrEmpty(xmlLang)) newElement.SetAttribute(DAVNames.xmlLang, xmlLang);
+    FixQNames(element, newElement);
+    emptyDoc.AppendChild(newElement);
+    return newElement;
   }
 
   /// <summary>Uniquely encodes a string into a valid file name.</summary>
@@ -1278,6 +1278,52 @@ public static class DAVUtility
   {
     if(path == null) throw new ArgumentNullException();
     return path.Length > 1 && path[path.Length-1] == '/' ? path.Substring(0, path.Length-1) : path;
+  }
+
+  /// <summary>Executes the given action, returns its <see cref="ConditionCode"/> or a condition code fashioned from any exception it
+  /// throws.
+  /// </summary>
+  internal static ConditionCode TryExecute(Func<ConditionCode> action)
+  {
+    if(action == null) throw new ArgumentNullException();
+    ConditionCode status;
+    try
+    {
+      status = action();
+    }
+    catch(System.Web.HttpException ex)
+    {
+      WebDAVException wde = ex as WebDAVException;
+      status =
+        (wde != null ? wde.ConditionCode : null) ?? new ConditionCode(ex.GetHttpCode(), WebDAVModule.FilterErrorMessage(ex.Message));
+    }
+    catch(UnauthorizedAccessException)
+    {
+      status = ConditionCodes.Forbidden;
+    }
+    catch(Exception ex)
+    {
+      status = new ConditionCode(HttpStatusCode.InternalServerError, WebDAVModule.FilterErrorMessage(ex.Message));
+    }
+    return status;
+  }
+
+  internal static ConditionCode TryExecute<A>(Func<A,ConditionCode> action, A arg)
+  {
+    if(action == null) throw new ArgumentNullException();
+    return TryExecute(() => action(arg));
+  }
+
+  internal static ConditionCode TryExecute<A1,A2>(Func<A1,A2,ConditionCode> action, A1 a1, A2 a2)
+  {
+    if(action == null) throw new ArgumentNullException();
+    return TryExecute(() => action(a1, a2));
+  }
+
+  internal static ConditionCode TryExecute<A1,A2,A3>(Func<A1,A2,A3,ConditionCode> action, A1 a1, A2 a2, A3 a3)
+  {
+    if(action == null) throw new ArgumentNullException();
+    return TryExecute(() => action(a1, a2, a3));
   }
 
   /// <summary>Tries to parse a value which may be either an absolute URI or an absolute path.</summary>

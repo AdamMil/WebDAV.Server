@@ -22,7 +22,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
 namespace AdamMil.WebDAV.Server
@@ -33,8 +32,8 @@ public static class MediaTypes
 {
   static MediaTypes()
   {
-    extToMedia = new Dictionary<string,string>(StringComparer.Ordinal);
-    mediaToExt = new Dictionary<string,string>(StringComparer.Ordinal);
+    mediaToExt = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+    extToMedia = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
 
     WebDAVServerSection section = WebDAVServerSection.Get() ?? new WebDAVServerSection();
     MediaMapCollection mediaTypeMap = section.MediaTypeMap;
@@ -44,8 +43,8 @@ public static class MediaTypes
     }
     defaultExtension = mediaTypeMap.GetDefaultExtension();
     defaultMediaType = mediaTypeMap.GetDefaultMediaType();
-    if(defaultExtension != null) defaultExtension = "." + defaultExtension.ToLowerInvariant(); // add the period to match mediaToExt
-    if(defaultMediaType != null) defaultMediaType = defaultMediaType.ToLowerInvariant();
+    if(defaultExtension != null) defaultExtension = "." + NormalizeCase(defaultExtension); // add the period to match mediaToExt
+    if(defaultMediaType != null) defaultMediaType = NormalizeCase(defaultMediaType);
     CanonicalizeExtensions();
 
     CompressionMapCollection compressionMap = section.CompressionMap;
@@ -61,7 +60,7 @@ public static class MediaTypes
   {
     if(string.IsNullOrEmpty(mediaType)) throw new ArgumentException();
     string extension;
-    if(!mediaToExt.TryGetValue(mediaType.ToLowerInvariant(), out extension)) extension = defaultExtension;
+    if(!mediaToExt.TryGetValue(NormalizeCase(mediaType), out extension)) extension = defaultExtension;
     return extension;
   }
 
@@ -71,7 +70,7 @@ public static class MediaTypes
   public static string GuessMediaType(string fileName)
   {
     if(string.IsNullOrEmpty(fileName)) throw new ArgumentException();
-    fileName = Path.GetFileName(fileName).ToLowerInvariant();
+    fileName = NormalizeCase(Path.GetFileName(fileName));
 
     for(int dotIndex = fileName.Length-1; dotIndex >= 0; dotIndex--)
     {
@@ -165,10 +164,8 @@ public static class MediaTypes
   static void AddMediaTypeMap(string mediaType, bool canonicalMediaType, string extension, bool canonicalExtension)
   {
     if(mediaType == null || extension == null) throw new ArgumentNullException();
-    extension = extension.ToLowerInvariant();
-    mediaType = mediaType.ToLowerInvariant();
-    if(canonicalMediaType) extToMedia[extension] = mediaType;
-    if(canonicalExtension) mediaToExt[mediaType] = extension;
+    if(canonicalMediaType) extToMedia[NormalizeCase(extension)] = mediaType;
+    if(canonicalExtension) mediaToExt[NormalizeCase(mediaType)] = extension;
   }
 
   /// <summary>Finds media types that have only one registered extension, and makes that extension the canonical one. Also,
@@ -176,7 +173,7 @@ public static class MediaTypes
   /// </summary>
   static void CanonicalizeExtensions()
   {
-    // first see how many times each media type is used
+    // first see how many times each media type is used. (mediaUsage should ignore case even if extToMedia/mediaToExt don't.)
     Dictionary<string, string> mediaUsage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     foreach(KeyValuePair<string,string> pair in extToMedia)
     {
@@ -189,7 +186,8 @@ public static class MediaTypes
     // then make media types with a count of 1 canonical if no canonical mapping already exists
     foreach(KeyValuePair<string,string> pair in mediaUsage)
     {
-      if(pair.Value != null && !mediaToExt.ContainsKey(pair.Key)) mediaToExt[pair.Key] = pair.Value;
+      string mediaType = NormalizeCase(pair.Key);
+      if(pair.Value != null && !mediaToExt.ContainsKey(mediaType)) mediaToExt[mediaType] = pair.Value;
     }
 
     // prepend periods to all of the extensions so we don't have to do it every time GetFileExtension() is called
@@ -197,6 +195,11 @@ public static class MediaTypes
     {
       mediaToExt[pair.Key] = "." + pair.Value;
     }
+  }
+
+  static string NormalizeCase(string key)
+  {
+    return key; // we needn't change the case at all since we're using OrdinalIgnoreCase for mediaToExt and extToMedia
   }
 
   static readonly Dictionary<string, string> mediaToExt, extToMedia;

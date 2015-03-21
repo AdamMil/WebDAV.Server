@@ -235,7 +235,7 @@ public abstract class WebDAVRequest
   /// <summary>Gets the HTTP method name sent by the client.</summary>
   public string MethodName { get; private set; }
 
-  /// <summary>Gets or sets the <see cref="ConditionCode"/> representing the overall result of the request. If the status is null, the
+  /// <summary>Gets or sets the <see cref="ConditionCode"/> indicating the overall result of the request. If the status is null, the
   /// request is assumed to have been successful and an appropriate response will be used. In general, setting a status value will
   /// prevent a default entity body from being generated.
   /// </summary>
@@ -418,7 +418,7 @@ public abstract class WebDAVRequest
     if(lockManager == null) lockManager = Context.LockManager;
     if(lockManager != null)
     {
-      if(canonicalPath == null) canonicalPath = Context.CanonicalPathIfKnown;
+      if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
       serviceRoot = serviceRoot == null ? Context.ServiceRoot : DAVUtility.WithTrailingSlash(serviceRoot);
 
       HashSet<string> submittedTokens = GetSubmittedLockTokens();
@@ -670,20 +670,21 @@ public abstract class WebDAVRequest
     return null;
   }
 
-  /// <summary>Checks the preconditions for the WebDAV <c>If</c> header.</summary>
+  /// <summary>Checks the preconditions for the WebDAV <c>If</c> header, assuming that the header was specified.</summary>
   bool CheckIfHeader(ref EntityMetadata requestMetadata, string canonicalPath)
   {
     // RFC 4918 section 10.4.3 specifies the processing for the If header
+    if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
     bool anyListSucceeded = false;
     foreach(TaggedIfLists clause in ifClauses)
     {
       EntityMetadata metadata = null;
       ILockManager lockManager = null;
-      string canonicalClausePath = canonicalPath ?? Context.CanonicalPathIfKnown;
+      string canonicalClausePath = null;
 
       // if the clause definitely matches the request URI...
       if(clause.ResourceTag == null || clause.ExactTagMatch(Context, Context.RequestPath) ||
-         !canonicalClausePath.OrdinalEquals(Context.RequestPath) && clause.ExactTagMatch(Context, canonicalClausePath))
+         !canonicalPath.OrdinalEquals(Context.RequestPath) && clause.ExactTagMatch(Context, canonicalPath))
       {
         bool checksEntityTag = clause.ChecksEntityTag();
         if((requestMetadata == null || checksEntityTag && requestMetadata.EntityTag == null) && Context.RequestResource != null)
@@ -691,8 +692,9 @@ public abstract class WebDAVRequest
           requestMetadata = Context.RequestResource.GetEntityMetadata(checksEntityTag);
         }
 
-        metadata    = requestMetadata;
-        lockManager = Context.LockManager;
+        canonicalClausePath = canonicalPath;
+        metadata            = requestMetadata;
+        lockManager         = Context.LockManager;
       }
       else // otherwise, the clause doesn't obviously match the request URI, so do a full resolution step
       {

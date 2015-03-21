@@ -19,12 +19,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net;
-using System.Xml;
 using AdamMil.Utilities;
-
-// TODO: add processing examples and documentation
 
 namespace AdamMil.WebDAV.Server
 {
@@ -113,9 +109,11 @@ public class CopyOrMoveRequest : WebDAVRequest
 
     /// <summary>Gets whether access to the destination resource was in general denied to the user. If false, the copy or move should fail
     /// with a <see cref="ConditionCodes.Forbidden"/> status on the destination URL.
-    /// (<see cref="ProcessStandardRequest{T,I}(T, Func{T,string,I}, Func{T,string,ConditionCode}, Func{CopyOrMoveRequest,string,I,ConditionCode})"/>
-    /// will do this for you.) Even if true, this does not imply that the user has access to create or overwrite the destination resource or any
-    /// descendant resources. That must be checked separately.
+    /// (<see cref="ProcessStandardRequest{T}(T, Func{T,ConditionCode}, Func{CopyOrMoveRequest,string,T,ConditionCode}, Func{T,IEnumerable{T}})"/>
+    /// will do this for you.) Even if true, this does not imply that the user has access to create or overwrite the destination resource or
+    /// any descendant resources. That must be checked separately. You may check whether the user is denied access to a descendant resource
+    /// using <see cref="ShouldDenyAccess"/>. Once again, this only checks access in general. It does not check for the right to modify the
+    /// resource in particular.
     /// </summary>
     public bool AccessDenied { get; private set; }
 
@@ -221,174 +219,70 @@ public class CopyOrMoveRequest : WebDAVRequest
     /// </summary>
     public Uri Uri { get; private set; }
 
+    /// <summary>Determines whether access should be denied to the destination resource named by the given path. If this method returns
+    /// true, an attempt to create or overwrite the path should fail with <see cref="ConditionCodes.Forbidden"/>. This method only checks
+    /// whether the user is denied access in general, so even if it returns false the user may still not have the specific right to modify
+    /// or overwrite the resource.
+    /// </summary>
+    public bool ShouldDenyAccess(string destPath)
+    {
+      if(Service != null)
+      {
+        IWebDAVResource resource = Service.ResolveResource(context, destPath);
+        bool denyExistence;
+        foreach(IAuthorizationFilter filter in authFilters)
+        {
+          if(filter.ShouldDenyAccess(context, Service, resource, out denyExistence)) return true;
+        }
+        return resource != null && resource.ShouldDenyAccess(context, Service, out denyExistence);
+      }
+      return false;
+    }
+
     readonly WebDAVContext context;
     readonly IEnumerable<IAuthorizationFilter> authFilters;
     string _currentUserId;
   }
   #endregion
 
-  #region ISourceResource
-  /// <summary>Represents a resource being processed by a WebDAV <c>COPY</c> or <c>MOVE</c> request.</summary>
-  public interface ISourceResource
-  {
-    /// <summary>Gets the canonical path to the resource in the same form as that returned by <see cref="IWebDAVResource.CanonicalPath"/>.</summary>
-    string CanonicalPath { get; }
-
-    /// <summary>Gets whether this resource is a collection resource, which may contain child resources.</summary>
-    bool IsCollection { get; }
-
-    /// <summary>Gets the <see cref="EntityMetadata"/> about the resource's entity body. In general, the metadata does not require an
-    /// <see cref="EntityMetadata.EntityTag"/>, so no significant effort should be made to compute one.
-    /// </summary>
-    EntityMetadata Metadata { get; }
-
-    /// <summary>Returns a dictionary containing the live properties of the resource. The property values should be in the same form as
-    /// those given to a <see cref="PropFindRequest"/>, including the ability to include <c>Func&lt;object&gt;</c> delegates to compute
-    /// expensive property values on demand. (See
-    /// <see cref="PropFindRequest.ProcessStandardRequest(IDictionary{XmlQualifiedName, object})"/> for details.)
-    /// </summary>
-    /// <remarks>Generally, live properties need not be returned if they are would not be respected by the destination service. For
-    /// example, the <c>DAV:lockdiscovery</c>, <c>DAV:supportedlock</c>, and <c>DAV:getetag</c> properties are determined entirely by the
-    /// destination resource, and should not be returned (although returning them isn't illegal).
-    /// </remarks>
-    IDictionary<XmlQualifiedName, object> GetLiveProperties(WebDAVContext context);
-
-    /// <summary>Returns the name of the resource as a minimally escaped path segment that maps to the resource within its parent
-    /// collection.
-    /// </summary>
-    /// <remarks>If a resource has multiple valid names within a collection (e.g. on a case-insensitive service), the name that would be
-    /// preferred by humans should be returned, even if it differs from the canonical name used by the service. The name may also differ
-    /// depending on the request URI. For example, if a service exposes files in two collections and this resource is mapped to paths
-    /// <c>filesById/173</c> and <c>filesByName/hello.txt</c> the name returned would depend on whether the request URL referred to
-    /// <c>filesById/</c> or <c>filesByName/</c>. (The name would be "173" in the former case and "hello.txt" in the latter case.) If the
-    /// resource is at the root of a DAV service and thus has no name, an empty string must be returned. Otherwise, if the resource is a
-    /// child collection, the name should end with a trailing slash.
-    /// </remarks>
-    string GetMemberName(WebDAVContext context);
-
-    /// <summary>Returns a stream containing the resource's data. This is usually but not necessarily the body that would be returned
-    /// from a GET request. For instance, a collection resource might respond with an HTML list of member resources in response to a GET
-    /// request, but this HTML listing should not be returned from this method. Instead, if the resource logically has no data stream,
-    /// like most collections, this method should return null.
-    /// </summary>
-    /// <remarks>The stream does not need to be seekable, but a seekable stream is preferred if one can be cheaply obtained. The stream
-    /// must be closed by the caller when no longer needed.
-    /// </remarks>
-    Stream OpenStream(WebDAVContext context);
-  }
-  #endregion
-
-  #region ISourceResource<T>
-  /// <summary>Represents a resource being processed by a WebDAV <c>COPY</c> or <c>MOVE</c> request, and provides a way to obtain its
-  /// descendants.
+  /// <summary>Recursively removes all locks on the destination path and copies all dead properties from the source path to the
+  /// destination path, removing all previously existing properties at the destination. This method is expected to be
+  /// called from <see cref="IWebDAVService.CopyResource"/> after the copy has been successfully made.
   /// </summary>
-  /// <typeparam name="T">The type of object internally used by the <see cref="IWebDAVResource"/> to represent this resource. This type
-  /// parameter is provided for the convenience of the <see cref="IWebDAVResource"/>, to avoid type casts from <see cref="ISourceResource"/>
-  /// back to the internal type.
-  /// </typeparam>
-  public interface ISourceResource<T> : ISourceResource // it's split up so IWebDAVService.CopyResource doesn't have to be a generic method
+  public void PostProcessCopy(string canonicalSourcePath, string canonicalDestPath)
   {
-    /// <summary>Returns the children of this resource if it's a collection resource, or null if it's a non-collection resource.</summary>
-    IEnumerable<T> GetChildren();
-  }
-  #endregion
-
-  /// <summary>Implements standard processing for a <c>COPY</c> request. This method is suitable for read-only resources from services that
-  /// don't support specialized handling of intra-service copies or moves.
-  /// </summary>
-  public void ProcessStandardRequest<T>(T requestResource) where T : ISourceResource<T>
-  {
-    ProcessStandardRequest(requestResource, (resource,path) => resource);
+    // remove any locks that existed at the destination and copy over the dead properties
+    if(Destination.LockManager != null) Destination.LockManager.RemoveLocks(canonicalDestPath, LockRemoval.Recursive);
+    if(Context.PropertyStore != null && Destination.PropertyStore != null)
+    {
+      IEnumerable<XmlProperty> properties = Context.PropertyStore.GetProperties(canonicalSourcePath).Values;
+      Destination.PropertyStore.SetProperties(canonicalDestPath, properties, true);
+    }
   }
 
   /// <summary>Implements standard processing for a <c>COPY</c> request. This method is suitable for read-only resources from services that
   /// don't support specialized handling of intra-service copies or moves.
   /// </summary>
-  /// <param name="requestResource">The object representing the <see cref="WebDAVContext.RequestResource"/>, which is to be copied or
-  /// moved.
-  /// </param>
-  /// <param name="getInfo">A function that accepts a source resource (of type <typeparamref name="T"/>) and the canonical path to it, and
-  /// returns data about the resource (of type <see cref="ISourceResource{T}"/> of <typeparamref name="T"/>).
-  /// </param>
-  public void ProcessStandardRequest<T>(T requestResource, Func<T, string, ISourceResource<T>> getInfo)
+  public void ProcessStandardRequest<T>(T requestResource) where T : IStandardResource<T>
   {
     if(IsMove) Status = ConditionCodes.Forbidden; // this method is only suitable for read-only resources, so moves aren't allowed
-    else ProcessStandardRequest(requestResource, getInfo, null, null);
+    else ProcessStandardRequest(requestResource, null, null, null);
   }
 
-  /// <summary>Implements standard processing for a <c>COPY</c> or <c>MOVE</c> request.</summary>
-  /// <typeparam name="T">The type of object used internally by the caller to represent its resources. This type parameter is provided for
-  /// the convenience of the caller, to avoid needing to cast back to the internal type in callback methods that accept resources.
-  /// </typeparam>
-  /// <typeparam name="TInfo">The type of object used by the caller to represent information about its resources. This may be identical
-  /// to <typeparamref name="T"/> if the resource type provides its own metadata. This type must implement <see cref="ISourceResource{T}"/>
-  /// of <typeparamref name="T"/>.
-  /// </typeparam>
-  /// <param name="requestResource">The object representing the <see cref="WebDAVContext.RequestResource"/>, which is to be copied or
-  /// moved.
-  /// </param>
-  /// <param name="getInfo">A function that accepts a source resource (of type <typeparamref name="T"/>) and the canonical path to it, and
-  /// returns data about the resource (of type <typeparamref name="TInfo"/>).
-  /// </param>
-  /// <param name="deleteSource">A function that accepts a source resource (of type <typeparamref name="T"/>) and the canonical path to it,
-  /// and deletes the source resource if the user has access to do so. This parameter is only used for <c>MOVE</c> operations, and may be
-  /// null for <c>COPY</c> operations. The deletion must fail with <see cref="ConditionCodes.Forbidden"/> if the user does not have
-  /// permission to delete the given resource. The result of the operation should be returned as a <see cref="ConditionCode"/> as described
-  /// by RFC 4918 section 9.9. This function is called only if <paramref name="createDest"/> succeeds, to delete the source resource and
-  /// complete the move. The function does not need to delete the dead properties or locks of the source resource, as that will be done
-  /// automatically if the function returns a successful status code (or null, which is assumed to be success). If
-  /// <paramref name="createDest"/> is clever enough to do an actual move  of the source resource rather than creating a copy, then it is
-  /// acceptable for this method to be a no-op (simply returning a success code).
-  /// </param>
-  /// <param name="createDest">A function that has the same signature as <see cref="IWebDAVService.CopyResource"/> except that the path
-  /// will be an absolute URL if the <see cref="DestinationInfo.Service"/> was not known, and the resource info will be of type
-  /// <typeparamref name="TInfo"/> rather than the generic type <see cref="ISourceResource"/>. The function must perform a copy or move of
-  /// the source resource to the destination path if the user has access to write to the destination, and return a
-  /// <see cref="ConditionCode"/> as described by sections 9.8 and 9.9 of RFC 4918.
-  /// <para>
-  /// When servicing a <c>COPY</c> request, the function must attempt to create a copy of the source resource. When servicing a
-  /// <c>MOVE</c> request, the function may create a copy (after which <paramref name="deleteSource"/> is responsible for deleting the
-  /// source) or may directly move the source to the destination (in which case <paramref name="deleteSource"/> should be a no-op).
-  /// Dead properties must be copied or moved as well, along with selected live properties. (See <see cref="IWebDAVService.CopyResource"/>
-  /// for additional details. Locks are not transferred.)
-  /// Normally these copies and moves are done non-recursively, relying on this method to use <see cref="ISourceResource{T}.GetChildren"/>
-  /// to recursively copy or move the descendants. (A non-recursive "move" can be usually done by creating the destination object with the
-  /// same attributes that it would have if it was moved, such as the same creation date, but without any children.) However, as an
-  /// optimization you may copy or move items recursively when <see cref="Depth"/> is <see cref="Depth.SelfAndDescendants"/>.
-  /// In that case, <see cref="ISourceResource{T}.GetChildren"/> must not return any children, or else this method will attempt to
-  /// recursively invoke <paramref name="createDest"/> on them even though they have already been copied or moved by the parent. Also,
-  /// if you do a recursive copy or move, then the copy or move should succeed or fail as a unit. If the copy or move can partially
-  /// fail, then you should do it non-recursively and allow this method to handle the recursion, so that it can report errors accurately.
-  /// </para>
-  /// <para>
-  /// If this parameter is null, the <see cref="IWebDAVService.CopyResource"/> method of <see cref="DestinationInfo.Service"/> will be
-  /// used. (If both <paramref name="createDest"/> and <see cref="DestinationInfo.Service"/> are null, an exception will be thrown.)
-  /// See <see cref="IWebDAVService.CopyResource"/> for additional details about how the parameters should be interpreted and how the
-  /// copy should be performed.
-  /// </para>
-  /// </param>
-  /// <remarks><note type="caution">This method rejects attempts to copy or move the source resource to a descendant or ancestor of the
-  /// source resource if the attempt can be detected simply be examining the paths involved. However, this is not sufficient to detect all
-  /// such requests. It is possible that even if the destination refers to a different location than the source in URL space, it can refer
-  /// to overlapping locations in the underlying data store. For example, two WebDAV services at /root and /users could point to
-  /// overlapping parts of the same filesystem (e.g. C:\ and C:\Users). Another possibility is that the request
-  /// <see cref="WebDAVContext.Service"/> and destination <see cref="DestinationInfo.Service"/> happen to be different due to a rare
-  /// combination of an unusual <c>Destination</c> header and an error and race condition with another thread. (See
-  /// <see cref="DestinationInfo.Service"/> for details.) The <see cref="IWebDAVResource"/> that processes this request is responsible for
-  /// making sure that it either disallows copies/moves from the request resource to a descendant of the request resource (such as copying
-  /// or moving C:\Foo to C:\Foo\Bar\Baz), or that it can handle such operations correctly. (Copies to a descendant or ancestor and moves
-  /// to an ancestor are possible, but care must be taken to avoid data loss or infinite recursion; moves to a descendant are impossible
-  /// and must be rejected, because they would result in an inconsistent URL namespace.)
-  /// </note></remarks>
-  public void ProcessStandardRequest<T,TInfo>(T requestResource, Func<T,string,TInfo> getInfo, Func<T,string,ConditionCode> deleteSource,
-                                              Func<CopyOrMoveRequest,string,TInfo,ConditionCode> createDest)
-    where TInfo : ISourceResource<T>
+  /// <include file="documentation.xml" path="/DAV/CopyOrMoveRequest/ProcessStandardRequest/*[@name != 'createDest' and @name != 'getChildren']" />
+  public void ProcessStandardRequest<T>(T requestResource, Func<T, ConditionCode> deleteSource) where T : IStandardResource<T>
   {
-    if(getInfo == null || IsMove && deleteSource == null) throw new ArgumentNullException();
+    ProcessStandardRequest(requestResource, deleteSource, null, null);
+  }
 
-    TInfo rootInfo = getInfo(requestResource, Context.CanonicalPathIfKnown);
-    if(rootInfo == null) throw new ContractViolationException("getInfo returned null for " + Convert.ToString(requestResource));
-    if(IsMove && Depth != Depth.SelfAndDescendants && rootInfo.IsCollection)
+  /// <include file="documentation.xml" path="/DAV/CopyOrMoveRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest<T>(T requestResource, Func<T, ConditionCode> deleteSource,
+                                        Func<CopyOrMoveRequest,string,T,ConditionCode> createDest, Func<T,IEnumerable<T>> getChildren)
+    where T : IStandardResource<T>
+  {
+    if(requestResource == null || IsMove && deleteSource == null) throw new ArgumentNullException();
+
+    if(IsMove && Depth != Depth.SelfAndDescendants && requestResource.IsCollection)
     {
       Status = new ConditionCode((int)HttpStatusCode.Forbidden, "The Depth header must be infinity or unspecified for " +
                                  "MOVE requests submitted to a collection resource.");
@@ -406,7 +300,7 @@ public class CopyOrMoveRequest : WebDAVRequest
     // check for obvious copying of a resource to itself or its own descendant or ancestor
     if(Context.Service == Destination.Service)
     {
-      string source = DAVUtility.WithTrailingSlash(Context.CanonicalPathIfKnown);
+      string source = DAVUtility.WithTrailingSlash(requestResource.CanonicalPath);
       string dest   = DAVUtility.WithTrailingSlash(Destination.CanonicalPathIfKnown);
       if(source.OrdinalEquals(dest)) // if copying to the same location, make it a no-op. RFC 4918 suggests 403 Forbidden,
       {                              // but I don't see the harm in allowing (and ignoring) such a request
@@ -429,7 +323,7 @@ public class CopyOrMoveRequest : WebDAVRequest
         Status = ConditionCodes.BadGateway; // 502 Bad Gateway is used when we don't understand how to copy or move to the destination
         return;
       }
-      createDest = (request,path,info) => Destination.Service.CopyResource(this, path, info);
+      createDest = (request,path,resource) => Destination.Service.CopyResource(this, path, resource);
     }
 
     // now return non-error preconditions before doing the operation
@@ -438,6 +332,8 @@ public class CopyOrMoveRequest : WebDAVRequest
       Status = precondition;
       return;
     }
+
+    if(getChildren == null) getChildren = resource => resource.GetChildren(Context);
 
     // do the copy/move
     bool success = false;
@@ -453,8 +349,8 @@ public class CopyOrMoveRequest : WebDAVRequest
         destServiceRoot = DAVUtility.WithTrailingSlash(Destination.Uri.GetLeftPart(UriPartial.Authority));
         destRequestPath = DAVUtility.UriPathDecode(Destination.Uri.AbsolutePath).TrimStart('/');
       }
-      success = ProcessStandardRequest(requestResource, rootInfo, Context.RequestPath, Context.CanonicalPathIfKnown, destServiceRoot,
-                                       destRequestPath, getInfo, deleteSource, createDest);
+      success = ProcessStandardRequest(requestResource, Context.RequestPath, destServiceRoot, destRequestPath,
+                                       deleteSource, createDest, getChildren);
     }
 
     // if a resource failed, but the status was successful, choose an appropriate status code
@@ -533,31 +429,14 @@ public class CopyOrMoveRequest : WebDAVRequest
     else Context.WriteFailedMembers(FailedMembers);
   }
 
-  bool ProcessStandardRequest<T,TInfo>(T resource, TInfo info, string requestPath, string canonicalPath, string destServiceRoot,
-                                       string destRequestPath, Func<T,string,TInfo> getInfo, Func<T,string,ConditionCode> deleteSource,
-                                       Func<CopyOrMoveRequest,string,TInfo,ConditionCode> createDest) where TInfo : ISourceResource<T>
+  bool ProcessStandardRequest<T>(T resource, string requestPath, string destServiceRoot, string destRequestPath,
+                                 Func<T,ConditionCode> deleteSource, Func<CopyOrMoveRequest,string,T,ConditionCode> createDest,
+                                 Func<T,IEnumerable<T>> getChildren)
+    where T : IStandardResource<T>
   {
     // copy over the resource (non-recursively)
-    ConditionCode status;
-    try
-    {
-      status = createDest(this, destRequestPath, info);
-    }
-    catch(System.Web.HttpException ex)
-    {
-      WebDAVException wde = ex as WebDAVException;
-      status =
-        (wde != null ? wde.ConditionCode : null) ?? new ConditionCode(ex.GetHttpCode(), WebDAVModule.FilterErrorMessage(ex.Message));
-    }
-    catch(UnauthorizedAccessException)
-    {
-      status = ConditionCodes.Forbidden;
-    }
-    catch(Exception ex)
-    {
-      status = new ConditionCode(HttpStatusCode.InternalServerError, WebDAVModule.FilterErrorMessage(ex.Message));
-    }
-
+    ConditionCode status = Destination.ShouldDenyAccess(destRequestPath) ?
+      ConditionCodes.Forbidden : DAVUtility.TryExecute(createDest, this, destRequestPath, resource);
     if(status != null)
     {
       if(!status.IsSuccessful)
@@ -573,45 +452,29 @@ public class CopyOrMoveRequest : WebDAVRequest
 
     // copy/move any descendant resources, recursively, if it's a recursive request
     bool success = true;
-    if(Depth == Server.Depth.SelfAndDescendants && info.IsCollection)
+    if(Depth == Server.Depth.SelfAndDescendants && resource.IsCollection)
     {
-      string requestBase = DAVUtility.WithTrailingSlash(requestPath), destRequestBase = DAVUtility.WithTrailingSlash(destRequestPath);
-      foreach(T child in info.GetChildren())
+      IEnumerable<T> children = getChildren(resource);
+      if(children != null)
       {
-        TInfo childInfo = getInfo(child, canonicalPath);
-        if(childInfo == null) throw new ContractViolationException("getInfo returned null for " + Convert.ToString(child));
-        string name = childInfo.GetMemberName(Context);
-        success &= ProcessStandardRequest(child, childInfo, requestBase + name, childInfo.CanonicalPath, destServiceRoot,
-                                          destRequestBase + name, getInfo, deleteSource, createDest);
+        string requestBase = DAVUtility.WithTrailingSlash(requestPath), destRequestBase = DAVUtility.WithTrailingSlash(destRequestPath);
+        foreach(T child in children)
+        {
+          string name = child.GetMemberName(Context);
+          success &= ProcessStandardRequest(child, requestBase + name, destServiceRoot, destRequestBase + name,
+                                            deleteSource, createDest, getChildren);
+        }
       }
     }
 
     // now delete the source if it's a move
     if(success && IsMove)
     {
-      try
-      {
-        status = deleteSource(resource, canonicalPath);
-      }
-      catch(System.Web.HttpException ex)
-      {
-        WebDAVException wde = ex as WebDAVException;
-        status =
-          (wde != null ? wde.ConditionCode : null) ?? new ConditionCode(ex.GetHttpCode(), WebDAVModule.FilterErrorMessage(ex.Message));
-      }
-      catch(UnauthorizedAccessException)
-      {
-        status = ConditionCodes.Forbidden;
-      }
-      catch(Exception ex)
-      {
-        status = new ConditionCode(HttpStatusCode.InternalServerError, WebDAVModule.FilterErrorMessage(ex.Message));
-      }
-
+      status = DAVUtility.TryExecute(deleteSource, resource);
       if(status == null || status.IsSuccessful)
       {
-        if(Context.LockManager != null) Context.LockManager.RemoveLocks(canonicalPath, LockRemoval.Nonrecursive);
-        if(Context.PropertyStore != null) Context.PropertyStore.ClearProperties(canonicalPath, false);
+        if(Context.LockManager != null) Context.LockManager.RemoveLocks(resource.CanonicalPath, LockRemoval.Nonrecursive);
+        if(Context.PropertyStore != null) Context.PropertyStore.ClearProperties(resource.CanonicalPath, false);
       }
       else
       {

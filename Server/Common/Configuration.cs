@@ -342,6 +342,13 @@ public sealed class LocationElement : ConfigurationElement
     get { return (PropertyStoreElement)this["propertyStore"]; }
   }
 
+  /// <summary>Gets whether the service object should be recreated when an internal error occurs.</summary>
+  [ConfigurationProperty("resetOnError", DefaultValue=true), TypeConverter(typeof(BooleanConverter))]
+  public bool ResetOnError
+  {
+    get { return (bool)this["resetOnError"]; }
+  }
+
   /// <summary>Gets whether the location should serve OPTIONS requests to the root of the server even if it would not normally serve the
   /// root. This option is provided as a workaround for WebDAV clients that incorrectly submit OPTIONS requests to the root of the server.
   /// </summary>

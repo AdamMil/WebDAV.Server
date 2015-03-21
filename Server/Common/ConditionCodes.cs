@@ -302,6 +302,11 @@ public static class ConditionCodes
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 502 Bad Gateway status code.</summary>
   public static readonly ConditionCode BadGateway = new ConditionCode(HttpStatusCode.BadGateway);
 
+  /// <summary>A <see cref="ConditionCode"/> based on the 403 Forbidden status code, with a message stating that there were illegal
+  /// characters in the path.
+  /// </summary>
+  public static readonly ConditionCode BadPathCharacters = new ConditionCode(HttpStatusCode.Forbidden, "Illegal characters in path.");
+
   /// <summary>The DAV:cannot-modify-protected-property precondition, used when a PROPPATCH request attempts to modify a protected
   /// property.
   /// </summary>

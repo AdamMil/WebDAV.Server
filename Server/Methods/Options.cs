@@ -23,8 +23,6 @@ using System.Text;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: add processing examples and documentation
-
 namespace AdamMil.WebDAV.Server
 {
 

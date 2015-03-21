@@ -25,7 +25,6 @@ using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: add processing examples and documentation
 // TODO: RFC 4918 section 9.10.1 has a proposed erratum changing it to say that only the request-URI is locked in a LOCK request. if that
 // change is adopted, we won't be able to use the canonical resource URL, and will need to update lock-related code in various places.
 // check back later to see the status of the proposal
@@ -74,6 +73,15 @@ public class LockRequest : WebDAVRequest
     }
   }
 
+  /// <summary>A function called to create a new, empty file. The function should return a <see cref="ConditionCode"/> indicating whether
+  /// the attempt succeeded or failed, or null for the standard success code.
+  /// </summary>
+  /// <param name="canonicalPath">A variable that will receive the canonical path to the newly created file, or null to use the path
+  /// passed to the <see cref="ProcessStandardRequest(IEnumerable{LockType},bool,string,EntityMetadata,FileCreator)"/> method. This
+  /// exists to support resources whose canonical path is not known before they're created.
+  /// </param>
+  public delegate ConditionCode FileCreator(out string canonicalPath);
+
   /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing resources that prevented the
   /// request resource from being locked. A <see cref="ResourceStatus"/> object representing the request resource itself can also be added,
   /// but if that is the only resource with an error, it is better to represent the error by setting <see cref="WebDAVRequest.Status"/> and
@@ -114,35 +122,67 @@ public class LockRequest : WebDAVRequest
   /// </summary>
   public XmlElement ServerData { get; set; }
 
+  /// <summary>Processes a standard <c>LOCK</c> request for a new resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'createFile']" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, FileCreator createFile)
+  {
+    if(createFile == null) throw new ArgumentNullException();
+    ProcessStandardRequest(supportedLocks, false, null, null, createFile);
+  }
+
+  /// <summary>Processes a standard <c>LOCK</c> request for a new resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'createFile']" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, Func<ConditionCode> createFile)
+  {
+    if(createFile == null) throw new ArgumentNullException();
+    ProcessStandardRequest(supportedLocks, GetFileCreator(createFile));
+  }
+
   /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
-  /// <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
-  /// <param name="supportsRecursiveLocks">True if the resource supports recursive locks and false if not. Typically, true should be passed
-  /// for collection resources and false for non-collection resources.
-  /// </param>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks)
   {
-    ProcessStandardRequest(supportedLocks, null, null, supportsRecursiveLocks);
+    ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, (FileCreator)null);
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
-  /// <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
-  /// <param name="canonicalPath">The canonical, relative path of the resource to lock. If null, the path to the
-  /// <see cref="WebDAVContext.RequestResource"/> will be used, if it's available. If null and the request resource is not available, an
-  /// exception will be thrown.
-  /// </param>
-  /// <param name="metadata">The <see cref="EntityMetadata"/> of the resource. If null, the metadata will be retrieved by calling
-  /// <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if it's needed and the request
-  /// resource is available.
-  /// </param>
-  /// <param name="supportsRecursiveLocks">True if the resource supports recursive locks and false if not. Typically, true should be passed
-  /// for collection resources and false for non-collection resources.
-  /// </param>
-  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, string canonicalPath, EntityMetadata metadata,
-                                     bool supportsRecursiveLocks)
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, FileCreator createFile)
   {
-    if(canonicalPath == null && Context.RequestResource == null)
+    ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, createFile);
+  }
+
+  /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, Func<ConditionCode> createFile)
+  {
+    ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, GetFileCreator(createFile));
+  }
+
+  /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name != 'createFile']" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
+                                     EntityMetadata metadata)
+  {
+    ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, canonicalPath, metadata, (FileCreator)null);
+  }
+
+  /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
+                                     EntityMetadata metadata, Func<ConditionCode> createFile)
+  {
+    ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, canonicalPath, metadata, GetFileCreator(createFile));
+  }
+
+  /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/node()" />
+  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
+                                     EntityMetadata metadata, FileCreator createFile)
+  {
+    if(Context.RequestResource == null && createFile == null && !IsRefresh)
     {
-      throw new ArgumentException("A lock path must be provided if there is no request resource.");
+      throw new ArgumentException("A file creation function must be provided if there is no request resource and this isn't a refresh.");
     }
 
     if(Context.LockManager == null) // if there's no lock manager, the resource can't be locked
@@ -155,16 +195,15 @@ public class LockRequest : WebDAVRequest
     }
     else // otherwise, we can try to lock it
     {
-      if(canonicalPath == null) canonicalPath = Context.RequestResource.CanonicalPath;
-      bool recursive = supportsRecursiveLocks && Depth == Depth.SelfAndDescendants;
+      if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
       ConditionCode precondition = CheckPreconditions(metadata, canonicalPath);
       if(precondition != null) // if the preconditions weren't satisfied...
       {
-        // return the precondition status if it's an error or there were no conflicting locks. otherwise, we'll report the conflicts
-        if(precondition.IsError || !ProcessConflictingLocks(canonicalPath, recursive, false)) Status = precondition;
+        Status = precondition;
       }
       else // the preconditions were satisfied...
       {
+        bool recursive = supportsRecursiveLocks && Depth == Depth.SelfAndDescendants;
         uint? requestedTimeout = GetAppropriateTimeout();
         if(IsRefresh) // if the client wants to refresh a lock...
         {
@@ -185,6 +224,24 @@ public class LockRequest : WebDAVRequest
           {
             NewLock = Context.LockManager.AddLock(canonicalPath, LockType, GetLockSelection(recursive), requestedTimeout,
                                                   Context.CurrentUserId, OwnerData, ServerData);
+            if(Context.RequestResource == null) // if the URL was unmapped...
+            {
+              ConditionCode status = DAVUtility.TryExecute(() => // try to create a new file
+              {
+                string newCanonicalPath;
+                ConditionCode s = createFile(out newCanonicalPath); // let the function give us the new canonical URL for the lock manager
+                if(newCanonicalPath != null) canonicalPath = newCanonicalPath;
+                return s;
+              });
+              if(status != null && !status.IsSuccessful) // if that failed...
+              {
+                Context.LockManager.RemoveLock(NewLock); // remove the lock that we added
+                NewLock = null;
+                Status = status; // and return the error
+                return;
+              }
+              Status = ConditionCodes.Created; // if we created a new resource, use 201 Created rather than the default of 200 OK
+            }
           }
           catch(LockConflictException)
           {
@@ -349,6 +406,11 @@ public class LockRequest : WebDAVRequest
     if(FailedResources.Count > 1) Status = ConditionCodes.MultiStatus;
 
     return true;
+  }
+
+  static FileCreator GetFileCreator(Func<ConditionCode> createFile)
+  {
+    return createFile == null ? null : (FileCreator)delegate(out string canonicalPath) { canonicalPath = null; return createFile(); };
   }
 }
 

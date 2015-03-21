@@ -131,6 +131,13 @@
              * caseSensitive      If true, URI path matches (but not hostname matches) will be done case-sensitively. If false, case will
                                   be ignored. The default is false. When serving resources from a case-sensitive system, such as a
                                   case-sensitive file system, this should be set to true.
+             * resetOnError       If true, the service object will be recreated if an internal error occurs. An internal error occurs when
+                                  the service throws an exception that is not related to HTTP, authentication, or the ASP.NET request
+                                  lifecycle (i.e. not HttpException, UnauthorizedAccessException, or ThreadAbortException, or a derived
+                                  class). If false, the service object will not be recreated, and only one service object will be used for
+                                  the lifetime of the web application. The default is true, but you may want to change it to false if the
+                                  service object cannot function when multiple instances of it exist simultaneously, although a better
+                                  solution would be to fix the service so that it does not throw any unexpected exceptions.
              * serveRootOptions   If the service is enabled and this parameter is true, the service will be allowed to serve OPTIONS
                                   requests to the root of the server and to the "*" URL. This option is provided as a workaround for
                                   WebDAV clients that incorrectly submit OPTIONS requests to the root of the server. (Microsoft Office

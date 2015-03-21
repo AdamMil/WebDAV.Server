@@ -24,8 +24,6 @@ using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: add processing examples and documentation
-
 namespace AdamMil.WebDAV.Server
 {
 
@@ -340,7 +338,7 @@ public class PropPatchRequest : WebDAVRequest
       foreach(PropertyRemoval removal in patch.Remove)
       {
         if(removal.Status != null && removal.Status.IsError) continue; // skip removals that failed validation
-        removal.Status = removeProperty == null ? null : removeProperty(removal.Name);
+        removal.Status = removeProperty == null ? null : DAVUtility.TryExecute(removeProperty, removal.Name);
         if(removal.Status == null) // if this is a dead property...
         {
           if(deadPropsToRemove == null) deadPropsToRemove = new List<XmlQualifiedName>();
@@ -357,7 +355,7 @@ public class PropPatchRequest : WebDAVRequest
       foreach(KeyValuePair<XmlQualifiedName, PropertyPatchValue> pair in patch.Set)
       {
         if(pair.Value.Status != null && pair.Value.Status.IsError) continue; // skip changes that failed validation
-        pair.Value.Status = setProperty == null ? null : setProperty(pair.Key, pair.Value);
+        pair.Value.Status = setProperty == null ? null : DAVUtility.TryExecute(setProperty, pair.Key, pair.Value);
         if(pair.Value.Status == null) // if this is a dead property...
         {
           if(deadPropsToSet == null) deadPropsToSet = new List<XmlProperty>();
@@ -395,7 +393,7 @@ public class PropPatchRequest : WebDAVRequest
       foreach(PropertyRemoval removal in patch.Remove)
       {
         ConditionCode status = IsProtected(removal.Name, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
-                                                                              : canRemoveProperty(removal.Name);
+                                                                              : DAVUtility.TryExecute(canRemoveProperty, removal.Name);
         if(status != null)
         {
           if(status.IsError)
@@ -420,7 +418,7 @@ public class PropPatchRequest : WebDAVRequest
         else // otherwise, make sure it's not protected or otherwise forbidden
         {
           status = IsProtected(pair.Key, protectedProperties) ? ConditionCodes.CannotModifyProtectedProperty
-                                                              : canSetProperty(pair.Key, pair.Value);
+                                                              : DAVUtility.TryExecute(canSetProperty, pair.Key, pair.Value);
           if(status == null && Context.PropertyStore == null) status = ConditionCodes.Forbidden; // can't set dead properties with no store
           if(status != null)
           {

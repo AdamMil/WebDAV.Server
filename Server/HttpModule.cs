@@ -278,6 +278,7 @@ public class WebDAVModule : IHttpModule
         if(config.PropertyStore != null && config.PropertyStore.InnerType != null) propertyStore = config.PropertyStore;
 
         serviceCreator   = GetCreationDelegate<IWebDAVService>(config.Type, config.Parameters);
+        ResetOnError     = config.ResetOnError;
         ServeRootOptions = config.ServeRootOptions;
         LockManager      = Construct(lockManager, typeof(DisableLockManager), ID);
         PropertyStore    = Construct(propertyStore, typeof(DisablePropertyStore), ID);
@@ -293,6 +294,7 @@ public class WebDAVModule : IHttpModule
     public string ID { get; private set; }
     public ILockManager LockManager { get; private set; }
     public IPropertyStore PropertyStore { get; private set; }
+    public bool ResetOnError { get; private set; }
     public string RootPath { get; private set; }
     public bool ServeRootOptions { get; private set; }
 
@@ -418,7 +420,7 @@ public class WebDAVModule : IHttpModule
           catch(System.Threading.ThreadAbortException) { throw; } // don't throw away the service due to exceptions from Response.End, etc
           catch // if an non-WebDAV error occurs, prevent the service from being reused for future requests and propagate it to ASP.NET
           {
-            location.ClearSharedService();
+            if(location.ResetOnError) location.ClearSharedService();
             throw;
           }
 

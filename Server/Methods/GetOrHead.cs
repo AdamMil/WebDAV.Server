@@ -21,14 +21,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
 using AdamMil.IO;
 using AdamMil.Utilities;
-
-// TODO: add processing examples and documentation
 
 namespace AdamMil.WebDAV.Server
 {
@@ -263,11 +260,26 @@ public class GetOrHeadRequest : WebDAVRequest
   /// <summary>Represents an item displayed in an index.html-like response (typically used by <see cref="WriteSimpleIndexHtml"/>).</summary>
   public sealed class IndexItem
   {
-    /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given name and path.</summary>
-    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'name' or @name = 'pathSegment']" />
-    public IndexItem(string name, string pathSegment)
+    /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given path segment.</summary>
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment']" />
+    /// <remarks>The name of the item will be initialized by URL-decoding the path segment and removing any trailing slash.</remarks>
+    public IndexItem(string pathSegment) : this(pathSegment, DAVUtility.RemoveTrailingSlash(HttpUtility.UrlDecode(pathSegment))) { }
+
+    /// <summary>Initializes a new <see cref="IndexItem"/> with the given path segment.</summary>
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment' or @name = 'isDirectory']" />
+    /// <remarks>The name of the item will be initialized by URL-decoding the path segment and removing any trailing slash.</remarks>
+    public IndexItem(string pathSegment, bool isDirectory) : this(pathSegment)
     {
-      if(string.IsNullOrEmpty(name) || string.IsNullOrEmpty(pathSegment))
+      IsDirectory = isDirectory;
+    }
+
+    /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given name and path
+    /// segment.
+    /// </summary>
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'name' or @name = 'pathSegment']" />
+    public IndexItem(string pathSegment, string name)
+    {
+      if(string.IsNullOrEmpty(pathSegment) || string.IsNullOrEmpty(name))
       {
         throw new ArgumentException("The name and path must not be empty.");
       }
@@ -277,8 +289,8 @@ public class GetOrHeadRequest : WebDAVRequest
     }
 
     /// <summary>Initializes a new <see cref="IndexItem"/>.</summary>
-    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'name' or @name = 'pathSegment' or @name = 'isDirectory']" />
-    public IndexItem(string name, string pathSegment, bool isDirectory) : this(name, pathSegment)
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param" />
+    public IndexItem(string pathSegment, string name, bool isDirectory) : this(pathSegment, name)
     {
       IsDirectory = isDirectory;
     }
@@ -312,6 +324,32 @@ public class GetOrHeadRequest : WebDAVRequest
     }
   }
   #endregion
+
+  /// <summary>Writes a simple index.html-like response listing the children of an <see cref="IStandardResource{T}"/>.</summary>
+  public void WriteSimpleIndexHtml<T>(IStandardResource<T> requestResource) where T : IStandardResource<T>
+  {
+    if(requestResource == null) throw new ArgumentNullException();
+    IEnumerable<T> children = requestResource.GetChildren(Context);
+    var childCollection = children as ICollection<T>; // get the number of children if we can
+    List<IndexItem> items = childCollection == null ? new List<IndexItem>() : new List<IndexItem>(childCollection.Count);
+    if(children != null)
+    {
+      foreach(IStandardResource<T> child in children)
+      {
+        EntityMetadata metadata = child.GetEntityMetadata(false);
+        IndexItem item = new IndexItem(child.GetMemberName(Context), child.IsCollection);
+        item.LastModificationTime = metadata.LastModifiedTime;
+        if(metadata.Length.HasValue) item.Size = metadata.Length.Value;
+        if(!item.IsDirectory)
+        {
+          string extension = Path.GetExtension(item.Name);
+          if(!string.IsNullOrEmpty(extension)) item.Type = extension.Substring(1); // use the extension w/o a leading period as file type
+        }
+        items.Add(item);
+      }
+    }
+    WriteSimpleIndexHtml(items);
+  }
 
   /// <summary>Writes a simple index.html-like response based on a set of items assumed to be children of a collection at request URL.</summary>
   /// <param name="children">An array of items to display in the index.</param>
@@ -418,6 +456,20 @@ public class GetOrHeadRequest : WebDAVRequest
     WriteStandardResponse(new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString())), "text/html");
   }
 
+  /// <summary>Processes a standard <c>GET</c> or <c>HEAD</c> request for an <see cref="IStandardResource{T}"/>. The resource's data stream
+  /// from <see cref="IStandardResource{T}.OpenStream"/> will be sent to the client if it's not null. Otherwise, if the resource is a
+  /// directory, an HTML index page will be sent. Otherwise, an empty body will be sent.
+  /// </summary>
+  public void WriteStandardResponse<T>(IStandardResource<T> requestResource) where T : IStandardResource<T>
+  {
+    if(requestResource == null) throw new ArgumentNullException();
+    using(Stream stream = requestResource.OpenStream(Context)) // directories can theoretically have data streams...
+    {
+      if(stream == null && requestResource.IsCollection) WriteSimpleIndexHtml(requestResource); // but if they don't, write an index
+      else WriteStandardResponse(stream ?? new MemoryStream()); // otherwise, write the stream (or an empty stream if none)
+    }
+  }
+
   /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[@name != 'mediaType' and @name != 'metadata']" />
   /// <remarks>This method is intended to be used with dynamically generated output. The
   /// <see cref="WriteStandardResponse(Stream,EntityMetadata)"/> override is preferred if you have metadata about the entity body.
@@ -458,7 +510,7 @@ public class GetOrHeadRequest : WebDAVRequest
     }
     else
     {
-      // if no entity tag was provided and the stream is seekable, compute the entity tag using the default method
+      // if no entity tag was provided and the stream is seekable, compute the entity tag
       if(metadata.EntityTag == null)
       {
         if(!string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.ETag])) // if an entity tag was set in the headers...
@@ -486,6 +538,7 @@ public class GetOrHeadRequest : WebDAVRequest
       }
       else
       {
+        // set the ETag and Last-Modified headers if they weren't already set
         if(metadata.EntityTag != null && string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.ETag]))
         {
           Context.Response.Headers[DAVHeaders.ETag] = metadata.EntityTag.ToHeaderString();
@@ -495,7 +548,7 @@ public class GetOrHeadRequest : WebDAVRequest
           DateTime lastModifiedTime = DAVUtility.GetHttpDate(metadata.LastModifiedTime.Value);
           if(string.IsNullOrEmpty(Context.Response.Headers[DAVHeaders.LastModified]))
           {
-            Context.Response.Headers[DAVHeaders.LastModified] = lastModifiedTime.ToString("R", CultureInfo.InvariantCulture);
+            Context.Response.Headers[DAVHeaders.LastModified] = DAVUtility.GetHttpDateHeader(lastModifiedTime);
           }
         }
 

@@ -49,10 +49,9 @@ namespace AdamMil.WebDAV.Server.Tests
       TestPut("small.txt", new string[] { DAVHeaders.IfMatch, DAVUtility.ComputeEntityTag(new MemoryStream(goodbye)).ToHeaderString() }, hello, 204, hello);
 
       // test error cases.
-      // PUT to a directory should fail
-      TestRequest("PUT", "dir/", null, new byte[0], 405, null);
-      // PUT to a nonexistent directory must fail
-      TestRequest("PUT", "dir/sub/file", null, new byte[0], 409, null);
+      TestRequest("PUT", "dir/", null, new byte[0], 405, null); // PUT to a directory should fail
+      TestRequest("PUT", "dir/sub/file", null, new byte[0], 409, null); // PUT to a nonexistent directory must fail
+      TestRequest("PUT", "small.txt/file", null, new byte[0], 403, null); // PUT under a file is not allowed
     }
 
     [Test]

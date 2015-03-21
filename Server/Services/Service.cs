@@ -36,7 +36,8 @@ public interface IWebDAVService
   bool CanDeleteLock(WebDAVContext context, ActiveLock lockObject);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CopyResource/node()" />
-  ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, CopyOrMoveRequest.ISourceResource sourceResource);
+  ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
+    where T : IStandardResource<T>;
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CreateAndLock/node()" />
   void CreateAndLock(LockRequest request);
@@ -122,8 +123,8 @@ public abstract class WebDAVService : IWebDAVService
   /// <remarks>The default implementation responds with 502 Bad Gateway, indicating that the service is not allowed to be the target of a
   /// <c>COPY</c> or <c>MOVE</c> request.
   /// </remarks>
-  public virtual ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath,
-                                            CopyOrMoveRequest.ISourceResource sourceResource)
+  public virtual ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
+    where T : IStandardResource<T>
   {
     return ConditionCodes.BadGateway;
   }
@@ -251,7 +252,8 @@ public abstract class WebDAVService : IWebDAVService
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/Options/node()" />
-  public abstract void Options(OptionsRequest request);
+  /// <remarks>The default implementation uses the defaults, which are suitable for a read-only service that does not support locking.</remarks>
+  public virtual void Options(OptionsRequest request) { }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/Post/node()" />
   /// <remarks>The default implementation responds with 404 Not Found.</remarks>
