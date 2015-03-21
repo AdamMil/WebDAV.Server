@@ -81,26 +81,6 @@ public class ResourceType : IElementValue
 }
 #endregion
 
-#region PropFindFlags
-/// <summary>Specifies flags that influence how a <see cref="PropFindRequest"/> should be processed.</summary>
-[Flags]
-public enum PropFindFlags
-{
-  /// <summary>The values of the properties listed in <see cref="PropFindRequest.Properties"/> should be returned.</summary>
-  None=0,
-  /// <summary>If used in conjunction with <see cref="NamesOnly"/>, all property names should be returned. Otherwise, the values of the
-  /// the properties listed in <see cref="PropFindRequest.Properties"/> should be returned, along with all dead properties, plus all live
-  /// properties that are not too expensive to compute or transmit.
-  /// </summary>
-  IncludeAll=1,
-  /// <summary>Indicates that only the names of properties (and their data types, if known) are to be returned. In particular, property
-  /// values must not be returned. If this flag is set, <see cref="PropFindRequest.Properties"/> is guaranteed to be empty.
-  /// </summary>
-  NamesOnly=2
-}
-#endregion
-
-// TODO: add processing examples and documentation
 #region PropFindRequest
 /// <summary>Represents a <c>PROPFIND</c> request.</summary>
 /// <remarks>The <c>PROPFIND</c> request is described in section 9.1 of RFC 4918.</remarks>
@@ -123,8 +103,16 @@ public class PropFindRequest : WebDAVRequest
   }
   #endregion
 
-  /// <summary>Gets the <see cref="PropFindFlags"/> that influence how the request should be processed.</summary>
-  public PropFindFlags Flags { get; private set; }
+  /// <summary>Gets whether "all" properties should be included. When <see cref="NamesOnly"/> is true, all available property names should
+  /// be returned (but their values needn't be computed). Otherwise, the values of the the properties listed in <see cref="Properties"/>
+  /// should be returned, along with all dead properties, plus all live properties that are not too expensive to compute or transmit.
+  /// </summary>
+  public bool IncludeAll { get; private set; }
+
+  /// <summary>Gets whether only the names of properties (and their data types, if known) should be returned. In particular, property
+  /// values must not be returned. If this property is true, <see cref="Properties"/> is guaranteed to be empty.
+  /// </summary>
+  public bool NamesOnly { get; private set; }
 
   /// <summary>Gets a collection containing the names of properties specifically requested by the client.</summary>
   public PropertyNameSet Properties { get; private set; }
@@ -134,85 +122,110 @@ public class PropFindRequest : WebDAVRequest
   /// </summary>
   public PropFindResourceCollection Resources { get; private set; }
 
+  /// <summary>Determines whether a property must be excluded from the results.</summary>
+  /// <remarks>It is usually not necessary to call this method, since if
+  /// <see cref="o:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest"/> is used, then properties will not be included unless
+  /// they are supposed to be. This method is intended for use with properties that are by default included in the results but are
+  /// nonetheless expensive to compute, so that a resource may avoid including the property value when it's not going to be sent to the
+  /// client.
+  /// </remarks>
+  public bool MustExcludeProperty(XmlQualifiedName propertyName)
+  {
+    return !IncludeAll && !Properties.Contains(propertyName);
+  }
+
+  /// <summary>Determines whether a property value must be excluded from the results.</summary>
+  /// <remarks>It is usually not necessary to call this method, since if
+  /// <see cref="o:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest"/> is used, then properties and property values will not
+  /// be included unless they are supposed to be. This method is intended for use with properties that are by default included in the
+  /// results but are nonetheless expensive to compute, so that a resource may avoid computing the property value when it's not going to
+  /// be sent to the client.
+  /// </remarks>
+  public bool MustExcludePropertyValue(XmlQualifiedName propertyName)
+  {
+    return NamesOnly || MustExcludeProperty(propertyName);
+  }
+
+  /// <summary>Determines whether a property must be included in the results if it exists. This does not necessarily mean that the value
+  /// of the property must be included. If <see cref="NamesOnly"/> is true, the value does not need to be computed and may be null.
+  /// </summary>
+  /// <remarks>This method is intended for use with properties that are by default excluded from the results because they are expensive to
+  /// compute.
+  /// </remarks>
+  public bool MustIncludeProperty(XmlQualifiedName propertyName)
+  {
+    return (IncludeAll & NamesOnly) || Properties.Contains(propertyName);
+  }
+
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
   /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive
   /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
-  /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null). Dead properties should not be added unless you need to override properties from the configured
-  /// <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates
-  /// that will provide the values when executed. This allows you to add delegates that compute expensive properties only when needed.
+  /// <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored and can be null). Dead properties should
+  /// not be added unless you need to override properties from the configured <see cref="IPropertyStore"/>. In addition to property values,
+  /// the dictionary can also contain <c>Func&lt;object&gt;</c> delegates that will provide the values when executed. This allows you to
+  /// add delegates that compute expensive properties only when needed.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
     if(properties == null) throw new ArgumentNullException();
+    if(Context.RequestResource == null) throw new ArgumentException("The request resource is null.");
     ConditionCode precondition = CheckPreconditions(null);
     if(precondition != null) Status = precondition;
-    else AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetObjectValue);
+    else AddResource(Context.RequestPath, Context.RequestResource.CanonicalPath, properties, SetObjectValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequest/node()" />
   /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive to
   /// compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
-  /// <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case, the property values are ignored and can
-  /// be null). Dead properties should not be added unless you need to override properties from the configured
-  /// <see cref="IPropertyStore"/>.
+  /// <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored and can be null). Dead properties should
+  /// not be added unless you need to override properties from the configured <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, PropFindValue> properties)
   {
     if(properties == null) throw new ArgumentNullException();
+    if(Context.RequestResource == null) throw new ArgumentException("The request resource is null.");
     ConditionCode precondition = CheckPreconditions(null);
     if(precondition != null) Status = precondition;
-    else AddResource(Context.RequestPath, Context.CanonicalPathIfKnown, properties, SetPropFindValue);
+    else AddResource(Context.RequestPath, Context.RequestResource.CanonicalPath, properties, SetPropFindValue);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
+  /// <remarks>This method will use <see cref="IStandardResource{T}.GetLiveProperties"/> to obtain the properties for a resource. This is
+  /// suitable if it returns all available properties, but if it omits expensive properties then you must use an override that takes a
+  /// <c>getProperties</c> parameter that includes the normally-omitted properties if explicitly requested by the user.
+  /// </remarks>
+  public void ProcessStandardRequest<T>(T rootResource) where T : IStandardResource<T>
+  {
+    ProcessStandardRequest(rootResource, resource => resource.GetLiveProperties(Context));
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
   /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
   /// properties. Live properties that are expensive to compute or transmit only need to be returned if they are referenced by the
-  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
-  /// the property values are ignored and can be null). Dead properties should not be returned unless you need to override properties from
-  /// the configured <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain
-  /// <c>Func&lt;object&gt;</c> delegates that will provide the values when executed. This allows you to add delegates that compute
-  /// expensive properties only when needed.
+  /// <see cref="Properties"/> collection or if <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored
+  /// and can be null). Dead properties should not be returned unless you need to override properties from the configured
+  /// <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates
+  /// that will provide the values when executed. This allows you to add delegates that compute expensive properties only when needed.
   /// </param>
-  public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
-                                        Func<T, string, IDictionary<XmlQualifiedName, object>> getProperties,
-                                        Func<T, string, IEnumerable<T>> getChildren)
+  public void ProcessStandardRequest<T>(T rootResource, Func<T, IDictionary<XmlQualifiedName, object>> getProperties)
+    where T : IStandardResource<T>
   {
-    if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ConditionCode precondition = CheckPreconditions(null);
-    if(precondition != null)
-    {
-      Status = precondition;
-    }
-    else
-    {
-      ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
-                             SetObjectValue, 0);
-    }
+    ProcessStandardRequest(rootResource, getProperties, SetObjectValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
   /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
   /// properties. Live Properties that are expensive to compute or transmit only need to be returned if they are referenced by the
-  /// <see cref="Properties"/> collection or if <see cref="Flags"/> contains <see cref="PropFindFlags.NamesOnly"/> (but in the latter case,
-  /// the property values are ignored and can be null). Dead properties should not be added unless you need to override properties from the
-  /// configured <see cref="IPropertyStore"/>.
+  /// <see cref="Properties"/> collection or if <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored
+  /// and can be null). Dead properties should not be added unless you need to override properties from the configured
+  /// <see cref="IPropertyStore"/>. In addition to property values, the <see cref="PropFindValue.Value"/>s can be <c>Func&lt;object&gt;</c>
+  /// delegates that will provide the values when executed. This allows you to add delegates that compute expensive properties only when
+  /// needed.
   /// </param>
-  public void ProcessStandardRequest<T>(T rootValue, Func<T, string> getMemberName,
-                                        Func<T, string, IDictionary<XmlQualifiedName, PropFindValue>> getProperties,
-                                        Func<T, string, IEnumerable<T>> getChildren)
+  public void ProcessStandardRequest<T>(T rootResource, Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties)
+    where T : IStandardResource<T>
   {
-    if(getMemberName == null || getProperties == null) throw new ArgumentNullException();
-    ConditionCode precondition = CheckPreconditions(null);
-    if(precondition != null)
-    {
-      Status = precondition;
-    }
-    else
-    {
-      ProcessStandardRequest(rootValue, Context.RequestPath, Context.CanonicalPathIfKnown, getMemberName, getProperties, getChildren,
-                             SetPropFindValue, 0);
-    }
+    ProcessStandardRequest(rootResource, getProperties, SetPropFindValue);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -226,7 +239,7 @@ public class PropFindRequest : WebDAVRequest
     XmlDocument xml = Context.LoadRequestXml();
     if(xml == null) // if the body was empty...
     {
-      Flags = PropFindFlags.IncludeAll; // default to an allprops match (as required by RFC 4918 section 9.1)
+      IncludeAll = true; // default to an allprops match (as required by RFC 4918 section 9.1)
     }
     else // the client included a body, which should be a DAV::propfind element
     {
@@ -235,16 +248,12 @@ public class PropFindRequest : WebDAVRequest
       bool allProp = false, include = false, prop = false, propName = false;
       foreach(XmlElement child in xml.DocumentElement.EnumerateChildElements()) // examine the children of the root
       {
-        // the DAV::allprop and DAV::propname elements are simple flags
+        // the DAV::allprop and DAV::propname elements are simple flags (true if they exist, false if they don't)
         if(!child.SetFlagOnce(DAVNames.allprop, ref allProp) && !child.SetFlagOnce(DAVNames.propname, ref propName))
         {
           // the DAV::prop and DAV::include elements both contain lists of property names
           if(child.SetFlagOnce(DAVNames.prop, ref prop) || child.SetFlagOnce(DAVNames.include, ref include))
           {
-            if(!allProp && child.HasName(DAVNames.include)) // include should come after allprop
-            {
-              throw Exceptions.BadRequest("The include element must follow the allprop element.");
-            }
             // for each child in the list, add it to the list of requested properties
             foreach(XmlQualifiedName qname in child.EnumerateChildElements().Select(XmlNodeExtensions.GetQualifiedName)) Properties.Add(qname);
           }
@@ -254,10 +263,11 @@ public class PropFindRequest : WebDAVRequest
       // make sure there was exactly one query type specified, and disallow requests for no properties
       if(!(allProp | prop | propName)) throw Exceptions.BadRequest("The type of query was not specified.");
       if((allProp ? 1 : 0) + (prop ? 1 : 0) + (propName ? 1 : 0) > 1) throw Exceptions.BadRequest("Multiple query types were specified.");
+      if(include && !allProp) throw Exceptions.BadRequest("The include element must be used with the allprop element.");
 
       // use the elements we saw to set Flags
-      if(allProp) Flags |= PropFindFlags.IncludeAll;
-      else if(propName) Flags |= PropFindFlags.NamesOnly | PropFindFlags.IncludeAll; // NamesOnly implies that we want all names
+      IncludeAll = allProp | propName; // propName implies that we want /all/ names, so set IncludeAll when propName is true
+      NamesOnly  = propName;
     }
   }
 
@@ -399,9 +409,9 @@ public class PropFindRequest : WebDAVRequest
                       Action<PropFindResource,XmlQualifiedName,V> setValue)
   {
     PropFindResource resource = new PropFindResource(requestPath);
-    if((Flags & PropFindFlags.NamesOnly) != 0) // if the client requested all property names...
+    if(NamesOnly) // if the client requested all property names...
     {
-      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(canonicalPath).Keys);
+      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(canonicalPath).Keys); // dead property names
       resource.SetNames(properties.Keys);
     }
     else // otherwise, the client wants property values
@@ -431,7 +441,7 @@ public class PropFindRequest : WebDAVRequest
         }
       }
 
-      if((Flags & PropFindFlags.IncludeAll) != 0) // if the client requested all other properties too...
+      if(IncludeAll) // if the client requested all other properties too...
       {
         foreach(KeyValuePair<XmlQualifiedName, V> pair in properties) // first add service properties
         {
@@ -451,28 +461,34 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
-  void ProcessStandardRequest<T,V>(T resource, string requestPath, string canonicalPath, Func<T, string> getMemberName,
-                                   Func<T, string, IDictionary<XmlQualifiedName, V>> getProperties,
-                                   Func<T, string, IEnumerable<T>> getChildren,
-                                   Action<PropFindResource,XmlQualifiedName,V> setValue, int depth)
+  void ProcessStandardRequest<T,V>(T rootResource, Func<T, IDictionary<XmlQualifiedName, V>> getProperties,
+                                   Action<PropFindResource, XmlQualifiedName, V> setValue) where T : IStandardResource<T>
+  {
+    if(getProperties == null) throw new ArgumentNullException();
+    ConditionCode precondition = CheckPreconditions(null);
+    if(precondition != null) Status = precondition;
+    else ProcessStandardRequest(rootResource, Context.RequestPath, getProperties, setValue, true);
+  }
+  
+  /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
+  void ProcessStandardRequest<T,V>(T resource, string requestPath, Func<T, IDictionary<XmlQualifiedName, V>> getProperties,
+                                   Action<PropFindResource,XmlQualifiedName,V> setValue, bool isRoot) where T : IStandardResource<T>
   {
     // add the given resource, validating the return values from the delegates first
-    IDictionary<XmlQualifiedName,V> properties = getProperties(resource, canonicalPath);
+    if(resource == null) throw new ArgumentNullException();
+    IDictionary<XmlQualifiedName,V> properties = getProperties(resource);
     if(properties == null) throw new ArgumentException("The properties dictionary for " + requestPath + " was null.");
-    AddResource(requestPath, canonicalPath, properties, setValue);
+    AddResource(requestPath, resource.CanonicalPath, properties, setValue);
 
-    if(getChildren != null && (depth == 0 ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants)) // if we should recurse...
+    if(isRoot ? Depth != Depth.Self : Depth == Depth.SelfAndDescendants) // if we should recurse...
     {
-      IEnumerable<T> children = getChildren(resource, canonicalPath);
+      IEnumerable<T> children = resource.GetChildren(Context);
       if(children != null)
       {
-        requestPath   = DAVUtility.WithTrailingSlash(requestPath);
-        canonicalPath = DAVUtility.WithTrailingSlash(canonicalPath);
+        requestPath = DAVUtility.WithTrailingSlash(requestPath);
         foreach(T child in children)
         {
-          string name = getMemberName(child);
-          ProcessStandardRequest(child, requestPath + name, canonicalPath + name,
-                                 getMemberName, getProperties, getChildren, setValue, depth+1);
+          ProcessStandardRequest(child, requestPath + child.GetMemberName(Context), getProperties, setValue, false);
         }
       }
     }
@@ -673,7 +689,7 @@ public sealed class PropFindResource
   }
 
   /// <summary>Adds the property name to the resource without a type or value. This method is generally used when servicing a request where
-  /// <see cref="PropFindRequest.Flags"/> contains <see cref="PropFindFlags.NamesOnly"/>.
+  /// <see cref="PropFindRequest.NamesOnly"/> is true.
   /// </summary>
   public void SetName(XmlQualifiedName property)
   {
@@ -682,8 +698,7 @@ public sealed class PropFindResource
   }
 
   /// <summary>Adds the property name to the resource without a value, but indicating that the property is of the given data type. This
-  /// method is generally used when servicing a request where <see cref="PropFindRequest.Flags"/> contains
-  /// <see cref="PropFindFlags.NamesOnly"/>.
+  /// method is generally used when servicing a request where <see cref="PropFindRequest.NamesOnly"/> is true.
   /// </summary>
   public void SetName(XmlQualifiedName property, XmlQualifiedName type)
   {
@@ -692,7 +707,7 @@ public sealed class PropFindResource
   }
 
   /// <summary>Calls <see cref="SetName(XmlQualifiedName)"/> on each name in a set. This method is generally used when servicing a request
-  /// where <see cref="PropFindRequest.Flags"/> contains <see cref="PropFindFlags.NamesOnly"/>.
+  /// where <see cref="PropFindRequest.NamesOnly"/> is true.
   /// </summary>
   public void SetNames(IEnumerable<XmlQualifiedName> propertyNames)
   {

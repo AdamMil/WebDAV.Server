@@ -42,6 +42,7 @@ namespace AdamMil.WebDAV.Server.Tests
       TestSimpleGet("small.txt", smallFile, false);
       TestSimpleGet("dir/", dirListing, true);
       TestSimpleGet("dir/large.tfb", largeFile, false);
+      TestRequest("GET", "unknown/", 404); // can't get a file using a trailing slash
     }
 
     [Test]
@@ -299,7 +300,7 @@ namespace AdamMil.WebDAV.Server.Tests
 
     static string GetContentType(string requestPath)
     {
-      if(requestPath.EndsWith("/")) return "text/html";
+      if(requestPath.EndsWith('/')) return "text/html";
       switch(Path.GetExtension(requestPath).Trim('.'))
       {
         case "pdf": return "application/pdf";

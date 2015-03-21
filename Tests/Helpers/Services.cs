@@ -29,7 +29,7 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
   #region TestMemoryService
   public sealed class TestMemoryService : WebDAVService
   {
-    public override ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, CopyOrMoveRequest.ISourceResource sourceResource)
+    public override ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
     {
       Resource resource = (Resource)ResolveResource(request.Context, destinationPath);
       if(resource != null && !request.Overwrite) return ConditionCodes.PreconditionFailed;
@@ -60,7 +60,7 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
     }
 
     #region Resource
-    sealed class Resource : WebDAVResource, CopyOrMoveRequest.ISourceResource<Resource>
+    sealed class Resource : WebDAVResource, IStandardResource<Resource>
     {
       public Resource(string path, params Resource[] children)
       {
@@ -95,20 +95,13 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
 
       public override void GetOrHead(GetOrHeadRequest request)
       {
- 	      if(children == null)
-        {
-          request.WriteStandardResponse(GetStream());
-        }
-        else
-        {
-          request.WriteSimpleIndexHtml(children.Select(
-            c => new GetOrHeadRequest.IndexItem(c.memberName, c.memberName, c.children != null)));
-        }
+        if(children == null) request.WriteStandardResponse(GetStream());
+        else request.WriteSimpleIndexHtml(children.Select(c => new GetOrHeadRequest.IndexItem(c.memberName, c.children != null)));
       }
 
       public override void PropFind(PropFindRequest request)
       {
-        request.ProcessStandardRequest(this, r => r.memberName, (r,path) => r.GetLiveProperties(), (r,path) => r.children);
+        request.ProcessStandardRequest(this);
       }
 
       internal void SetBody(Stream stream)
@@ -141,32 +134,27 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
       byte[] body;
 
       #region ISourceResource Members
-      bool CopyOrMoveRequest.ISourceResource.IsCollection
+      bool IStandardResource<Resource>.IsCollection
       {
         get { return children != null; }
       }
 
-      EntityMetadata CopyOrMoveRequest.ISourceResource.Metadata
-      {
-        get { return GetEntityMetadata(false); }
-      }
-
-      IEnumerable<Resource> CopyOrMoveRequest.ISourceResource<Resource>.GetChildren()
+      IEnumerable<Resource> IStandardResource<Resource>.GetChildren(WebDAVContext context)
       {
         return children;
       }
 
-      IDictionary<XmlQualifiedName, object> CopyOrMoveRequest.ISourceResource.GetLiveProperties(WebDAVContext context)
+      IDictionary<XmlQualifiedName, object> IStandardResource<Resource>.GetLiveProperties(WebDAVContext context)
       {
         return GetLiveProperties();
       }
 
-      string CopyOrMoveRequest.ISourceResource.GetMemberName(WebDAVContext context)
+      string IStandardResource<Resource>.GetMemberName(WebDAVContext context)
       {
         return memberName;
       }
 
-      Stream CopyOrMoveRequest.ISourceResource.OpenStream(WebDAVContext context)
+      Stream IStandardResource<Resource>.OpenStream(WebDAVContext context)
       {
         return GetStream();
       }

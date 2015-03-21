@@ -21,8 +21,6 @@ using System;
 using System.Net;
 using AdamMil.Utilities;
 
-// TODO: add processing examples and documentation
-
 namespace AdamMil.WebDAV.Server
 {
 
@@ -54,7 +52,7 @@ public class UnlockRequest : SimpleRequest
   public string LockToken { get; private set; }
 
   /// <summary>Processes a standard <c>UNLOCK</c> request.</summary>
-  /// <remarks>This method will attempt to unlock the resource named by <see cref="WebDAVContext.CanonicalPathIfKnown"/>.</remarks>
+  /// <remarks>This method will attempt to unlock the request resource.</remarks>
   public void ProcessStandardRequest()
   {
     ProcessStandardRequest(null);
@@ -62,12 +60,13 @@ public class UnlockRequest : SimpleRequest
 
   /// <summary>Processes a standard <c>UNLOCK</c> request.</summary>
   /// <remarks>This method will attempt to unlock the resource named by <paramref name="canonicalPath"/>, or
-  /// <see cref="WebDAVContext.CanonicalPathIfKnown"/> if that is null. This override may be useful for services that have non-canonical
+  /// <see cref="WebDAVContext.GetCanonicalPath"/> if that is null. This override may be useful for services that have non-canonical
   /// URIs and also may allow resources to be deleted outside of WebDAV. In that case, passing the canonical URL of the nonexistent
   /// resource will allow dangling locks to be removed.
   /// </remarks>
   public void ProcessStandardRequest(string canonicalPath)
   {
+    if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
     ConditionCode precondition = CheckPreconditions(null, canonicalPath);
     if(precondition != null && precondition.IsError)
     {
@@ -80,7 +79,7 @@ public class UnlockRequest : SimpleRequest
       return;
     }
 
-    ActiveLock lockObject = Context.LockManager.GetLock(LockToken, canonicalPath ?? Context.CanonicalPathIfKnown);
+    ActiveLock lockObject = Context.LockManager.GetLock(LockToken, canonicalPath);
     if(lockObject == null)
     {
       Status = ConditionCodes.LockTokenMatchesRequestUri409;

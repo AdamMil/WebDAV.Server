@@ -25,6 +25,82 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     </Equals>
   </ConditionCode>
 
+  <CopyOrMoveRequest>
+    <ProcessStandardRequest>
+      <summary>
+        Implements standard processing for a <c>COPY</c> or <c>MOVE</c> request.
+      </summary>
+      <typeparam name="T">
+        The type of object used internally by the caller to represent its resources. This type parameter is provided for
+        the convenience of the caller, to avoid needing to cast back to the internal type in callback methods that accept resources.
+      </typeparam>
+      <param name="requestResource">
+        The object representing the <see cref="WebDAVContext.RequestResource"/>, which is to be copied or
+        moved.
+      </param>
+      <param name="deleteSource">
+        A function that accepts a source resource (of type <typeparamref name="T"/>) and deletes it if the user has access to do so. This
+        parameter is only used for <c>MOVE</c> operations, and may be null for <c>COPY</c> operations. The deletion must fail with
+        <see cref="ConditionCodes.Forbidden"/> if the user does not have permission to delete the given resource. The result of the
+        operation should be returned as a <see cref="ConditionCode"/> as described by RFC 4918 section 9.9. This function is called only if
+        the resource was successfully copied, to delete the source resource and complete the move. The function does not need to delete
+        the dead properties or locks of the source resource, as that will be done automatically if the function returns a successful status
+        code (or null, which is assumed to be success). If you call an override that accepts a <c>createDest</c> parameter and the
+        <c>createDest</c> function is clever enough to do an actual move of the source resource rather than creating a copy, then it is
+        acceptable for this method to be a no-op (simply returning a success code).
+      </param>
+      <param name="createDest">
+        A function that has the same signature as <see cref="IWebDAVService.CopyResource"/> except that the path
+        will be an absolute URL if the <see cref="DestinationInfo.Service"/> was not known, and the resource will be of type
+        <typeparamref name="T"/> rather than the generic type <see cref="IStandardResource{T}"/>. The function must perform a copy or move of
+        the source resource to the destination path if the user has access to write to the destination, and return a
+        <see cref="ConditionCode"/> as described by sections 9.8 and 9.9 of RFC 4918.
+        <para>
+          When servicing a <c>COPY</c> request, the function must attempt to create a copy of the source resource. When servicing a
+          <c>MOVE</c> request, the function may create a copy (after which <paramref name="deleteSource"/> is responsible for deleting the
+          source) or may directly move the source to the destination (in which case <paramref name="deleteSource"/> should be a no-op).
+          Dead properties must be copied or moved as well, along with selected live properties. (See <see cref="IWebDAVService.CopyResource"/>
+          for additional details. Locks are not transferred.) Normally these copies and moves are done non-recursively, relying on this method
+          to use <see cref="IStandardResource{T}.GetChildren"/> to recursively copy or move the descendants. (A non-recursive "move"
+          can be usually done by creating the destination object with the same attributes that it would have if it was moved, such as the same
+          creation date, but without any children.) However, as an optimization you may copy or move items recursively when <see cref="Depth"/>
+          is <see cref="Depth.SelfAndDescendants"/>. In that case, <paramref name="getChildren"/> must not return any children, or else this
+          method will attempt to recursively invoke <paramref name="createDest"/> on them even though they have already been copied or moved by
+          the parent. Also, if you do a recursive copy or move, then the copy or move should succeed or fail as a unit. If the copy or move can
+          partially fail, then you should do it non-recursively and allow this method to handle the recursion, so that it can report errors
+          accurately. If you move items rather than copying them, then <paramref name="deleteSource"/> must be able to handle that, i.e. it
+          must not throw an exception or delete the newly moved resource.
+        </para>
+        <para>
+          If this parameter is null, the <see cref="IWebDAVService.CopyResource"/> method of <see cref="DestinationInfo.Service"/> will be
+          used. (If both <paramref name="createDest"/> and <see cref="DestinationInfo.Service"/> are null, an exception will be thrown.)
+          See <see cref="IWebDAVService.CopyResource"/> for additional details about how the parameters should be interpreted and how the
+          copy should be performed.
+        </para>
+      </param>
+      <param name="getChildren">
+        A function that accepts a source resource (of type <typeparamref name="T"/>) and returns the children of
+        the resource if it's a collection, or null if the resource has no children. If the function is null,
+        <see cref="IStandardResource{T}.GetChildren"/> will be used.
+      </param>
+      <remarks>
+        <note type="caution">
+          This method rejects attempts to copy or move the source resource to a descendant or ancestor of the
+          source resource if the attempt can be detected simply be examining the paths involved. However, this is not sufficient to detect all
+          such requests. It is possible that even if the destination refers to a different location than the source in URL space, it can refer
+          to overlapping locations in the underlying data store. For example, two WebDAV services at /root and /users could point to
+          overlapping parts of the same filesystem (e.g. C:\ and C:\Users). Another possibility is that the request
+          <see cref="WebDAVContext.Service"/> and destination <see cref="DestinationInfo.Service"/> happen to be different due to a rare
+          combination of an unusual <c>Destination</c> header and an error and race condition with another thread. (See
+          <see cref="DestinationInfo.Service"/> for details.) The <see cref="IWebDAVResource"/> that processes this request is responsible for
+          making sure that it either disallows copies/moves from the request resource to a descendant of the request resource (such as copying
+          or moving C:\Foo to C:\Foo\Bar\Baz), or that it can handle such operations correctly. (Copies to a descendant or ancestor and moves
+          to an ancestor are possible, but care must be taken to avoid data loss or infinite recursion; moves to a descendant are impossible
+          and must be rejected, because they would result in an inconsistent URL namespace.)
+        </note>
+      </remarks>
+    </ProcessStandardRequest>
+  </CopyOrMoveRequest>
   <IAuthorizationFilter>
     <CanDeleteLock>
       <include file="documentation.xml" path="/DAV/IWebDAVService/CanDeleteLock/node()" />
@@ -386,14 +462,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         </para>
       </param>
       <param name="destinationPath">
-        The relative path at which the new resource should be created. The path is not necessarily canonical, and may have a trailing slash
-        (if <paramref name="sourceResource"/> is a collection) which should be ignored. For instance, if the source collection has a name
-        of "a" and this method is called with a destination path <c>/dest/b/</c>. This means that a new collection should be created at
-        <c>/dest/b/</c>, not <c>/dest/b/a/</c>.
+        The relative path at which the new resource should be created. For instance, if the source collection has a name of "a" and this
+        method is called with a destination path <c>/dest/b/</c>. This means that a new collection should be created at <c>/dest/b/</c>,
+        not <c>/dest/b/a/</c>. The path will be minimally escaped but not necessarily canonical and, for collection resources, may or may
+        not have a trailing slash.
       </param>
       <param name="sourceResource">
-        An <see cref="CopyOrMoveRequest.ISourceResource"/> object that gives information about the source resource that is being copied or
-        moved.
+        An <see cref="IStandardResource{T}"/> object that gives information about the source resource that is being copied or moved.
       </param>
       <returns>
         Returns a status code in line with the processing requirements of the <c>COPY</c> and <c>MOVE</c> requests (and <c>DELETE</c> if
@@ -619,6 +694,30 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     </OnLockUpdated>
   </LockManager>
 
+  <LockRequest>
+    <ProcessStandardRequest>
+      <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
+      <param name="canonicalPath">
+        The canonical, relative path of the resource to lock. If null, the path to the <see cref="WebDAVContext.RequestResource"/> will
+        be used, if it's available. If null and the request resource is not available, an exception will be thrown.
+      </param>
+      <param name="metadata">
+        The <see cref="EntityMetadata"/> of the resource. If null, the metadata will be retrieved by calling
+        <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if it's needed and the request
+        resource is available.
+      </param>
+      <param name="supportsRecursiveLocks">
+        True if the resource supports recursive locks and false if not. Typically, this should be true for collection resources and false
+        for non-collection resources.
+      </param>
+      <param name="createFile">
+        A function that should create a new file at the <see cref="WebDAVContext.RequestPath"/> and return a <see cref="ConditionCode"/>
+        indicating whether the attempt succeeded or failed, or null for the standard success code. This function is called if
+        <see cref="WebDAVContext.RequestResource"/> is null and the client wants to create a new lock.
+      </param>
+    </ProcessStandardRequest>
+  </LockRequest>
+  
   <PutRequest>
     <ProcessStandardRequest>
       <summary>Performs standard processing of a <c>PUT</c> request.</summary>
@@ -636,8 +735,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         <c>If-Unmodified-Since</c> headers), which are particularly important for <c>PUT</c> requests, cannot be processed correctly.
       </param>
       <param name="canonicalPath">
-        The canonical path to the resource to create or overwrite. If null, <see cref="WebDAVContext.CanonicalPathIfKnown"/> will be used.
+        The canonical path to the resource to create or overwrite. If null, <see cref="WebDAVContext.GetCanonicalPath"/> will be used.
       </param>
+      <returns>
+        This method returns the new length of the entity body. However, the length is only valid if the request
+        <see cref="WebDAVRequest.Status"/> indicates success (i.e. is null or <see cref="ConditionCode.IsSuccessful"/>), and should not be
+        used otherwise.
+      </returns>
       <remarks>
         This method implements the standard <c>PUT</c> method, which replaces the entity body entirely. If <paramref name="entityBody"/> is
         seekable, the method also supports a partial <c>PUT</c> extension that allows clients to specify the portion of the entity body to
@@ -656,6 +760,31 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         </para>
       </remarks>
     </ProcessStandardRequest>
+    <ProcessStandardRequestNew>
+      <summary>Performs standard processing of a <c>PUT</c> request to a new resource.</summary>
+      <param name="canonicalPath">
+        The canonical path to the resource to create. If null, <see cref="WebDAVContext.GetCanonicalPath"/> will be used.
+      </param>
+      <param name="createFile">
+        A <see cref="PutRequest.FileCreator"/> function that should create a new file at the request path and return a
+        <see cref="ConditionCode"/> indicating whether the attempt succeeded or failed, or null for a standard success code. If it
+        succeeded, the function should also return a writable and preferably seekable stream where the new entity body will be written.
+      </param>
+      <returns>
+        This method returns the new length of the entity body. However, the length is only valid if the request
+        <see cref="WebDAVRequest.Status"/> indicates success (i.e. is null or <see cref="ConditionCode.IsSuccessful"/>), and should not be
+        used otherwise.
+      </returns>
+      <remarks>
+        This method does not provide any headers to the client (except the <c>Content-Range</c> header when the requested range is 
+        invalid), but you can add additional headers either before or after the method returns. In particular, you should add the
+        <c>ETag</c> and <c>Last-Modified</c> headers if the <c>PUT</c> request was successfully processed (i.e. if
+        <see cref="WebDAVRequest.Status"/> is null or <see cref="ConditionCode.IsSuccessful"/> is true after this method returns).
+        If the request was not successfully processed, any file created by <paramref name="createFile"/> should be deleted.
+        If you do not have your own method for computing entity tags, you should use the
+        <see cref="DAVUtility.ComputeEntityTag(Stream,bool)"/> method.
+      </remarks>
+    </ProcessStandardRequestNew>
   </PutRequest>
   
   <PropertyStore>
@@ -747,7 +876,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         calling <see cref="IWebDAVResource.GetEntityMetadata"/> on the <see cref="WebDAVContext.RequestResource"/> if it is available.
       </param>
       <param name="canonicalPath">
-        The canonical path to the request resource. If null, the <see cref="WebDAVContext.CanonicalPathIfKnown"/> will be used.
+        The canonical path to the request resource. If null, <see cref="WebDAVContext.GetCanonicalPath"/> will be used.
       </param>
       <returns>
         Returns null if the request should proceed normally. Otherwise, the status code that should be returned to the client is
@@ -871,27 +1000,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     </ProcessStandardRequest>
     <ProcessStandardRequestRec>
       <summary>Implements standard <c>PROPFIND</c> processing for a collection resource.</summary>
-      <typeparam name="T">A value type representing the resources to be processed.</typeparam>
-      <param name="rootValue">
-        The value of the initial value being processed, which should correspond to the request resource. This
-        parameter is not directly interpreted by the method, but is passed to <paramref name="getChildren"/>, etc.
-      </param>
-      <param name="getMemberName">
-        Given a value representing a resource, returns the canonical name of the path segment that maps to the resource within its parent
-        collection. If the resource is at the root of a DAV service and thus has no name, an empty string should be returned (although the
-        method should not be called with such an argument). Otherwise, if the resource is a child collection, the member name should end
-        with a trailing slash.
-      </param>
-      <param name="getChildren">
-        Given a value representing a resource and its path, returns the values representing the resource's children, if any. If
-        null, the root resource will be processed as though it was a non-collection resource. It is valid for the delegate to return null
-        for non-collection resources, as a null return will be interpreted to mean that the resource has no children.
-      </param>
-      <remarks>
-        The URLs returned to the client will be based on the <see cref="WebDAVContext.RequestPath"/> rather than the request resource's
-        <see cref="IWebDAVResource.CanonicalPath" />. This allows resources from one part of the URL namespace to be linked within a
-        collection that resides in another part of the URL namespace, if desired.
-      </remarks>
+      <typeparam name="T">The concrete type of the resources being processed.</typeparam>
+      <param name="rootResource">The initial resource being processed, which should correspond to the request resource.</param>
     </ProcessStandardRequestRec>
   </PropFindRequest>
 

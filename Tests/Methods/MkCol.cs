@@ -21,6 +21,7 @@ namespace AdamMil.WebDAV.Server.Tests
       TestRequest("MKCOL", "dir/subdir", 409); // if ancestors don't exist, it fails with 409 Conflict
       TestRequest("MKCOL", "exists", 405); // method not allowed on existing resources
       TestRequest("MKCOL", "test", 405);
+      TestRequest("MKCOL", "test/dir/", 403); // can't create a directory under a file
       // test conditional requests using the If header
       TestRequest("MKCOL", "dir", new string[] { DAVHeaders.If, "</missing> ([" + tag.ToHeaderString() + "])" }, 412);
       TestRequest("GET", "dir", 404);
@@ -31,6 +32,8 @@ namespace AdamMil.WebDAV.Server.Tests
 
       TestMkCol("dir");
       TestMkCol("dir/subdir");
+      TestMkCol("dir3/");
+      TestMkCol("dir3/subdir/");
     }
 
     void TestMkCol(string requestPath)

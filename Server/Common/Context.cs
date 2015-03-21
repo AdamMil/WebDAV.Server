@@ -66,14 +66,6 @@ public sealed class WebDAVContext
   }
   #endregion
 
-  /// <summary>Gets the <see cref="IWebDAVResource.CanonicalPath"/> of the <see cref="RequestResource"/> if it could be resolved, or
-  /// <see cref="RequestPath"/> otherwise.
-  /// </summary>
-  public string CanonicalPathIfKnown
-  {
-    get { return RequestResource != null ? RequestResource.CanonicalPath : RequestPath; }
-  }
-
   /// <summary>Get the ID of the user making the current request, or null if the user is unknown or anonymous.</summary>
   /// <remarks><para><include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/remarks/node()" /></para>
   /// <para>This property will return an ID determined by interrogating the <see cref="IAuthorizationFilter">authorization filters</see> as
@@ -244,6 +236,14 @@ public sealed class WebDAVContext
     }
 
     return encoding;
+  }
+
+  /// <summary>Returns <see cref="IWebDAVResource.CanonicalPath"/> if <see cref="RequestResource"/> is not null, or the result of calling
+  /// <see cref="IWebDAVService.GetCanonicalPath"/> on the <see cref="RequestPath"/> otherwise.
+  /// </summary>
+  public string GetCanonicalPath()
+  {
+    return RequestResource != null ? RequestResource.CanonicalPath : Service.GetCanonicalPath(this, RequestPath);
   }
 
   /// <summary>Returns an <see cref="XmlDocument"/> containing the request body loaded as XML, or null if the body is empty.</summary>

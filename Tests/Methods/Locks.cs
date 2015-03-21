@@ -105,6 +105,10 @@ namespace AdamMil.WebDAV.Server.Tests
       info = Lock("dir");
       TestRequest("DELETE", "dir", MakeIfHeaders(info, "dir/file1"), null, 412);
       Unlock("dir", info);
+
+      // test that we can't create directories by locking them or create files under files
+      Lock("newdir/", 403);
+      Lock("file/missing", 403);
     }
 
     [Test]
