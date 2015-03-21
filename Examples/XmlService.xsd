@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://adammil.net/webdav.server.examples/xmlService" elementFormDefault="qualified"
+           xmlns="http://adammil.net/webdav.server.examples/xmlService" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="contentEncoding">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="none" />
+      <xs:enumeration value="base64" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:simpleType name="mediaType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-zA-Z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+/[a-zA-Z0-9!#\$%&amp;'\*\+\-\.\^_`\|~]+" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="pathSegment">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="\S+.*\S" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="resource">
+    <xs:sequence>
+      <xs:element name="properties" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence maxOccurs="unbounded">
+            <xs:any processContents="lax" />
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:choice minOccurs="1">
+        <xs:element name="children">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="child" type="childResource" minOccurs="0" maxOccurs="unbounded" />
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="data">
+          <xs:complexType mixed="true">
+            <xs:attribute name="encoding" type="contentEncoding" default="none" />
+            <xs:attribute name="mediaType" type="mediaType" />
+          </xs:complexType>
+        </xs:element>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="childResource">
+    <xs:complexContent>
+      <xs:extension base="resource">
+        <xs:attribute name="name" type="pathSegment" use="required" />
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:element name="root" type="resource" />
+</xs:schema>

@@ -25,16 +25,15 @@ using System.Linq;
 using System.Net;
 using System.Web;
 using System.Xml;
-using AdamMil.Collections;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
 // this file demonstrates how to implement a WebDAV service that serves files from a .zip file and supports the full range of WebDAV
 // features, including creating, updating, and deleting files and directories, locking, strongly typed dead properties, partial GETs,
-// partial PUTs, conditional requests, etc. because it uses the System.IO.Compression.ZipArchive class, it requires .NET 4.5, unlike
-// the rest of the WebDAV server, which only requires .NET 3.5.
+// partial PUTs, conditional requests, and the ability to copy and move data to and from other types of services. because it uses the
+// System.IO.Compression.ZipArchive class, it requires .NET 4.5, unlike the rest of the WebDAV server, which only requires .NET 3.5.
 //
-// to serve data from zip files, you might add a location like the following the WebDAV <locations> in your web.config file:
+// to serve data from zip files, you might add a location like the following to the WebDAV <locations> in your web.config file:
 // <add match="/" type="AdamMil.WebDAV.Server.Examples.ZipFileService, AdamMil.WebDAV.Server.Examples"
 //      path="D:/data/dav.zip" writable="true" resetOnError="false" />
 
@@ -114,6 +113,11 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     get { return path; }
   }
 
+  public bool IsCollection
+  {
+    get { return path.Length == 0 || path.EndsWith('/'); } // the empty string is the root directory
+  }
+
   public override void CopyOrMove(CopyOrMoveRequest request)
   {
     // this method is called when a COPY or MOVE request is made with this resource as the source. ProcessStandardRequest handles almost
@@ -133,7 +137,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     // ProcessStandardRequest<T>(T, Func<T,ConditionCode>) override, which works recursively on individual resources, should be used
     if(request == null) throw new ArgumentNullException();
     if(archive.IsReadOnly || string.IsNullOrEmpty(path)) request.Status = ConditionCodes.Forbidden; // the root can't be deleted
-    else lock(archive) request.ProcessStandardRequest(() => { Delete(); return null; }, IsDirectory);
+    else lock(archive) request.ProcessStandardRequest(() => { Delete(); return null; }, IsCollection);
   }
 
   public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
@@ -142,7 +146,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     if(metadata == null) // cache the metadata so we don't have to compute it multiple times in a request (especially the entity tag)
     {
       metadata = new EntityMetadata();
-      if(!IsDirectory)
+      if(!IsCollection)
       {
         metadata.Length    = archive.GetEntryLength(entry);
         metadata.MediaType = MediaTypes.GuessMediaType(path);
@@ -150,7 +154,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     }
 
     // if we need the entity tag but we haven't computed it yet, compute it now
-    if(includeEntityTag && metadata.EntityTag == null && !IsDirectory)
+    if(includeEntityTag && metadata.EntityTag == null && !IsCollection)
     {
       lock(archive)
       {
@@ -175,7 +179,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     // this method is called when the client issues a LOCK request to the resource. as usual, ProcessStandardRequest does most of the work
     if(request == null) throw new ArgumentNullException();
     if(archive.IsReadOnly) base.Lock(request); // disallow locking (by calling the base class) for read-only resources
-    else request.ProcessStandardRequest(LockType.WriteLocks, IsDirectory);
+    else request.ProcessStandardRequest(LockType.WriteLocks, IsCollection);
   }
 
   public override void Options(OptionsRequest request)
@@ -185,7 +189,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     if(!archive.IsReadOnly) // but if the resource is not read-only, report to the client that some additional methods are allowed
     {
       if(!string.IsNullOrEmpty(path)) request.AllowedMethods.Add(DAVMethods.Delete); // all resources except the root can be deleted
-      if(!IsDirectory) request.AllowedMethods.Add(DAVMethods.Put); // files can have their content replaced
+      if(!IsCollection) request.AllowedMethods.Add(DAVMethods.Put); // files can have their content replaced
       request.SupportsLocking = request.Context.LockManager != null; // support locking for writable resources if there's a lock manager
     }
   }
@@ -204,7 +208,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     // this method is called when the client issues a PUT request to the resource. even though directories in .zip files can technically
     // have data streams, they're unlikely to work correctly with most clients so we'll disallow setting a directory's data stream
     if(request == null) throw new ArgumentNullException();
-    if(archive.IsReadOnly || IsDirectory) // if the resource is read-only or a directory...
+    if(archive.IsReadOnly || IsCollection) // if the resource is read-only or a directory...
     {
       base.Put(request); // call the base class to deny the request
     }
@@ -242,11 +246,6 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     else request.ProcessStandardRequest();
   }
 
-  internal bool IsDirectory
-  {
-    get { return path.Length == 0 || path.EndsWith('/'); } // the empty string is the root directory
-  }
-
   /// <summary>Deletes the resource and all its descendants from the archive. This method must be called in a lock.</summary>
   internal void Delete()
   {
@@ -257,7 +256,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   /// <summary>Returns a collection containing the children of this resource.</summary>
   IEnumerable<ZipEntryResource> GetChildren()
   {
-    if(!IsDirectory) return null;
+    if(!IsCollection) return null;
 
     // since we may have to infer the existence of child directories based on other entries, keep track of which ones we've seen
     HashSet<string> subdirectories = new HashSet<string>();
@@ -290,12 +289,10 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   Dictionary<XmlQualifiedName,object> GetLiveProperties(PropFindRequest request)
   {
     Dictionary<XmlQualifiedName, object> properties = new Dictionary<XmlQualifiedName, object>();
-
-    properties[DAVNames.displayname]  = GetMemberName();
-    properties[DAVNames.resourcetype] = IsDirectory ? ResourceType.Collection : null; // null indicates a non-collection resource
+    properties[DAVNames.resourcetype] = IsCollection ? ResourceType.Collection : null; // null indicates a non-collection resource
 
     // add file-related properties if this is a file
-    if(!IsDirectory)
+    if(!IsCollection)
     {
       properties[DAVNames.getcontentlength] = archive.GetEntryLength(entry);
       properties[DAVNames.getlastmodified]  = entry.LastWriteTime;
@@ -355,11 +352,6 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   }
 
   #region ISourceResource<T> Members
-  bool IStandardResource<ZipEntryResource>.IsCollection
-  {
-    get { return IsDirectory; }
-  }
-
   IEnumerable<ZipEntryResource> IStandardResource<ZipEntryResource>.GetChildren(WebDAVContext context)
   {
     return GetChildren();
@@ -377,7 +369,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
 
   Stream IStandardResource<ZipEntryResource>.OpenStream(WebDAVContext context)
   {
-    return !IsDirectory ? OpenStream() : null;
+    return !IsCollection ? OpenStream() : null;
   }
   #endregion
 
@@ -422,6 +414,7 @@ public class ZipFileService : WebDAVService, IDisposable
     isReadOnly = string.IsNullOrEmpty(value) || !XmlConvert.ToBoolean(value);
 
     value = parameters.TryGetValue("path");
+    if(string.IsNullOrEmpty(value)) throw new ArgumentException("The path parameter is required.");
     Stream stream = null;
     try
     {
@@ -725,7 +718,7 @@ public class ZipFileService : WebDAVService, IDisposable
     {
       ZipEntryResource resource = ResolveResource(context, path.Substring(0, lastSlash+1)) as ZipEntryResource;
       if(resource == null) return ConditionCodes.Conflict; // the parent must exist
-      else if(!resource.IsDirectory) return ConditionCodes.Forbidden; // can't create a directory under a file
+      else if(!resource.IsCollection) return ConditionCodes.Forbidden; // can't create a directory under a file
     }
 
     return null;

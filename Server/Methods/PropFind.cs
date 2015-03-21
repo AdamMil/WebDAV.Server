@@ -330,7 +330,7 @@ public class PropFindRequest : WebDAVRequest
               XmlElement element = ppair.Value == null ? null : ppair.Value.Value as XmlElement;
               if(element != null) // if we have to output a raw XML element...
               {
-                WriteElement(response, element);
+                WriteElement(response, element, true);
               }
               else // otherwise, we're outputting a value
               {
@@ -592,7 +592,7 @@ public class PropFindRequest : WebDAVRequest
     resource.SetValue(propertyName, value);
   }
 
-  static void WriteElement(MultiStatusResponse response, XmlElement element)
+  static void WriteElement(MultiStatusResponse response, XmlElement element, bool addLanguage)
   {
     XmlWriter writer = response.Writer;
 
@@ -600,7 +600,7 @@ public class PropFindRequest : WebDAVRequest
     writer.WriteStartElement(element.LocalName, element.NamespaceURI);
 
     // write the original element attributes, skipping xmlns attributes
-    bool expectQNameContent = false;
+    bool expectQNameContent = false, hadLanguage = !addLanguage;
     foreach(XmlAttribute attr in element.Attributes)
     {
       if((attr.Prefix.Length == 0 ? attr.LocalName : attr.Prefix).OrdinalEquals("xmlns")) continue;
@@ -617,8 +617,16 @@ public class PropFindRequest : WebDAVRequest
       }
       else
       {
+        if(!hadLanguage && attr.HasName(DAVNames.xmlLang)) hadLanguage = true;
         writer.WriteAttributeString(attr.LocalName, attr.NamespaceURI, attr.Value);
       }
+    }
+
+    // if the element didn't have an xml:lang attribute, see if it should be inheriting one from an ancestor
+    if(!hadLanguage)
+    {
+      string language = element.GetInheritedAttributeValue(DAVNames.xmlLang);
+      if(!string.IsNullOrEmpty(language)) writer.WriteAttributeString("xml", "lang", DAVNames.Xml, language);
     }
 
     // now recursively write element content
@@ -634,7 +642,7 @@ public class PropFindRequest : WebDAVRequest
         switch(node.NodeType)
         {
           case XmlNodeType.CDATA: writer.WriteCData(node.Value); break;
-          case XmlNodeType.Element: WriteElement(response, (XmlElement)node); break;
+          case XmlNodeType.Element: WriteElement(response, (XmlElement)node, false); break; // we already got the language into the output
           case XmlNodeType.SignificantWhitespace: case XmlNodeType.Whitespace: writer.WriteWhitespace(node.Value); break;
           case XmlNodeType.Text: writer.WriteString(node.Value); break;
         }
@@ -862,58 +870,61 @@ public sealed class PropFindResource
   {
     if(property == null) throw new ArgumentNullException();
 
-    // if the property is of a built-in type, validate that the value matches the expected type
-    XmlQualifiedName expectedType;
-    if(XmlProperty.builtInTypes.TryGetValue(property, out expectedType))
+    if(!(value is XmlElement)) // don't try to validate raw XML elements
     {
-      // validate that the value matches the expected type
-      if(expectedType != null)
+      // if the property is of a built-in type, validate that the value matches the expected type
+      XmlQualifiedName expectedType;
+      if(XmlProperty.builtInTypes.TryGetValue(property, out expectedType))
       {
-        value = ValidatePropertyValue(property, value, expectedType);
-      }
-      else if(value != null)
-      {
-        if(property == DAVNames.resourcetype)
+        // validate that the value matches the expected type
+        if(expectedType != null)
         {
-          if(value is XmlQualifiedName)
+          value = ValidatePropertyValue(property, value, expectedType);
+        }
+        else if(value != null)
+        {
+          if(property == DAVNames.resourcetype)
           {
-            value = new ResourceType((XmlQualifiedName)value);
+            if(value is XmlQualifiedName)
+            {
+              value = new ResourceType((XmlQualifiedName)value);
+            }
+            else if(value is IEnumerable<XmlQualifiedName>)
+            {
+              value = ((IEnumerable<XmlQualifiedName>)value).Select(n => new ResourceType(n)).ToList();
+            }
+            else if(!(value is ResourceType) && !(value is IEnumerable<ResourceType>))
+            {
+              throw new ContractViolationException(property + " is expected to be a ResourceType, an XmlQualifiedName representing a " +
+                                                   "resource type, or an IEnumerable<T> of ResourceType or XmlQualifiedName.");
+            }
           }
-          else if(value is IEnumerable<XmlQualifiedName>)
+          else if(property == DAVNames.getetag)
           {
-            value = ((IEnumerable<XmlQualifiedName>)value).Select(n => new ResourceType(n)).ToList();
+            if(!(value is EntityTag)) throw new ContractViolationException(property + " is expected to be an EntityTag.");
           }
-          else if(!(value is ResourceType) && !(value is IEnumerable<ResourceType>))
+          else if(property == DAVNames.lockdiscovery)
           {
-            throw new ContractViolationException(property + " is expected to be a ResourceType, an XmlQualifiedName representing a " +
-                                                 "resource type, or an IEnumerable<T> of ResourceType or XmlQualifiedName.");
+            if(!(value is ActiveLock) && !(value is IEnumerable<ActiveLock>))
+            {
+              throw new ContractViolationException(property + " is expected to be an ActiveLock or IEnumerable<ActiveLock>.");
+            }
+          }
+          else if(property == DAVNames.supportedlock)
+          {
+            if(!(value is LockType) && !(value is IEnumerable<LockType>))
+            {
+              throw new ContractViolationException(property + " is expected to be a LockType or IEnumerable<LockType>.");
+            }
           }
         }
-        else if(property == DAVNames.getetag)
-        {
-          if(!(value is EntityTag)) throw new ContractViolationException(property + " is expected to be an EntityTag.");
-        }
-        else if(property == DAVNames.lockdiscovery)
-        {
-          if(!(value is ActiveLock) && !(value is IEnumerable<ActiveLock>))
-          {
-            throw new ContractViolationException(property + " is expected to be an ActiveLock or IEnumerable<ActiveLock>.");
-          }
-        }
-        else if(property == DAVNames.supportedlock)
-        {
-          if(!(value is LockType) && !(value is IEnumerable<LockType>))
-          {
-            throw new ContractViolationException(property + " is expected to be a LockType or IEnumerable<LockType>.");
-          }
-        }
-      }
 
-      type = null; // built-in properties shouldn't report their type (as per RFC 4316 section 5)
-    }
-    else if(type == DAVNames.xsString)
-    {
-      type = null; // xs:string types should not be reported because that's the default (as per RFC 4316 section 5)
+        type = null; // built-in properties shouldn't report their type (as per RFC 4316 section 5)
+      }
+      else if(type == DAVNames.xsString)
+      {
+        type = null; // xs:string types should not be reported because that's the default (as per RFC 4316 section 5)
+      }
     }
 
     // save the property value. don't bother creating a PropertyValue object if it doesn't hold anything useful

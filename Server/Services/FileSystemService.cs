@@ -24,7 +24,6 @@ using System.Linq;
 using System.Net;
 using System.Web;
 using System.Xml;
-using AdamMil.Collections;
 using AdamMil.IO;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
