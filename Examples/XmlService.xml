@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- This is a sample data file that can be used with the XmlService. -->
+<root xmlns="http://adammil.net/webdav.server.examples/xmlService" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://adammil.net/webdav.server.examples/xmlService XmlService.xsd"
+      xmlns:a="http://test" xmlns:o="otherns:" xmlns:dav="DAV:">
+  <properties>
+    <dav:displayname>Root</dav:displayname>
+    <a:test>fooey</a:test>
+    <o:test>barey</o:test>
+    <a:description>This is the root resource of the service.</a:description>
+    <o:complex key="value">
+      <o:title>Rootey root</o:title>
+      <o:author intelligent="no">Jim-bob</o:author>
+      <o:comments>Y'all come back now, y'hear?</o:comments>
+    </o:complex>
+  </properties>
+  <children>
+    <child name="dir">
+      <properties>
+        <a:test>bazey</a:test>
+        <a:description>This is the one and only directory in this example file.</a:description>
+      </properties>
+      <children>
+        <child name="subdir" xml:lang="en">
+          <properties>
+            <a:description>I lied. Here's a subdirectory.</a:description>
+            <o:plaint>I'm so lonely.</o:plaint>
+          </properties>
+          <children />
+        </child>
+        <child name="file1.txt">
+          <data mediaType="text/plain">
+            <![CDATA[Hello, world!
+This is a text file specified in a CDATA element. I hope the whitespace is
+preserved correctly.
+]]>
+          </data>
+        </child>
+        <child name="file2.html">
+          <properties>
+            <a:description>A simple HTML document. Don't look at it.</a:description>
+          </properties>
+          <data mediaType="text/html" encoding="base64">
+            PGh0bWw+PGJvZHk+DQo8aDM+SGVsbG8sIHdvcmxkITwvaDM+DQo8cD5UaGlzIGlz
+            IHRoZSBib2R5IG9mIGFuIEhUTUwgZG9jdW1lbnQuIFllc3NpcmVlLCBpdCBzdXJl
+            IGlzLjwvcD4NCjwvYm9keT48L2h0bWw+
+          </data>
+        </child>
+      </children>
+    </child>
+    <child name="file">
+      <properties>
+        <a:description>Super secret.</a:description>
+      </properties>
+      <data encoding="base64">
+        VDJ0aGVTd2dTU0JuZFdWemN5QnBkQ2R6SUc5dWJIa2dZU0JzYVhSMGJHVWdZbWww
+        SUhObFkzSmxkQzQ9
+      </data>
+    </child>
+  </children>
+</root>

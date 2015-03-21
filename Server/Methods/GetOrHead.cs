@@ -773,7 +773,7 @@ public class GetOrHeadRequest : WebDAVRequest
 
     sourceStream.Process(4096, true, (buffer, bytesInBuffer) =>
     {
-      int bytesToWrite = (int)Math.Min(bytesInBuffer, length);
+      int bytesToWrite = length == -1 ? bytesInBuffer : (int)Math.Min(bytesInBuffer, length);
       destStream.Write(buffer, 0, bytesToWrite);
       if(length != -1) length -= bytesToWrite;
       return length != 0;

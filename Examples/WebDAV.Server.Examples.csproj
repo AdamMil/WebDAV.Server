@@ -36,12 +36,17 @@
     <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="XmlService.cs" />
     <Compile Include="ZipFileService.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">
       <Project>{d9724c65-c54a-4671-ba0b-40b0b38464dd}</Project>
       <Name>AdamMil.Collections</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\IO\AdamMil.IO.csproj">
+      <Project>{ceb9bc77-b63f-40a1-bede-7c32e9b90d55}</Project>
+      <Name>AdamMil.IO</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\AdamMil.net\Utilities\AdamMil.Utilities.csproj">
       <Project>{29134637-6d08-432c-8161-9deee13c955d}</Project>
@@ -54,6 +59,10 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="README.txt" />
+    <Content Include="XmlService.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="XmlService.xsd" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
