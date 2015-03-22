@@ -31,8 +31,6 @@ using AdamMil.WebDAV.Server.Configuration;
 using BinaryReader = AdamMil.IO.BinaryReader;
 using BinaryWriter = AdamMil.IO.BinaryWriter;
 
-// TODO: add some helper methods somewhere to encapsulate common lock-related actions like getting the locks on a resource (e.g. the
-// request.Context.LockManager.GetLocks(request.Context.ServiceRoot + CanonicalPath, true, false, null) bit)
 // TODO: we may want FileLockManager to just clobber the file if it's invalid, possibly with an option to enable this. that way, a
 // corrupt lock file (e.g. due to a sudden shutdown) won't stop the server from working. ditto for FilePropertyStore
 
@@ -257,7 +255,7 @@ public sealed class ActiveLock : IElementValue
     writer.WriteStartElement(DAVNames.lockroot);
     writer.WriteStartElement(DAVNames.href);
     writer.WriteString(context.ServiceRoot);
-    writer.WriteString(DAVUtility.UriPathEncode(Path));
+    writer.WriteString(DAVUtility.UriPathPartialEncode(Path));
     writer.WriteEndElement(); // href
     writer.WriteEndElement(); // lockroot
     writer.WriteEndElement(); // activelock

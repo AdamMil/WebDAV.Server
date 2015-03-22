@@ -366,9 +366,9 @@ static class XmlExtensions
 
   public static XmlElement GetChild(this XmlElement element, XmlQualifiedName qname)
   {
-    foreach(XmlNode node in element.ChildNodes)
+    for(XmlNode child = element.FirstChild; child != null; child = child.NextSibling)
     {
-      if(node.NodeType == XmlNodeType.Element && node.HasName(qname)) return (XmlElement)node;
+      if(child.NodeType == XmlNodeType.Element && child.HasName(qname)) return (XmlElement)child;
     }
     throw Exceptions.BadRequest("Expected to find a child element named " + qname.ToString() + " in " +
                                 element.GetQualifiedName().ToString());
@@ -390,7 +390,7 @@ static class XmlExtensions
 
   static IEnumerable<XmlElement> EnumerateChildElementsCore(XmlNode node)
   {
-    foreach(XmlNode child in node.ChildNodes)
+    for(XmlNode child = node.FirstChild; child != null; child = child.NextSibling)
     {
       child.AssertElement();
       yield return (XmlElement)child;

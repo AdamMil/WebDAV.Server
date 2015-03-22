@@ -34,9 +34,6 @@ using AdamMil.WebDAV.Server.Configuration;
 // list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally, though, in
 // WebDAVModule, or by adding an IWebDAVResource/Service.GetSupportedMethods method
 // TODO: look into Microsoft's WebDAV extensions
-// TODO: support the Expects header (RFC 7231 section 5.1.1) if IIS doesn't do it for us
-// TODO: section 8.3 says that href elements in multi-status responses must not have prefixes that don't match the request URI. double-check our output
-// check to make sure we don't do that
 // TODO: see if we can annotate the code with reliability attributes. (http://msdn.microsoft.com/en-us/magazine/cc163716.aspx)
 
 namespace AdamMil.WebDAV.Server
@@ -324,7 +321,7 @@ public class WebDAVModule : IHttpModule
     /// </param>
     public string GetRelativeUrl(Uri requestUri, WebDAVContext context)
     {
-      string requestPath = DAVUtility.UriPathDecode(GetAbsoluteUri(requestUri, context).AbsolutePath);
+      string requestPath = DAVUtility.UriPathPartialDecode(GetAbsoluteUri(requestUri, context).AbsolutePath);
       return RootPath.Length >= requestPath.Length ? "" : requestPath.Substring(RootPath.Length);
     }
 
@@ -359,14 +356,14 @@ public class WebDAVModule : IHttpModule
       if(m.Groups["scheme"].Success) scheme = m.Groups["scheme"].Value.ToLowerInvariant();
       if(m.Groups["hostname"].Success) hostname = m.Groups["hostname"].Value.ToLowerInvariant();
       if(m.Groups["port"].Success) port = int.Parse(m.Groups["port"].Value, CultureInfo.InvariantCulture);
-      if(m.Groups["path"].Success) path = DAVUtility.WithTrailingSlash(m.Groups["path"].Value);
-      RootPath = "/" + path;
+      if(m.Groups["path"].Success) path = "/" + DAVUtility.WithTrailingSlash(DAVUtility.UriPathNormalize(m.Groups["path"].Value));
+      RootPath = path ?? "/";
     }
 
     bool PathMatches(Uri requestUri)
     {
       StringComparison comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-      string requestPath = requestUri.GetComponents(UriComponents.Path, UriFormat.Unescaped);
+      string requestPath = DAVUtility.UriPathNormalize(requestUri.AbsolutePath);
       // the match path includes the trailing slash, so if the request path is greater or equal in length, then the match path must be a
       // prefix of it. otherwise, if the request path is shorter, they can only match if the request path is equal to the match path when
       // the trailing slash of the match path is ignored (e.g. the match path is /dav/ but the user types /dav -- we'll accept this).

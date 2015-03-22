@@ -278,6 +278,13 @@ public class PropPatchRequest : WebDAVRequest
 
     XmlDocument xml = Context.LoadRequestXml();
     if(xml == null) throw Exceptions.BadRequest("The request body was missing."); // an XML body is required by RFC 4918 section 9.2
+    ParseRequestXml(xml);
+  }
+
+  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body.</summary>
+  protected virtual void ParseRequestXml(XmlDocument xml)
+  {
+    if(xml == null) throw new ArgumentNullException();
     xml.DocumentElement.AssertName(DAVNames.propertyupdate); // and it has to be a <propertyupdate> body
 
     // parse all of the property patches
@@ -482,7 +489,7 @@ public class PropPatchRequest : WebDAVRequest
     {
       XmlWriter writer = response.Writer;
       writer.WriteStartElement(DAVNames.response);
-      writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathEncode(Context.RequestPath));
+      writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathPartialEncode(Context.RequestPath));
 
       foreach(KeyValuePair<ConditionCode, HashSet<XmlQualifiedName>> pair in namesByStatus)
       {

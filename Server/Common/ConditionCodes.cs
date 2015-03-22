@@ -224,7 +224,7 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
   {
     if(writer == null) throw new ArgumentNullException();
     writer.WriteStartElement(ErrorElement);
-    foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, serviceRoot + DAVUtility.UriPathEncode(path));
+    foreach(string path in resourcePaths) writer.WriteElementString(DAVNames.href, serviceRoot + DAVUtility.UriPathPartialEncode(path));
     writer.WriteEndElement();
   }
 

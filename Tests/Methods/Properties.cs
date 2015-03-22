@@ -21,6 +21,7 @@ namespace AdamMil.WebDAV.Server.Tests
       fileContent = Server.CreateFile("file", "Herro!");
       Server.CreateDirectory("dir");
       Server.CreateFile("dir/file", "Buhbye!");
+      Server.CreateFile("浮 世 絵", "ukiyoe");
     }
 
     [Test]
@@ -106,6 +107,11 @@ namespace AdamMil.WebDAV.Server.Tests
       TestRequest("PROPFIND", "file", new string[] { DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(fileDate) }, 412);
       TestRequest("PROPPATCH", "file", new string[] { DAVHeaders.IfModifiedSince, DAVUtility.GetHttpDateHeader(fileDate) },
                   Encoding.UTF8.GetBytes("<propertyupdate xmlns=\"DAV:\"><set><prop><foo xmlns=\"TEST:\"/></prop></set></propertyupdate>"), 412);
+
+      // test encoding of complex names
+      TestHelpers.AssertXmlEquals("<multistatus xmlns=\"DAV:\"><response><href>/%E6%B5%AE%20%E4%B8%96%20%E7%B5%B5</href><propstat><prop>" +
+                                  "<displayname>浮 世 絵</displayname></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>",
+        RequestXml("PROPFIND", "浮 世 絵", null, "<propfind xmlns=\"DAV:\"><prop><displayname/></prop></propfind>", 207));
     }
 
     [Test]

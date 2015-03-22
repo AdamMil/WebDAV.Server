@@ -16,7 +16,7 @@
 
   <xs:simpleType name="pathSegment">
     <xs:restriction base="xs:string">
-      <xs:pattern value="\S+.*\S" />
+      <xs:pattern value="[^/]+" /> <!-- disallow embedded slashes to simplify the resolution algorithm -->
     </xs:restriction>
   </xs:simpleType>
 

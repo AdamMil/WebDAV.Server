@@ -30,7 +30,8 @@ using AdamMil.WebDAV.Server.Configuration;
 // this file demonstrates how to implement a read-only WebDAV service that serves data from an XML file. it supports the full range of
 // WebDAV features you'd expect from a read-only service, including strongly typed dead properties, partial GETs, conditional requests,
 // and the ability to copy data to other types of services. the XML files are expected to conform to the schema given in XmlService.xsd.
-// this service is not as heavily commented as ZipFileService, so you may want to look there for comments about service implementation.
+// a sample XML file is available in XmlService.xml. this file is not as heavily commented as ZipFileService, so you may want to look therer
+// for comments about service implementation.
 //
 // to serve data from XML files, you might add a location like the following to the WebDAV <locations> in your web.config file:
 // <add match="/" type="AdamMil.WebDAV.Server.Examples.XmlService, AdamMil.WebDAV.Server.Examples" path="D:/data/dav.xml" />
@@ -42,6 +43,7 @@ public class XmlService : WebDAVService
 {
   public XmlService(ParameterCollection parameters)
   {
+    if(parameters == null) throw new ArgumentNullException();
     string path = parameters.TryGetValue("path");
     if(string.IsNullOrEmpty(path)) throw new ArgumentException("The path parameter is required.");
 
@@ -69,6 +71,9 @@ public class XmlService : WebDAVService
 
   public override IWebDAVResource ResolveResource(WebDAVContext context, string resourcePath)
   {
+    // paths with slashes embedded in the path segments can't match anything. (such paths are disallowed by our schema)
+    if(resourcePath.Contains("%2F", StringComparison.OrdinalIgnoreCase)) return null;
+    resourcePath = DAVUtility.UriPathDecode(resourcePath); // decode encoded percent signs (the only other character that might be encoded)
     XmlResource resource = resources.TryGetValue(resourcePath);
     // if we couldn't find it, see if appending a slash to the request path helps
     if(resource == null && !resourcePath.EndsWith('/')) resources.TryGetValue(resourcePath+"/", out resource);
