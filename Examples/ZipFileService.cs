@@ -23,7 +23,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Web;
 using System.Xml;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
@@ -332,7 +331,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   /// <summary>Returns a collection of all archive entries at or below the given path.</summary>
   IList<ZipArchiveEntry> GetSelfAndDescendants(string path)
   {
-    path = HttpUtility.UrlDecode(path);
+    path = DAVUtility.UriPathDecode(path);
     if(path.Length != 0 && !path.EndsWith('/'))
     {
       ZipArchiveEntry entry = archive.GetEntry(path);
@@ -487,7 +486,7 @@ public class ZipFileService : WebDAVService, IDisposable
           EntityMetadata metadata = sourceResource.GetEntityMetadata(false);
           if(metadata.LastModifiedTime.HasValue) // if the source resource has a last-modified time...
           {
-            zipArchive.GetEntry(HttpUtility.UrlDecode(destinationPath)).LastWriteTime = metadata.LastModifiedTime.Value;
+            zipArchive.GetEntry(DAVUtility.UriPathDecode(destinationPath)).LastWriteTime = metadata.LastModifiedTime.Value;
           }
         }
 
@@ -603,7 +602,7 @@ public class ZipFileService : WebDAVService, IDisposable
             request.ProcessStandardRequest(delegate(out Stream s) { s = stream; return null; }); // try to set the body
             if(request.Status == null || request.Status.IsSuccessful) // if the request was successful,
             {                                                         // send the ETag and Last-Modified headers to the client
-              ZipArchiveEntry entry = zipArchive.GetEntry(HttpUtility.UrlDecode(request.Context.RequestPath));
+              ZipArchiveEntry entry = zipArchive.GetEntry(DAVUtility.UriPathDecode(request.Context.RequestPath));
               request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
               request.Context.Response.Headers[DAVHeaders.LastModified] = DAVUtility.GetHttpDateHeader(entry.LastWriteTime.UtcDateTime);
             }
@@ -620,8 +619,8 @@ public class ZipFileService : WebDAVService, IDisposable
     // a .zip file doesn't contain an entry for every directory in the zip file. for instance, it might only contain a single entry with
     // the path /dir/subdir/file.txt, where the existence of /dir/ and /dir/subdir/ are implied. so if no entry exists, we may have to
     // return a resource that represents a directory whose existence was inferred
-    if(IsIllegalPath(resourcePath)) return null; // prevent illegal paths from being obscured by HttpUtility.UrlDecode
-    string zipPath = HttpUtility.UrlDecode(resourcePath); // get the path to look for in the .zip file
+    if(IsIllegalPath(resourcePath)) return null; // prevent illegal paths from being obscured by UrlDecode
+    string zipPath = DAVUtility.UriPathDecode(resourcePath); // get the path to look for in the .zip file
     lock(zipArchive)
     {
       ZipArchiveEntry entry = zipArchive.GetEntry(zipPath);
@@ -661,7 +660,7 @@ public class ZipFileService : WebDAVService, IDisposable
   {
     path = DAVUtility.WithTrailingSlash(path ?? context.RequestPath); // directories in .zip files end with a slash
     ConditionCode status = ValidateNewPath(context, path);
-    if(status == null) zipArchive.CreateEntry(HttpUtility.UrlDecode(path), CompressionLevel.NoCompression);
+    if(status == null) zipArchive.CreateEntry(DAVUtility.UriPathDecode(path), CompressionLevel.NoCompression);
     return status;
   }
 
@@ -677,7 +676,7 @@ public class ZipFileService : WebDAVService, IDisposable
     ConditionCode status = ValidateNewPath(context, path);
     if(status != null) return status;
 
-    ZipArchiveEntry entry = zipArchive.CreateEntry(HttpUtility.UrlDecode(path));
+    ZipArchiveEntry entry = zipArchive.CreateEntry(DAVUtility.UriPathDecode(path));
     try
     {
       if(processStream != null)

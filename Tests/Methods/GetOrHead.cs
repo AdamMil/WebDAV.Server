@@ -304,7 +304,7 @@ namespace AdamMil.WebDAV.Server.Tests
       switch(Path.GetExtension(requestPath).Trim('.'))
       {
         case "pdf": return "application/pdf";
-        case "tfb": return "text/foobar";
+        case "tfb": return "text/FOOBAR";
         case "txt": return "text/plain";
         default: return "application/octet-stream";
       }

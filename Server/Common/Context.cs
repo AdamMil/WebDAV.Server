@@ -126,7 +126,9 @@ public sealed class WebDAVContext
   /// <summary>Gets the <see cref="IWebDAVService"/> responsible for serving this request.</summary>
   public IWebDAVService Service { get; private set; }
 
-  /// <summary>Gets the absolute path to the root of the <see cref="Service"/>, including the trailing slash.</summary>
+  /// <summary>Gets the absolute path to the root of the <see cref="Service"/>, including the trailing slash. Unlike the
+  /// <see cref="RequestPath"/> the service root will be encoded in a form that is legal to insert directly into a URI path.
+  /// </summary>
   public string ServiceRoot { get; private set; }
 
   /// <summary>Gets additional configuration settings for the WebDAV service in the current context.</summary>
@@ -282,7 +284,6 @@ public sealed class WebDAVContext
     }
   }
 
-  // TODO: add example
   /// <summary>Returns a <see cref="MultiStatusResponse"/> object that writes a 207 Multi-Status response to the client.</summary>
   /// <param name="namespaces">A set of XML namespaces used within the response. These namespaces will be given prefixes defined on the
   /// root element of the response, making the namespaces prefixes available throughout the response. The DAV: namespace is always defined
@@ -429,7 +430,7 @@ public sealed class WebDAVContext
         response.Writer.WriteStartElement(DAVNames.response);
         response.Writer.WriteStartElement(DAVNames.href);
         response.Writer.WriteString(member.ServiceRoot);
-        response.Writer.WriteString(DAVUtility.UriPathEncode(member.RelativePath));
+        response.Writer.WriteString(DAVUtility.UriPathPartialEncode(member.RelativePath));
         response.Writer.WriteEndElement();
         response.WriteStatus(member.Status);
         response.Writer.WriteEndElement();

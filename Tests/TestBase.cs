@@ -169,7 +169,7 @@ namespace AdamMil.WebDAV.Server.Tests
 
     protected internal string GetFullUrl(string requestPath)
     {
-      return "http://localhost:" + Server.EndPoint.Port.ToStringInvariant() + "/" + requestPath;
+      return "http://localhost:" + Server.EndPoint.Port.ToStringInvariant() + "/" + System.Web.HttpUtility.UrlPathEncode(requestPath);
     }
 
     protected XmlNodeList GetPropertyElements(string requestPath)
@@ -197,7 +197,8 @@ namespace AdamMil.WebDAV.Server.Tests
       if(ifHeader != null) { requestHeaders.Add(DAVHeaders.If); requestHeaders.Add(ifHeader); }
       if(extraHeaders != null) requestHeaders.AddRange(extraHeaders);
 
-      string bodyXml = "<?xml version=\"1.0\" encoding=\"utf-8\" ?><lockinfo xmlns=\"DAV:\"><lockscope><"+scope+"/></lockscope><locktype><write/></locktype>";
+      string bodyXml
+        = "<?xml version=\"1.0\" encoding=\"utf-8\" ?><lockinfo xmlns=\"DAV:\" xmlns:E=\"EXT:\"><E:foo/><lockscope><"+scope+"/></lockscope><E:bar/><locktype><write/></locktype><E:baz/>";
       if(ownerXml != null) bodyXml += "<owner>" + ownerXml + "</owner>";
       bodyXml += "</lockinfo>";
 
@@ -281,7 +282,7 @@ namespace AdamMil.WebDAV.Server.Tests
     protected LockInfo[] QueryLocks(string requestPath, Depth depth)
     {
       XmlDocument xml = RequestXml("PROPFIND", requestPath, new string[] { DAVHeaders.Depth, GetDepthHeader(depth) },
-                                   "<propfind xmlns=\"DAV:\"><prop><lockdiscovery/></prop></propfind>", 207);
+                                   "<propfind xmlns=\"DAV:\" xmlns:E=\"EXT:\"><E:foo/><prop><lockdiscovery/></prop><E:bar/></propfind>", 207);
       XmlNamespaceManager xmlns = new XmlNamespaceManager(xml.NameTable);
       xmlns.AddNamespace("D", DAVNames.DAV);
       List<LockInfo> locks = new List<LockInfo>();
@@ -335,12 +336,12 @@ namespace AdamMil.WebDAV.Server.Tests
     {
       StringBuilder sb = new StringBuilder();
       sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>")
-        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine("<remove><prop>");
+        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\" xmlns:E=\"EXT:\">").AppendLine("<E:foo/><remove><E:bar/><prop>");
       foreach(string propertyName in properties)
       {
         sb.Append("<T:").Append(propertyName).Append("/>");
       }
-      sb.AppendLine().AppendLine("</prop></remove>").AppendLine("</propertyupdate>");
+      sb.AppendLine().AppendLine("</prop><E:baz/></remove><E:bugle/>").AppendLine("</propertyupdate>");
       TestRequest("PROPPATCH", requestPath, requestHeaders, Encoding.UTF8.GetBytes(sb.ToString()), 207);
     }
 
@@ -384,13 +385,13 @@ namespace AdamMil.WebDAV.Server.Tests
       if((properties.Length & 1) != 0) throw new ArgumentException();
       StringBuilder sb = new StringBuilder();
       sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>")
-        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine("<set><prop>");
+        .AppendLine("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\" xmlns:E=\"EXT:\">").AppendLine("<E:foo/><set><E:bar/><prop>");
       for(int i=0; i<properties.Length; i += 2)
       {
         sb.Append("<T:").Append(properties[i]).Append('>').Append(properties[i+1]).Append("</T:").Append(properties[i]).Append('>')
           .AppendLine();
       }
-      sb.AppendLine("</prop></set>").AppendLine("</propertyupdate>");
+      sb.AppendLine("</prop><E:baz/></set><E:bozo/>").AppendLine("</propertyupdate>");
       TestRequest("PROPPATCH", requestPath, requestHeaders, Encoding.UTF8.GetBytes(sb.ToString()), 207);
     }
 
@@ -403,7 +404,7 @@ namespace AdamMil.WebDAV.Server.Tests
     {
       if((properties.Length & 1) != 0) throw new ArgumentException();
       StringBuilder sb = new StringBuilder();
-      sb.AppendLine("<propfind xmlns=\"DAV:\" xmlns:T=\"TEST:\">").AppendLine(allProps ? "<allprop/>" : "<prop>");
+      sb.AppendLine("<propfind xmlns=\"DAV:\" xmlns:T=\"TEST:\" xmlns:E=\"EXT:\"><E:foo/>").AppendLine(allProps ? "<allprop/>" : "<prop>");
       int existingCount = 0;
       for(int i=0; i<properties.Length; i += 2)
       {
@@ -411,7 +412,7 @@ namespace AdamMil.WebDAV.Server.Tests
         if(properties[i+1] != null) existingCount++;
       }
       if(!allProps) sb.AppendLine("</prop>");
-      sb.AppendLine("</propfind>");
+      sb.AppendLine("<E:bar/></propfind>");
 
       Dictionary<string, string> dict = new Dictionary<string, string>();
       foreach(XmlElement element in GetPropertyElements(requestPath, sb.ToString()))

@@ -235,7 +235,7 @@ public class FileSystemService : WebDAVService
             DirectoryResource directory = resource as DirectoryResource;
             if(resource == null) return ConditionCodes.Conflict; // nonexistent parent gets 409 Conflict as per RFC 4918 sec. 9.3
             else if(directory == null) return ConditionCodes.Forbidden; // non-directory parents don't support MKCOL
-            else directory.Info.CreateSubdirectory(HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1)));
+            else directory.Info.CreateSubdirectory(DAVUtility.UriPathDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1)));
           }
           return null;
         }
@@ -399,7 +399,7 @@ public class FileSystemService : WebDAVService
     {
       if(RootPath != null) // if we're serving a place on the filesystem...
       {
-        return Path.Combine(RootPath, HttpUtility.UrlDecode(resourcePath));
+        return Path.Combine(RootPath, DAVUtility.UriPathDecode(resourcePath));
       }
       else // otherwise, we have a virtual root that encompasses the system's drives, so we'll need to resolve it specially
       {
@@ -413,7 +413,7 @@ public class FileSystemService : WebDAVService
         DriveInfo drive = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && string.Equals(driveName, GetDriveName(d), comparison));
         if(drive == null) return null; // if there's no such drive, then we couldn't find the resource
 
-        return Path.Combine(drive.RootDirectory.FullName, HttpUtility.UrlDecode(resourcePath));
+        return Path.Combine(drive.RootDirectory.FullName, DAVUtility.UriPathDecode(resourcePath));
       }
     }
     catch(ArgumentException) // thrown when illegal characters are in the path
@@ -452,7 +452,7 @@ public class FileSystemService : WebDAVService
   {
     string path = context.RequestPath;
     int lastSlash = path.LastIndexOf('/');
-    string fileName = HttpUtility.UrlDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1));
+    string fileName = DAVUtility.UriPathDecode(lastSlash == -1 ? path : path.Substring(lastSlash+1));
     if(fileName.Length == 0) // if an attempt was made to LOCK a path with a trailing slash...
     {
       return ConditionCodes.Forbidden; // it's not clear what the client means, so deny the request
@@ -514,7 +514,7 @@ public class FileSystemService : WebDAVService
 
     try
     {
-      string combinedPath = Path.Combine(fsRoot, HttpUtility.UrlDecode(resourcePath)); // add the request path to the file system root
+      string combinedPath = Path.Combine(fsRoot, DAVUtility.UriPathDecode(resourcePath)); // add the request path to the file system root
 
       if(!hadTrailingSlash) // i decree that you can't access a file through a path with a trailing slash
       {

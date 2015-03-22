@@ -233,10 +233,16 @@ public class PropFindRequest : WebDAVRequest
   {
     // RFC4918 section 9.1 says PROPFIND should treat unspecified Depths as though infinity was specified
     if(Depth == Depth.Unspecified) Depth = Depth.SelfAndDescendants;
+    ParseRequestXml(Context.LoadRequestXml());
+  }
 
+  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body. The <see cref="XmlDocument"/> will be null if the
+  /// client did not submit a body.
+  /// </summary>
+  protected virtual void ParseRequestXml(XmlDocument xml)
+  {
     // the body of the request must either be empty (in which case we default to an allprop request) or an XML fragment describing the
     // properties desired
-    XmlDocument xml = Context.LoadRequestXml();
     if(xml == null) // if the body was empty...
     {
       IncludeAll = true; // default to an allprops match (as required by RFC 4918 section 9.1)
@@ -300,7 +306,7 @@ public class PropFindRequest : WebDAVRequest
       foreach(PropFindResource resource in Resources)
       {
         writer.WriteStartElement(DAVNames.response);
-        writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathEncode(resource.RelativePath)); // RFC 4918 s. 9.1
+        writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathPartialEncode(resource.RelativePath)); // RFC 4918 s. 9.1
 
         if(resource.properties.Count == 0) // if the resource has no properties, quickly render an empty properties collection
         {
@@ -417,7 +423,7 @@ public class PropFindRequest : WebDAVRequest
     else // otherwise, the client wants property values
     {
       // collect the dead properties for the resource
-      IDictionary<XmlQualifiedName,XmlProperty> deadProperties =
+      IDictionary<XmlQualifiedName,XmlProperty> deadProps =
         Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(canonicalPath);
 
       if(Properties.Count != 0) // if the client explicitly requested certain properties...
@@ -425,19 +431,10 @@ public class PropFindRequest : WebDAVRequest
         foreach(XmlQualifiedName name in Properties) // for each explicitly requested property name...
         {
           V value;
-          XmlProperty deadProperty;
-          if(properties.TryGetValue(name, out value))
-          {
-            setValue(resource, name, value);
-          }
-          else if(deadProperties != null && deadProperties.TryGetValue(name, out deadProperty))
-          {
-            resource.SetValue(name, GetPropFindValue(deadProperty));
-          }
-          else
-          {
-            resource.SetError(name, ConditionCodes.NotFound);
-          }
+          XmlProperty deadProp;
+          if(properties.TryGetValue(name, out value)) setValue(resource, name, value);
+          else if(deadProps != null && deadProps.TryGetValue(name, out deadProp)) resource.SetValue(name, GetPropFindValue(deadProp));
+          else resource.SetError(name, ConditionCodes.NotFound);
         }
       }
 
@@ -447,9 +444,9 @@ public class PropFindRequest : WebDAVRequest
         {
           if(!Properties.Contains(pair.Key)) setValue(resource, pair.Key, pair.Value); // set the property if we haven't already...
         }
-        if(deadProperties != null) // if there are dead properties...
+        if(deadProps != null) // if there are dead properties...
         {
-          foreach(XmlProperty deadProperty in deadProperties.Values) // add them, giving priority to property values from the service
+          foreach(XmlProperty deadProperty in deadProps.Values) // add them, giving priority to property values from the service
           {
             if(!resource.Contains(deadProperty.Name)) resource.SetValue(deadProperty.Name, GetPropFindValue(deadProperty));
           }
@@ -635,16 +632,16 @@ public class PropFindRequest : WebDAVRequest
       XmlQualifiedName qname = element.ParseQualifiedName(element.InnerText);
       writer.WriteQualifiedName(qname.Name, qname.Namespace);
     }
-    else // otherwise, write it out verbatim
+    else // otherwise, write it normally
     {
-      foreach(XmlNode node in element.ChildNodes)
+      for(XmlNode child = element.FirstChild; child != null; child = child.NextSibling)
       {
-        switch(node.NodeType)
+        switch(child.NodeType)
         {
-          case XmlNodeType.CDATA: writer.WriteCData(node.Value); break;
-          case XmlNodeType.Element: WriteElement(response, (XmlElement)node, false); break; // we already got the language into the output
-          case XmlNodeType.SignificantWhitespace: case XmlNodeType.Whitespace: writer.WriteWhitespace(node.Value); break;
-          case XmlNodeType.Text: writer.WriteString(node.Value); break;
+          case XmlNodeType.CDATA: writer.WriteCData(child.Value); break;
+          case XmlNodeType.Element: WriteElement(response, (XmlElement)child, false); break; // we already got the language into the output
+          case XmlNodeType.SignificantWhitespace: case XmlNodeType.Whitespace: writer.WriteWhitespace(child.Value); break;
+          case XmlNodeType.Text: writer.WriteString(child.Value); break;
         }
       }
     }
@@ -665,7 +662,7 @@ public class PropFindRequest : WebDAVRequest
 public sealed class PropFindResource
 {
   /// <summary>Initializes a new <see cref="PropFindResource"/> given the path to the resource, relative to the
-  /// <see cref="WebDAVContext.ServiceRoot"/>. This is usually but not necessarily the canonical path.
+  /// <see cref="WebDAVContext.ServiceRoot"/>. The path should have a prefix equal to the <see cref="WebDAVContext.RequestPath"/>.
   /// </summary>
   public PropFindResource(string relativePath)
   {
@@ -950,7 +947,7 @@ public sealed class PropFindResource
       }
     }
 
-    foreach(XmlNode child in element.ChildNodes)
+    for(XmlNode child = element.FirstChild; child != null; child = child.NextSibling)
     {
       if(child.NodeType == XmlNodeType.Element) AddElementNamespaces((XmlElement)child, namespaces);
     }

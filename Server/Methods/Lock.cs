@@ -292,7 +292,14 @@ public class LockRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
-    XmlDocument xml = Context.LoadRequestXml();
+    ParseRequestXml(Context.LoadRequestXml());
+  }
+
+  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body. The <see cref="XmlDocument"/> will be null if the
+  /// client did not submit a body.
+  /// </summary>
+  protected virtual void ParseRequestXml(XmlDocument xml)
+  {
     if(xml == null) // if there's no request body, then the client wants us to refresh a lock
     {
       // RFC 4918 section 9.10.2 requires exactly one lock token to be submitted for refresh

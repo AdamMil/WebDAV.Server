@@ -347,7 +347,7 @@ public class CopyOrMoveRequest : WebDAVRequest
       if(Destination.Service == null) // if the destination service couldn't be resolved, construct the root and paths from the URI
       {
         destServiceRoot = DAVUtility.WithTrailingSlash(Destination.Uri.GetLeftPart(UriPartial.Authority));
-        destRequestPath = DAVUtility.UriPathDecode(Destination.Uri.AbsolutePath).TrimStart('/');
+        destRequestPath = DAVUtility.UriPathPartialDecode(Destination.Uri.AbsolutePath).TrimStart('/');
       }
       success = ProcessStandardRequest(requestResource, Context.RequestPath, destServiceRoot, destRequestPath,
                                        deleteSource, createDest, getChildren);

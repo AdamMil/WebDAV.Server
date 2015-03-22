@@ -145,7 +145,7 @@ public sealed class XmlProperty
   /// </remarks>
   public XmlElement GetElement()
   {
-    return Element == null ? null : Element.Extract(); // TODO: construct a new element if element == null?
+    return Element == null ? null : Element.Extract();
   }
 
   /// <summary>Saves the property to a <see cref="BinaryWriter"/>.</summary>

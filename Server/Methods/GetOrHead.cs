@@ -263,7 +263,7 @@ public class GetOrHeadRequest : WebDAVRequest
     /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given path segment.</summary>
     /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment']" />
     /// <remarks>The name of the item will be initialized by URL-decoding the path segment and removing any trailing slash.</remarks>
-    public IndexItem(string pathSegment) : this(pathSegment, DAVUtility.RemoveTrailingSlash(HttpUtility.UrlDecode(pathSegment))) { }
+    public IndexItem(string pathSegment) : this(pathSegment, DAVUtility.RemoveTrailingSlash(DAVUtility.UriPathDecode(pathSegment))) { }
 
     /// <summary>Initializes a new <see cref="IndexItem"/> with the given path segment.</summary>
     /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment' or @name = 'isDirectory']" />
@@ -438,7 +438,7 @@ public class GetOrHeadRequest : WebDAVRequest
     {
       if(item == null) throw new ArgumentException("An item was null.");
       string encodedName = HttpUtility.HtmlEncode(item.Name), encodedType = HttpUtility.HtmlEncode(item.Type);
-      string encodedUrl  = HttpUtility.HtmlEncode(DAVUtility.UriPathEncode(item.PathSegment));
+      string encodedUrl  = HttpUtility.HtmlEncode(DAVUtility.UriPathPartialEncode(item.PathSegment));
       if(item.IsDirectory) encodedUrl = DAVUtility.WithTrailingSlash(encodedUrl);
       sb.Append("<tr><td><a href=\"").Append(encodedUrl).Append("\">").Append(encodedName).Append("</a></td><td>")
         .Append(encodedType ?? (item.IsDirectory ? "&lt;DIR&gt;" : null)).Append("</td><td>")

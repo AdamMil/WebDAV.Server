@@ -684,29 +684,24 @@ public static class DAVUtility
   /// URL-escaping those characters after calling this method, for instance if a resource name itself may contain a semicolon using the
   /// previous example. The hex digits used in such additional escaping must be normalized to uppercase. A service must not use any
   /// characters that must be escaped in URLs for this purpose. (See RFC 3986. Common safe delimiters are semicolon, comma, and equals.)
-  /// Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathEncode"/>.
+  /// Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathPartialEncode"/>.
   /// </remarks>
   public static string CanonicalPathEncode(string path)
   {
     if(!string.IsNullOrEmpty(path))
     {
-      for(int i=0; i<path.Length; i++)
+      int i = path.IndexOf('%');
+      if(i >= 0)
       {
-        char c = path[i];
-        if(c == '%')
+        StringBuilder sb = new StringBuilder(path.Length + 12);
+        sb.Append(path, 0, i);
+        do
         {
-          StringBuilder sb = new StringBuilder(path.Length + 12);
-          sb.Append(path, 0, i);
-          while(true)
-          {
-            if(c == '%') sb.Append("%25");
-            else sb.Append(c);
-            if(++i == path.Length) break;
-            c = path[i];
-          }
-          path = sb.ToString();
-          break;
-        }
+          char c = path[i];
+          if(c == '%') sb.Append("%25");
+          else sb.Append(c);
+        } while(++i < path.Length);
+        path = sb.ToString();
       }
     }
 
@@ -725,7 +720,7 @@ public static class DAVUtility
   /// is responsible for minimally URL-escaping those characters after calling this method, for instance if a resource name itself may
   /// contain a semicolon using the previous example. The hex digits used in such additional escaping must be normalized to uppercase.
   /// A service must not use any characters that must be escaped in URLs for this purpose. (See RFC 3986. Common safe delimiters are
-  /// semicolon, comma, and equals.) Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathEncode"/>.
+  /// semicolon, comma, and equals.) Otherwise, such characters will later be incorrectly escaped by <see cref="UriPathPartialEncode"/>.
   /// </remarks>
   public static string CanonicalSegmentEncode(string pathSegment)
   {
@@ -923,70 +918,33 @@ public static class DAVUtility
   /// <summary>Decodes a path from a URI into a minimally escaped form (see <see cref="CanonicalPathEncode"/>) that can be used in the
   /// construction of canonical paths.
   /// </summary>
-  public static string UriPathDecode(string path)
+  public static string UriPathPartialDecode(string path)
   {
     if(!string.IsNullOrEmpty(path))
     {
-      for(int i=0; i<path.Length; i++)
+      int i = path.IndexOf('%');
+      if(i >= 0)
       {
-        char c = path[i];
-        if(c == '%')
+        StringBuilder sb = new StringBuilder(path.Length);
+        sb.Append(path, 0, i);
+        UriDecoder decoder = new UriDecoder();
+        do
         {
-          StringBuilder sb = new StringBuilder(path.Length);
-          sb.Append(path, 0, i);
-          Decoder decoder = null;
-          byte[] bytes = null;
-          char[] chars = null;
-          while(true)
+          char c = path[i];
+          if(c != '%')
           {
-            if(c != '%')
-            {
-              sb.Append(c);
-            }
-            else
-            {
-              byte hi, lo;
-              if(i+2 >= path.Length || !BinaryUtility.TryParseHex(path[++i], out hi) || !BinaryUtility.TryParseHex(path[++i], out lo))
-              {
-                throw new FormatException();
-              }
-
-              c = (char)((hi<<4) | lo);
-              if(c >= 128) // UTF-8 characters less than 128 are mapped directly to low ASCII. characters greater than that must be decoded
-              {
-                if(bytes == null)
-                {
-                  bytes   = new byte[1];
-                  chars   = new char[1];
-                  decoder = Encoding.UTF8.GetDecoder();
-                }
-
-                bytes[0] = (byte)c;
-                for(int length=1; ; length++)
-                {
-                  if(decoder.GetChars(bytes, 0, 1, chars, 0, false) != 0) break;
-                  if(length == 4) throw new FormatException(); // as Bill Gates said, 4 bytes ought to be enough for anybody decoding UTF-8
-                  if(i+2 >= path.Length || !BinaryUtility.TryParseHex(path[++i], out hi) || !BinaryUtility.TryParseHex(path[++i], out lo))
-                  {
-                    throw new FormatException("Invalid UTF-8-encoded character in URL.");
-                  }
-                  bytes[0] = (byte)((hi<<4) | lo);
-                }
-                c = chars[0];
-              }
-
-              // slash and percent remain encoded in minimally encoded paths
-              if(c == '/') sb.Append("%2F"); // hex digits should be normalized to uppercase (RFC 3986 section 6.2.2.1)
-              else if(c == '%') sb.Append("%25");
-              else sb.Append(c);
-            }
-
-            if(++i == path.Length) break;
-            c = path[i];
+            sb.Append(c);
           }
-          path = sb.ToString();
-          break;
-        }
+          else
+          {
+            c = decoder.Decode(path, ref i);
+            // slash and percent remain encoded in minimally encoded paths
+            if(c == '/') sb.Append("%2F"); // hex digits should be normalized to uppercase (RFC 3986 section 6.2.2.1)
+            else if(c == '%') sb.Append("%25");
+            else sb.Append(c);
+          }
+        } while(++i < path.Length);
+        path = sb.ToString();
       }
     }
     return path;
@@ -999,7 +957,7 @@ public static class DAVUtility
   /// <remarks>This encodes characters that are reserved within paths according to RFC 3986, except for the two characters assumed to have
   /// already been encoded by <see cref="CanonicalSegmentEncode"/>.
   /// </remarks>
-  public static string UriPathEncode(string path)
+  public static string UriPathPartialEncode(string path)
   {
     if(!string.IsNullOrEmpty(path))
     {
@@ -1026,7 +984,7 @@ public static class DAVUtility
               else // otherwise, we have to go through the whole encoding process
               {
                 if(bytes == null) bytes = new byte[4]; // all UTF-8 characters fit in 4 bytes
-                for(int j=0, count=Encoding.UTF8.GetBytes(path, j, 1, bytes, 0); j<count; j++)
+                for(int j=0, count=Encoding.UTF8.GetBytes(path, i, 1, bytes, 0); j<count; j++)
                 {
                   byte value = bytes[j];
                   sb.Append('%').Append(BinaryUtility.ToHexChar((byte)(value >> 4))).Append(BinaryUtility.ToHexChar((byte)(value & 15)));
@@ -1042,6 +1000,41 @@ public static class DAVUtility
       }
     }
 
+    return path;
+  }
+
+  /// <summary>Normalizes the set of encoded characters in a path. The result will have the minimal set of characters encoded while still
+  /// being legal to insert into a URI path. This is equivalent to using <see cref="UriPathPartialDecode"/> and then
+  /// <see cref="UriPathPartialEncode"/> on the result.
+  /// </summary>
+  public static string UriPathNormalize(string path)
+  {
+    return UriPathPartialEncode(UriPathPartialDecode(path));
+  }
+
+  /// <summary>Performs complete decoding of all percent-encoded characters within the given string. Unlike
+  /// <see cref="HttpUtility.UrlDecode(string)"/> and <see cref="o:System.Net.WebUtility.UrlDecode"/>, this method does not decode plus
+  /// signs ('+') into spaces (which is incorrect for paths) and does not accept the non-standard <c>%uXXXX</c> encoding.
+  /// </summary>
+  public static string UriPathDecode(string path)
+  {
+    if(!string.IsNullOrEmpty(path))
+    {
+      int i = path.IndexOf('%');
+      if(i >= 0)
+      {
+        StringBuilder sb = new StringBuilder(path.Length);
+        sb.Append(path, 0, i);
+        UriDecoder decoder = new UriDecoder();
+        do
+        {
+          char c = path[i];
+          if(c == '%') c = decoder.Decode(path, ref i);
+          sb.Append(c);
+        } while(++i < path.Length);
+        path = sb.ToString();
+      }
+    }
     return path;
   }
 
@@ -1342,22 +1335,23 @@ public static class DAVUtility
   internal static string UnquoteDecode(string value, int start, int length)
   {
     if(value == null) throw new ArgumentNullException();
-    for(int i=start, end=start+length; i<end; i++)
+    int i = value.IndexOf('\\', start, length);
+    if(i >= 0)
     {
-      if(value[i] == '\\')
+      for(int end=start+length; i<end; i++)
       {
         StringBuilder sb = new StringBuilder(length-1);
         sb.Append(value, start, i-start);
         do
         {
-          char c = value[i++];
+          char c = value[i];
           if(c == '\\')
           {
-            if(i == end) throw new FormatException();
-            c = value[i++];
+            if(++i == end) throw new FormatException();
+            c = value[i];
           }
           sb.Append(c);
-        } while(i < end);
+        } while(++i < end);
         return sb.ToString();
       }
     }
@@ -1498,6 +1492,57 @@ public static class DAVUtility
       }
     }
   }
+
+  #region UriDecoder
+  /// <summary>Performs decoding of percent-encoded characters in a Uri.</summary>
+  struct UriDecoder
+  {
+    /// <summary>Given a URI string and an index that points to a '%' character, returns the next character decoded from it and updates
+    /// <paramref name="index"/> to point to the last character of the encoded data.
+    /// </summary>
+    public char Decode(string str, ref int index)
+    {
+      int i = index;
+      byte hi, lo;
+      if(i+2 >= str.Length || !BinaryUtility.TryParseHex(str[++i], out hi) || !BinaryUtility.TryParseHex(str[++i], out lo))
+      {
+        throw new FormatException("Bad hex digits in URL.");
+      }
+
+      char c = (char)((hi<<4) | lo);
+      if(c >= 128) // UTF-8 characters less than 128 are mapped directly to low ASCII. characters greater than that must be decoded
+      {
+        if(decoder == null)
+        {
+          decoder = Encoding.UTF8.GetDecoder();
+          bytes   = new byte[1];
+          chars   = new char[1];
+        }
+
+        bytes[0] = (byte)c;
+        for(int length=1; ; length++)
+        {
+          if(decoder.GetChars(bytes, 0, 1, chars, 0, false) != 0) break;
+          // as Bill Gates said, 4 bytes ought to be enough for anybody (decoding UTF-8)
+          if(length == 4 || str[++i] != '%') throw new FormatException("Invalid UTF-8-encoded character in URL.");
+          if(i+2 >= str.Length || !BinaryUtility.TryParseHex(str[++i], out hi) || !BinaryUtility.TryParseHex(str[++i], out lo))
+          {
+            throw new FormatException("Bad hex digits in URL.");
+          }
+          bytes[0] = (byte)((hi<<4) | lo);
+        }
+        c = chars[0];
+      }
+
+      index = i;
+      return c;
+    }
+
+    Decoder decoder;
+    byte[] bytes;
+    char[] chars;
+  }
+  #endregion
 
   /// <summary>Determines whether the given HTTP status code allows entity bodies.</summary>
   static bool CanIncludeBody(int statusCode)
