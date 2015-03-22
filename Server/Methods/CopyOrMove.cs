@@ -191,8 +191,9 @@ public class CopyOrMoveRequest : WebDAVRequest
     /// destination using a different base URI (such as <c>http://host/</c> versus <c>https://host/</c> if the WebDAV service handles
     /// both), and a server error occured on another thread that caused the cached service object to be discarded before the destination
     /// service could be resolved. The <see cref="IWebDAVResource"/> that processes this request is responsible for determining whether the
-    /// request represents an inter- or intra-service operation. (For example, a <see cref="FileSystemResource"/> knows how to check
-    /// whether both services are <see cref="FileSystemService"/>s, and if so, whether they are serving the same root directory.)
+    /// request represents an inter- or intra-service operation. (For example, a <see cref="Services.FileSystemResource"/> knows how to
+    /// check whether both services are <see cref="Services.FileSystemService"/>s, and if so, whether they are serving the same root
+    /// directory.)
     /// </para>
     /// <para>It is also possible that even if the destination refers to a different location than the source in URL space, it can refer
     /// to overlapping locations in the underlying data store. For example, two WebDAV services at /root and /users could point to

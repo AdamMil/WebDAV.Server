@@ -33,7 +33,7 @@ using AdamMil.WebDAV.Server.Configuration;
 // TODO: some type of permissions model that allows us to separate GET access from LOCK access. we should probably tie LOCK access to
 // write access... (people can layer this on top using an authorization filter, but it may be nice to have it built-in)
 
-namespace AdamMil.WebDAV.Server
+namespace AdamMil.WebDAV.Server.Services
 {
 
 #region FileSystemService
@@ -697,8 +697,14 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
 
             return overwrote ? ConditionCodes.NoContent : ConditionCodes.Created;
           }
-          catch(DirectoryNotFoundException) { return ConditionCodes.Conflict; }
-          catch(Exception ex) { return FileSystemService.GetStatusFromException(ex); }
+          catch(DirectoryNotFoundException)
+          {
+            return ConditionCodes.Conflict;
+          }
+          catch(Exception ex)
+          {
+            return FileSystemService.GetStatusFromException(ex);
+          }
         };
       }
 
@@ -748,8 +754,7 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
     }
     else
     {
-      try { request.ProcessStandardRequest(this, resource => resource.TryGetLiveProperties(request)); }
-      catch(Exception ex) { request.Status = FileSystemService.GetStatusFromException(ex); }
+      request.ProcessStandardRequest(this, resource => resource.TryGetLiveProperties(request));
     }
   }
 
@@ -1115,8 +1120,7 @@ public class FileResource : FileSystemResource<FileInfo>
   public override void PropFind(PropFindRequest request)
   {
     if(request == null) throw new ArgumentNullException();
-    try { request.ProcessStandardRequest(GetLiveProperties(request)); }
-    catch(Exception ex) { request.Status = FileSystemService.GetStatusFromException(ex); }
+    request.ProcessStandardRequest(TryGetLiveProperties(request));
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Put/node()" />
@@ -1330,4 +1334,4 @@ public class FileSystemRootResource : FileSystemResource<FileSystemInfo>
 }
 #endregion
 
-} // namespace AdamMil.WebDAV.Server
+} // namespace AdamMil.WebDAV.Server.Services

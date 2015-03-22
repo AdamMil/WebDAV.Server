@@ -5,6 +5,7 @@ using System.Xml;
 using AdamMil.IO;
 using AdamMil.WebDAV.Server;
 using AdamMil.WebDAV.Server.Configuration;
+using AdamMil.WebDAV.Server.Services;
 
 namespace AdamMil.WebDAV.Server.Tests.Helpers
 {
