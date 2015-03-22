@@ -1,4 +1,5 @@
 ﻿using System;
+using AdamMil.WebDAV.Server.Services;
 using AdamMil.WebDAV.Server.Tests.Helpers;
 using NUnit.Framework;
 

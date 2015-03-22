@@ -149,7 +149,8 @@
                          Be aware that attribute names are case-sensitive, so if you specify an attribute named "Match" it will be
                          interpreted as a custom attribute and not the required "match" attribute.
              The built-in WebDAV service types are:
-             * AdamMil.WebDAV.Server.FileSystemService - Serves files from the filesystem. Supports the following configuration attributes:
+             * AdamMil.WebDAV.Server.Services.FileSystemService - Serves files from the filesystem. Supports the following configuration
+               attributes:
                o allowInfinitePropFind - Specifies whether the service allows infinite-depth PROPFIND queries. This may be disabled if
                                          clients can't be trusted to use them responsibly. The default is true.
                o fsRoot   - Specifies the root within the filesystem from which files will be served. Effectively, this maps the service
@@ -243,8 +244,8 @@
       <compression defaultFile="D:\data\compressionMap.xml">
         <!-- Each compression mapping element has the following attributes:
              * mediaType - The media type pattern the mapping applies to. Asterisks indicate wildcards (such as "text/*" or "*"). Wildcards
-                           in <remove> tags do not allow matching multiple <add> tags. Rather, a <remove> tag can match at most one <add>
-                           tag - the one whose mediaType attribute matches exactly.
+                           in <remove> tags do not allow removing multiple entries. Rather, a <remove> tag can remove at most one entry -
+                           the one whose mediaType attribute matches exactly.
              * compress - Specifies whether resources with the given media type should be compressed. The default is true.
              Elements will be matched in the order given. If a media type does not match any element, it will not be compressed by default.
         -->

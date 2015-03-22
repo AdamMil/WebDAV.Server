@@ -1338,22 +1338,20 @@ public static class DAVUtility
     int i = value.IndexOf('\\', start, length);
     if(i >= 0)
     {
-      for(int end=start+length; i<end; i++)
+      StringBuilder sb = new StringBuilder(length-1);
+      sb.Append(value, start, i-start);
+      int end = start + length;
+      do
       {
-        StringBuilder sb = new StringBuilder(length-1);
-        sb.Append(value, start, i-start);
-        do
+        char c = value[i];
+        if(c == '\\')
         {
-          char c = value[i];
-          if(c == '\\')
-          {
-            if(++i == end) throw new FormatException();
-            c = value[i];
-          }
-          sb.Append(c);
-        } while(++i < end);
-        return sb.ToString();
-      }
+          if(++i == end) throw new FormatException();
+          c = value[i];
+        }
+        sb.Append(c);
+      } while(++i < end);
+      return sb.ToString();
     }
 
     return value.Substring(start, length);

@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server;
+using AdamMil.WebDAV.Server.Services;
 
 namespace AdamMil.WebDAV.Server.Tests
 {
