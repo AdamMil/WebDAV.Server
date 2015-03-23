@@ -64,7 +64,7 @@ public class UnlockRequest : SimpleRequest
   /// URIs and also may allow resources to be deleted outside of WebDAV. In that case, passing the canonical URL of the nonexistent
   /// resource will allow dangling locks to be removed.
   /// </remarks>
-  public void ProcessStandardRequest(string canonicalPath)
+  public virtual void ProcessStandardRequest(string canonicalPath)
   {
     if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
     ConditionCode precondition = CheckPreconditions(null, canonicalPath);

@@ -357,7 +357,7 @@ public class GetOrHeadRequest : WebDAVRequest
   /// be "name", "type", "size", or "date" to sort by name, item type, size, or last modification date respectively. The <c>desc</c>
   /// parameter can be "0" or "1" to sort by ascending or descending order, or it can be omitted to sort by the column's default order.
   /// </remarks>
-  public void WriteSimpleIndexHtml(IEnumerable<IndexItem> children)
+  public virtual void WriteSimpleIndexHtml(IEnumerable<IndexItem> children)
   {
     if(children == null) throw new ArgumentNullException();
 
@@ -490,7 +490,7 @@ public class GetOrHeadRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[@name != 'mediaType']" />
-  public void WriteStandardResponse(Stream entityBody, EntityMetadata metadata)
+  public virtual void WriteStandardResponse(Stream entityBody, EntityMetadata metadata)
   {
     if(entityBody == null) throw new ArgumentNullException();
     if(!entityBody.CanRead) throw new ArgumentException("The entity body cannot be read.");

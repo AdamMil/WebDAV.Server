@@ -124,10 +124,10 @@ public class PropFindRequest : WebDAVRequest
 
   /// <summary>Determines whether a property must be excluded from the results.</summary>
   /// <remarks>It is usually not necessary to call this method, since if
-  /// <see cref="o:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest"/> is used, then properties will not be included unless
-  /// they are supposed to be. This method is intended for use with properties that are by default included in the results but are
-  /// nonetheless expensive to compute, so that a resource may avoid including the property value when it's not going to be sent to the
-  /// client.
+  /// <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see> is used, then properties
+  /// will not be included unless they are supposed to be. This method is intended for use with properties that are by default included
+  /// in the results but are nonetheless expensive to compute, so that a resource may avoid including the property value when it's not
+  /// going to be sent to the client.
   /// </remarks>
   public bool MustExcludeProperty(XmlQualifiedName propertyName)
   {
@@ -136,10 +136,10 @@ public class PropFindRequest : WebDAVRequest
 
   /// <summary>Determines whether a property value must be excluded from the results.</summary>
   /// <remarks>It is usually not necessary to call this method, since if
-  /// <see cref="o:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest"/> is used, then properties and property values will not
-  /// be included unless they are supposed to be. This method is intended for use with properties that are by default included in the
-  /// results but are nonetheless expensive to compute, so that a resource may avoid computing the property value when it's not going to
-  /// be sent to the client.
+  /// <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see> is used, then properties and
+  /// property values will not be included unless they are supposed to be. This method is intended for use with properties that are by
+  /// default included in the results but are nonetheless expensive to compute, so that a resource may avoid computing the property value
+  /// when it's not going to be sent to the client.
   /// </remarks>
   public bool MustExcludePropertyValue(XmlQualifiedName propertyName)
   {
@@ -226,6 +226,68 @@ public class PropFindRequest : WebDAVRequest
     where T : IStandardResource<T>
   {
     ProcessStandardRequest(rootResource, getProperties, SetPropFindValue);
+  }
+
+  /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
+  /// <see cref="Resources"/>. All <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see>
+  /// methods ultimately call this method to add properties to the output.
+  /// </summary>
+  /// <typeparam name="V">The type of property values stored within the <paramref name="properties"/> dictionary.</typeparam>
+  /// <param name="requestPath">The relative path to the resource using the <see cref="WebDAVContext.RequestPath"/> as the base. This is
+  /// the path that should be reported to the client.
+  /// </param>
+  /// <param name="canonicalPath">The canonical path to the resource. This path is used to interface with the
+  /// <see cref="IPropertyStore"/>, if any.
+  /// </param>
+  /// <param name="properties">The properties supplied by the resource. These are normally just the live properties, but they may contain
+  /// properties whose names conflict with those of dead properties, in which case these properties should take precedence.
+  /// </param>
+  /// <param name="setValue">A function that is called to add a property and its value to a <see cref="PropFindResource"/>.</param>
+  protected virtual void AddResource<V>(string requestPath, string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
+                                        Action<PropFindResource,XmlQualifiedName,V> setValue)
+  {
+    if(properties == null || setValue == null) throw new ArgumentNullException();
+    PropFindResource resource = new PropFindResource(requestPath);
+    if(NamesOnly) // if the client requested all property names...
+    {
+      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(canonicalPath).Keys); // dead property names
+      resource.SetNames(properties.Keys);
+    }
+    else // otherwise, the client wants property values
+    {
+      // collect the dead properties for the resource
+      IDictionary<XmlQualifiedName,XmlProperty> deadProps =
+        Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(canonicalPath);
+
+      if(Properties.Count != 0) // if the client explicitly requested certain properties...
+      {
+        foreach(XmlQualifiedName name in Properties) // for each explicitly requested property name...
+        {
+          V value;
+          XmlProperty deadProp;
+          if(properties.TryGetValue(name, out value)) setValue(resource, name, value);
+          else if(deadProps != null && deadProps.TryGetValue(name, out deadProp)) resource.SetValue(name, GetPropFindValue(deadProp));
+          else resource.SetError(name, ConditionCodes.NotFound);
+        }
+      }
+
+      if(IncludeAll) // if the client requested all other properties too...
+      {
+        foreach(KeyValuePair<XmlQualifiedName, V> pair in properties) // first add service properties
+        {
+          if(!Properties.Contains(pair.Key)) setValue(resource, pair.Key, pair.Value); // set the property if we haven't already...
+        }
+        if(deadProps != null) // if there are dead properties...
+        {
+          foreach(XmlProperty deadProperty in deadProps.Values) // add them, giving priority to property values from the service
+          {
+            if(!resource.Contains(deadProperty.Name)) resource.SetValue(deadProperty.Name, GetPropFindValue(deadProperty));
+          }
+        }
+      }
+    }
+
+    Resources.Add(resource);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
@@ -408,58 +470,9 @@ public class PropFindRequest : WebDAVRequest
     }
   }
 
-  /// <summary>Processes a standard request for a single resource and adds the corresponding <see cref="PropFindResource"/> to
-  /// <see cref="Resources"/>.
-  /// </summary>
-  void AddResource<V>(string requestPath, string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
-                      Action<PropFindResource,XmlQualifiedName,V> setValue)
-  {
-    PropFindResource resource = new PropFindResource(requestPath);
-    if(NamesOnly) // if the client requested all property names...
-    {
-      if(Context.PropertyStore != null) resource.SetNames(Context.PropertyStore.GetProperties(canonicalPath).Keys); // dead property names
-      resource.SetNames(properties.Keys);
-    }
-    else // otherwise, the client wants property values
-    {
-      // collect the dead properties for the resource
-      IDictionary<XmlQualifiedName,XmlProperty> deadProps =
-        Context.PropertyStore == null ? null : Context.PropertyStore.GetProperties(canonicalPath);
-
-      if(Properties.Count != 0) // if the client explicitly requested certain properties...
-      {
-        foreach(XmlQualifiedName name in Properties) // for each explicitly requested property name...
-        {
-          V value;
-          XmlProperty deadProp;
-          if(properties.TryGetValue(name, out value)) setValue(resource, name, value);
-          else if(deadProps != null && deadProps.TryGetValue(name, out deadProp)) resource.SetValue(name, GetPropFindValue(deadProp));
-          else resource.SetError(name, ConditionCodes.NotFound);
-        }
-      }
-
-      if(IncludeAll) // if the client requested all other properties too...
-      {
-        foreach(KeyValuePair<XmlQualifiedName, V> pair in properties) // first add service properties
-        {
-          if(!Properties.Contains(pair.Key)) setValue(resource, pair.Key, pair.Value); // set the property if we haven't already...
-        }
-        if(deadProps != null) // if there are dead properties...
-        {
-          foreach(XmlProperty deadProperty in deadProps.Values) // add them, giving priority to property values from the service
-          {
-            if(!resource.Contains(deadProperty.Name)) resource.SetValue(deadProperty.Name, GetPropFindValue(deadProperty));
-          }
-        }
-      }
-    }
-
-    Resources.Add(resource);
-  }
-
   /// <summary>Processes a standard request for a resource and possibly its children or descendants.</summary>
-  void ProcessStandardRequest<T,V>(T rootResource, Func<T, IDictionary<XmlQualifiedName, V>> getProperties,
-                                   Action<PropFindResource, XmlQualifiedName, V> setValue) where T : IStandardResource<T>
+  void ProcessStandardRequest<T,V>(T rootResource, Func<T,IDictionary<XmlQualifiedName,V>> getProperties,
+                                   Action<PropFindResource,XmlQualifiedName,V> setValue) where T : IStandardResource<T>
   {
     if(getProperties == null) throw new ArgumentNullException();
     ConditionCode precondition = CheckPreconditions(null);

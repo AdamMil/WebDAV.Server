@@ -225,12 +225,11 @@ public class PropPatchRequest : WebDAVRequest
   /// whose <paramref name="setProperty"/> and <paramref name="removeProperty"/> functions work transactionally, in which case
   /// <paramref name="applyChanges"/> provides the signal that the changes should be committed.
   /// </param>
-  public void ProcessStandardRequest(string canonicalPath, HashSet<XmlQualifiedName> protectedProperties,
-                                     Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
-                                     Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
-                                     Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> setProperty,
-                                     Func<XmlQualifiedName,ConditionCode> removeProperty,
-                                     Action applyChanges)
+  public virtual void ProcessStandardRequest(string canonicalPath, HashSet<XmlQualifiedName> protectedProperties,
+                                             Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
+                                             Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
+                                             Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> setProperty,
+                                             Func<XmlQualifiedName,ConditionCode> removeProperty, Action applyChanges)
   {
     if(canonicalPath == null && Context.RequestResource == null)
     {
