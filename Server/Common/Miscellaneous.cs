@@ -1013,8 +1013,9 @@ public static class DAVUtility
   }
 
   /// <summary>Performs complete decoding of all percent-encoded characters within the given string. Unlike
-  /// <see cref="HttpUtility.UrlDecode(string)"/> and <see cref="o:System.Net.WebUtility.UrlDecode"/>, this method does not decode plus
-  /// signs ('+') into spaces (which is incorrect for paths) and does not accept the non-standard <c>%uXXXX</c> encoding.
+  /// <see cref="HttpUtility.UrlDecode(string)"/> and <see cref="O:System.Net.WebUtility.UrlDecode">WebUtility.UrlDecode</see>, this method
+  /// does not decode plus signs ('+') into spaces (which is incorrect for paths) and does not accept the non-standard <c>%uXXXX</c>
+  /// encoding.
   /// </summary>
   public static string UriPathDecode(string path)
   {

@@ -894,7 +894,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         <note type="caution">
           This method does not check the <c>If-Range</c> header, because it works differently from the other <c>If-</c>
           headers. When responding to a <c>GET</c> request, you should check the <c>If-Range</c> header using
-          <see cref="GetOrHeadRequest.IfRange"/> or use <see cref="GetOrHeadRequest.WriteStandardResponse(System.IO.Stream,EntityMetadata)"/>,
+          <see cref="GetOrHeadRequest.IfRange"/> or use
+          <see cref="O:AdamMil.WebDAV.Server.GetOrHeadRequest.WriteStandardResponse">GetOrHeadRequest.WriteStandardResponse</see>,
           which checks it for you.)
         </note>
       </remarks>

@@ -250,7 +250,7 @@ public class CopyOrMoveRequest : WebDAVRequest
   /// destination path, removing all previously existing properties at the destination. This method is expected to be
   /// called from <see cref="IWebDAVService.CopyResource"/> after the copy has been successfully made.
   /// </summary>
-  public void PostProcessCopy(string canonicalSourcePath, string canonicalDestPath)
+  public virtual void PostProcessCopy(string canonicalSourcePath, string canonicalDestPath)
   {
     // remove any locks that existed at the destination and copy over the dead properties
     if(Destination.LockManager != null) Destination.LockManager.RemoveLocks(canonicalDestPath, LockRemoval.Recursive);
@@ -277,9 +277,9 @@ public class CopyOrMoveRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/CopyOrMoveRequest/ProcessStandardRequest/node()" />
-  public void ProcessStandardRequest<T>(T requestResource, Func<T, ConditionCode> deleteSource,
-                                        Func<CopyOrMoveRequest,string,T,ConditionCode> createDest, Func<T,IEnumerable<T>> getChildren)
-    where T : IStandardResource<T>
+  public virtual void ProcessStandardRequest<T>(T requestResource, Func<T, ConditionCode> deleteSource,
+                                                Func<CopyOrMoveRequest,string,T,ConditionCode> createDest,
+                                                Func<T,IEnumerable<T>> getChildren) where T : IStandardResource<T>
   {
     if(requestResource == null || IsMove && deleteSource == null) throw new ArgumentNullException();
 

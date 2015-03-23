@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Xml;
 using System.Xml.Schema;
 using AdamMil.IO;
@@ -88,7 +89,7 @@ public class XmlService : WebDAVService
       XmlElement childElem = element.FirstChild as XmlElement;
       if(childElem != null && childElem.HasName(Properties))
       {
-        properties = childElem;
+        xmlProps = childElem;
         childElem  = childElem.NextSibling as XmlElement;
       }
 
@@ -128,9 +129,9 @@ public class XmlService : WebDAVService
 
     public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
     {
-      EntityMetadata local = metadata;
-      if(local == null)
-      {
+      EntityMetadata local = metadata; // since XmlService shares resources between threads, rather than allocating them on each request,
+      if(local == null)                // build up the metadata in a local variable to prevent threads from returning incomplete metadata.
+      {                                // this lets us avoid locking
         local = new EntityMetadata();
         if(!IsCollection)
         {
@@ -168,40 +169,7 @@ public class XmlService : WebDAVService
     public override void PropFind(PropFindRequest request)
     {
       if(request == null) throw new ArgumentNullException();
-      request.ProcessStandardRequest(this, r =>
-      {
-        Dictionary<XmlQualifiedName, PropFindValue> properties = new Dictionary<XmlQualifiedName, PropFindValue>();
-        // get the regular WebDAV properties
-        foreach(var pair in r.GetLiveProperties()) properties.Add(pair.Key, new PropFindValue(pair.Value));
-        // add the properties from the XML (which can override WebDAV properties)
-        if(r.properties != null)
-        {
-          foreach(XmlElement xmlProp in r.properties.ChildNodes) properties[xmlProp.GetQualifiedName()] = new PropFindValue(xmlProp);
-        }
-        return properties;
-      });
-    }
-
-    IDictionary<XmlQualifiedName,object> GetLiveProperties()
-    {
-      // return basic WebDAV properties
-      Dictionary<XmlQualifiedName, object> properties = new Dictionary<XmlQualifiedName, object>();
-      properties[DAVNames.resourcetype] = IsCollection ? ResourceType.Collection : null;
-      if(!IsCollection)
-      {
-        EntityMetadata metadata = GetEntityMetadata(true);
-        properties[DAVNames.getcontentlength] = metadata.Length;
-        properties[DAVNames.getetag]          = metadata.EntityTag;
-        if(metadata.MediaType != null) properties[DAVNames.getcontenttype] = metadata.MediaType;
-      }
-      return properties;
-    }
-
-    string GetMemberName()
-    {
-      if(path.Length < 2) return path;
-      int slash = path.LastIndexOf('/', path.Length-2);
-      return slash == -1 ? path : path.Substring(slash+1);
+      request.ProcessStandardRequest(this);
     }
 
     Stream OpenStream()
@@ -220,12 +188,27 @@ public class XmlService : WebDAVService
 
     IDictionary<XmlQualifiedName, object> IStandardResource<XmlResource>.GetLiveProperties(WebDAVContext context)
     {
-      return GetLiveProperties();
+      var properties = new Dictionary<XmlQualifiedName, object>();
+      properties[DAVNames.resourcetype] = IsCollection ? ResourceType.Collection : null;
+      if(!IsCollection)
+      {
+        EntityMetadata metadata = GetEntityMetadata(true);
+        properties[DAVNames.getcontentlength] = metadata.Length;
+        properties[DAVNames.getetag]          = metadata.EntityTag;
+        if(metadata.MediaType != null) properties[DAVNames.getcontenttype] = metadata.MediaType;
+      }
+      if(xmlProps != null)
+      {
+        foreach(XmlElement xmlProp in xmlProps.ChildNodes) properties[xmlProp.GetQualifiedName()] = xmlProp;
+      }
+      return properties;
     }
 
     string IStandardResource<XmlResource>.GetMemberName(WebDAVContext context)
     {
-      return GetMemberName();
+      if(path.Length < 2) return path;
+      int slash = path.LastIndexOf('/', path.Length-2);
+      return slash == -1 ? path : path.Substring(slash+1);
     }
 
     Stream IStandardResource<XmlResource>.OpenStream(WebDAVContext context)
@@ -235,13 +218,12 @@ public class XmlService : WebDAVService
     #endregion
 
     internal readonly XmlResource[] children;
-    readonly XmlElement data, properties;
+    readonly XmlElement data, xmlProps;
     readonly string path;
     EntityMetadata metadata;
 
     const string NS = "http://adammil.net/webdav.server.examples/xmlService";
     static readonly XmlQualifiedName Children = new XmlQualifiedName("children", NS);
-    static readonly XmlQualifiedName Data = new XmlQualifiedName("data", NS);
     static readonly XmlQualifiedName Properties = new XmlQualifiedName("properties", NS);
   }
   #endregion

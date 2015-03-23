@@ -177,8 +177,8 @@ public class LockRequest : WebDAVRequest
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
   /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/node()" />
-  public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
-                                     EntityMetadata metadata, FileCreator createFile)
+  public virtual void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
+                                             EntityMetadata metadata, FileCreator createFile)
   {
     if(Context.RequestResource == null && createFile == null && !IsRefresh)
     {

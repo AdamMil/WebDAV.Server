@@ -47,7 +47,7 @@ public class MkColRequest : SimpleRequest
   /// <param name="createCollection">A function that should create the collection and return a <see cref="ConditionCode"/> indicating
   /// whether the attempt succeeded or failed, or null for a standard success code.
   /// </param>
-  public void ProcessStandardRequest(string canonicalPath, Func<ConditionCode> createCollection)
+  public virtual void ProcessStandardRequest(string canonicalPath, Func<ConditionCode> createCollection)
   {
     if(createCollection == null) throw new ArgumentNullException();
     ConditionCode precondition = CheckPreconditions(null, canonicalPath);

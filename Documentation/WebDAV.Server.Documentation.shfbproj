@@ -8,30 +8,30 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{c740931a-559e-41e0-b6bd-f62ee3783703}</ProjectGuid>
-    <SHFBSchemaVersion>1.9.3.0</SHFBSchemaVersion>
+    <SHFBSchemaVersion>1.9.9.0</SHFBSchemaVersion>
     <!-- AssemblyName, Name, and RootNamespace are not used by SHFB but Visual
          Studio adds them anyway -->
-    <AssemblyName>HiA.WebDAV.Documentation</AssemblyName>
-    <RootNamespace>HiA.WebDAV.Documentation</RootNamespace>
-    <Name>HiA.WebDAV.Documentation</Name>
+    <AssemblyName>WebDAV.Server.Documentation</AssemblyName>
+    <RootNamespace>WebDAV.Server.Documentation</RootNamespace>
+    <Name>WebDAV.Server.Documentation</Name>
     <!-- SHFB properties -->
     <OutputPath>.\output\</OutputPath>
-    <HtmlHelpName>HiA.WebDAV</HtmlHelpName>
+    <HtmlHelpName>AdamMil.WebDAV.Server</HtmlHelpName>
     <Language>en-US</Language>
     <HelpFileFormat>HtmlHelp1</HelpFileFormat>
     <IndentHtml>False</IndentHtml>
-    <FrameworkVersion>.NET 3.5</FrameworkVersion>
+    <FrameworkVersion>.NET Framework 3.5</FrameworkVersion>
     <KeepLogFile>False</KeepLogFile>
     <DisableCodeBlockComponent>False</DisableCodeBlockComponent>
     <CppCommentsFixup>False</CppCommentsFixup>
     <CleanIntermediates>True</CleanIntermediates>
-    <SyntaxFilters>CSharp</SyntaxFilters>
+    <SyntaxFilters>C#</SyntaxFilters>
     <SdkLinkTarget>Blank</SdkLinkTarget>
     <RootNamespaceContainer>False</RootNamespaceContainer>
-    <PresentationStyle>vs2005</PresentationStyle>
+    <PresentationStyle>VS2013</PresentationStyle>
     <Preliminary>True</Preliminary>
     <NamingMethod>Guid</NamingMethod>
-    <HelpTitle>HiA.WebDAV Documentation</HelpTitle>
+    <HelpTitle>AdamMil.WebDAV.Server Documentation</HelpTitle>
     <FeedbackEMailAddress>adam%40adammil.net</FeedbackEMailAddress>
     <ContentPlacement>AboveNamespaces</ContentPlacement>
     <VisibleItems>InheritedMembers, InheritedFrameworkMembers, Protected, ProtectedInternalAsProtected, SealedProtected</VisibleItems>
@@ -42,12 +42,15 @@
       </PlugInConfig>
     </PlugInConfigurations>
     <DocumentationSources>
-      <DocumentationSource sourceFile="..\HiA.WebDAV.Server\HiA.WebDAV.Server.csproj" xmlns="" />
+      <DocumentationSource sourceFile="..\Server\WebDAV.Server.csproj" />
     </DocumentationSources>
     <NamespaceSummaries>
-      <NamespaceSummaryItem name="HiA.WebDAV.Server" isDocumented="True" xmlns="">This namespace contains the classes intended to be used to create WebDAV services.</NamespaceSummaryItem>
-      <NamespaceSummaryItem name="HiA.WebDAV.Server.Configuration" isDocumented="True" xmlns="">This namespace contains configuration elements not intended to be directly used by WebDAV applications.</NamespaceSummaryItem>
+      <NamespaceSummaryItem name="AdamMil.WebDAV.Server" isDocumented="True">This namespace contains the classes intended to be used to create WebDAV services.</NamespaceSummaryItem>
+      <NamespaceSummaryItem name="AdamMil.WebDAV.Server.Configuration" isDocumented="True">This namespace contains configuration elements not intended to be directly used by WebDAV applications.</NamespaceSummaryItem>
+      <NamespaceSummaryItem name="AdamMil.WebDAV.Server.Services" isDocumented="True">This namespace contains the WebDAV services built into the AdamMil.WebDAV.Server project. The classes in this namespace are intended for users of the WebDAV server and are not needed to build a custom WebDAV service.</NamespaceSummaryItem>
     </NamespaceSummaries>
+    <MaximumGroupParts>2</MaximumGroupParts>
+    <NamespaceGrouping>False</NamespaceGrouping>
   </PropertyGroup>
   <!-- There are no properties for these groups.  AnyCPU needs to appear in
        order for Visual Studio to perform the build.  The others are optional
@@ -68,6 +71,16 @@
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|Win32' ">
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">
+      <Name>AdamMil.Collections</Name>
+      <Project>{D9724C65-C54A-4671-BA0B-40B0B38464DD}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\IO\AdamMil.IO.csproj">
+      <Name>AdamMil.IO</Name>
+      <Project>{CEB9BC77-B63F-40A1-BEDE-7C32E9B90D55}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <!-- Import the SHFB build targets -->
   <Import Project="$(SHFBROOT)\SandcastleHelpFileBuilder.targets" />
 </Project>

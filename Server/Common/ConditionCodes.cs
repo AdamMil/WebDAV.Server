@@ -234,8 +234,8 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
 #endregion
 
 #region LockTokenSubmittedConditionCode
-/// <summary>The DAV:lock-token-submitted precondition, used when the request attempts to modify a locked resource, and the corresponding
-/// lock token was not submitted.
+/// <summary>The <c>DAV:lock-token-submitted</c> precondition, used when the request attempts to modify a locked resource, and the
+/// corresponding lock token was not submitted.
 /// </summary>
 public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 {
@@ -337,15 +337,15 @@ public static class ConditionCodes
   /// </summary>
   public static readonly ConditionCode Locked = new ConditionCode(423);
 
-  /// <summary>The DAV:lock-token-matches-request-uri precondition, based on the HTTP 409 Conflict status code, used when the request URL
-  /// does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
+  /// <summary>The <c>DAV:lock-token-matches-request-uri</c> precondition, based on the HTTP 409 Conflict status code, used when the
+  /// request URL does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
   /// </summary>
   public static readonly ConditionCode LockTokenMatchesRequestUri409 =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", DAVNames.DAV),
       "The request URI does not fall within the scope of the lock token.");
 
-  /// <summary>The DAV:lock-token-matches-request-uri precondition, based on the HTTP 412 Precondition Failed status code, used when the
-  /// request URL does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
+  /// <summary>The <c>DAV:lock-token-matches-request-uri</c> precondition, based on the HTTP 412 Precondition Failed status code, used
+  /// when the request URL does not lie within the scope of the lock token submitted in the <c>Lock-Token</c> header.
   /// </summary>
   public static readonly ConditionCode LockTokenMatchesRequestUri412 =
     new ConditionCode(HttpStatusCode.Conflict, new XmlQualifiedName("lock-token-matches-request-uri", DAVNames.DAV),

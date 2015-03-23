@@ -103,6 +103,96 @@ public class PutRequest : SimpleRequest
     return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, Context.RequestResource == null, false);
   }
 
+  /// <summary>Performs standard processing of a <c>PUT</c> request. See <see cref="ProcessStandardRequest(Stream,EntityMetadata,string)"/>
+  /// and <see cref="ProcessStandardRequest(string,FileCreator)"/> for documentation of how this method should operate.
+  /// </summary>
+  protected virtual long ProcessStandardRequest(Stream entityBody, FileCreator createFile, EntityMetadata metadata, string canonicalPath)
+  {
+    if(entityBody == null) // if there's no entity body to start with...
+    {
+      if(createFile == null) throw new ArgumentNullException();
+      entityBody = new MemoryStream(); // create a temporary, empty body so we can run the precondition checks
+    }
+
+    if(!entityBody.CanWrite) throw new ArgumentException("The entity body is not writable.");
+
+    if(metadata == null)
+    {
+      metadata = Context.RequestResource == null ? new EntityMetadata() { Exists = false }
+                                                 : Context.RequestResource.GetEntityMetadata(!entityBody.CanSeek || !entityBody.CanRead);
+    }
+
+    long entityLength = metadata.Length.HasValue ? metadata.Length.Value : entityBody.CanSeek ? entityBody.Length : -1;
+
+    // if no entity tag was provided and we need one and the stream is readable and seekable (or it's readable and we'll be replacing it),
+    // compute the entity tag using the default method
+    if(metadata.Exists && metadata.EntityTag == null && entityBody.CanRead && (createFile != null || entityBody.CanSeek) &&
+       PreconditionsMayNeedEntityTag())
+    {
+      metadata = metadata.Clone();
+      metadata.EntityTag = DAVUtility.ComputeEntityTag(entityBody, entityBody.CanSeek); // compute an entity tag from the body
+      if(entityBody.CanSeek) entityBody.Position = 0;
+    }
+
+    // if we're creating a new resource, try a bit harder to canonicalize the URL
+    if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
+
+    // check request preconditions. as per the CheckPreconditions documentation, allow errors to take precedence over 304 Not Modified
+    ConditionCode status = CheckPreconditions(metadata, canonicalPath);
+    if(status != null && status.IsError)
+    {
+      Status = status;
+      return entityLength;
+    }
+
+    Stream replacementStream = null;
+    try
+    {
+      if(createFile != null)
+      {
+        status = createFile(out entityBody);
+        if(status != null && status.IsError)
+        {
+          Status = status;
+          return entityLength;
+        }
+        if(entityBody == null) throw new ContractViolationException("createStream returned a null stream.");
+        if(!metadata.Length.HasValue) entityLength = entityBody.CanSeek ? entityBody.Length : -1;
+      }
+
+      replacementStream = Context.OpenRequestBody();
+      bool isPartialUpdate; // verify that any requested partial update is valid
+      if(!CheckPartialUpdate(entityBody, entityLength, ref replacementStream, out isPartialUpdate)) return entityLength;
+
+      if(status != null) // if we have a 304 Not Modified precondition status
+      {
+        Status = status;
+      }
+      else
+      {
+        if(!isPartialUpdate) // otherwise, if it's a full update (i.e. replacement) of the entity body...
+        {
+          replacementStream.CopyTo(entityBody); // copy the replacement data to the stream and truncate it if necessary
+          if(entityBody.CanSeek && entityBody.Position < entityLength) entityBody.SetLength(entityBody.Position);
+          entityLength = entityBody.Position;
+        }
+        else // otherwise, it's a partial update...
+        {
+          entityLength = PartialPut(entityBody, entityLength, replacementStream);
+        }
+
+        // at this point, the entity body stream has been updated
+        Status = metadata.Exists ? ConditionCodes.NoContent : ConditionCodes.Created;
+      }
+    }
+    finally
+    {
+      Utility.Dispose(replacementStream);
+    }
+
+    return entityLength;
+  }
+
   bool CheckPartialUpdate(Stream entityBody, long entityLength, ref Stream replacementStream, out bool isPartialUpdate)
   {
     isPartialUpdate = false;
@@ -220,93 +310,6 @@ public class PutRequest : SimpleRequest
         entityBody.Write(saved); // and write the saved bytes into it
         entityLength += offset;
       }
-    }
-
-    return entityLength;
-  }
-
-  long ProcessStandardRequest(Stream entityBody, FileCreator createStream, EntityMetadata metadata, string canonicalPath)
-  {
-    if(entityBody == null) // if there's no entity body to start with...
-    {
-      if(createStream == null) throw new ArgumentNullException();
-      entityBody = new MemoryStream(); // create a temporary, empty body so we can run the precondition checks
-    }
-
-    if(!entityBody.CanWrite) throw new ArgumentException("The entity body is not writable.");
-
-    if(metadata == null)
-    {
-      metadata = Context.RequestResource == null ? new EntityMetadata() { Exists = false }
-                                                 : Context.RequestResource.GetEntityMetadata(!entityBody.CanSeek || !entityBody.CanRead);
-    }
-
-    long entityLength = metadata.Length.HasValue ? metadata.Length.Value : entityBody.CanSeek ? entityBody.Length : -1;
-
-    // if no entity tag was provided and we need one and the stream is readable and seekable (or it's readable and we'll be replacing it),
-    // compute the entity tag using the default method
-    if(metadata.Exists && metadata.EntityTag == null && entityBody.CanRead && (createStream != null || entityBody.CanSeek) &&
-       PreconditionsMayNeedEntityTag())
-    {
-      metadata = metadata.Clone();
-      metadata.EntityTag = DAVUtility.ComputeEntityTag(entityBody, entityBody.CanSeek); // compute an entity tag from the body
-      if(entityBody.CanSeek) entityBody.Position = 0;
-    }
-
-    // if we're creating a new resource, try a bit harder to canonicalize the URL
-    if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
-
-    // check request preconditions. as per the CheckPreconditions documentation, allow errors to take precedence over 304 Not Modified
-    ConditionCode status = CheckPreconditions(metadata, canonicalPath);
-    if(status != null && status.IsError)
-    {
-      Status = status;
-      return entityLength;
-    }
-
-    Stream replacementStream = null;
-    try
-    {
-      if(createStream != null)
-      {
-        status = createStream(out entityBody);
-        if(status != null && status.IsError)
-        {
-          Status = status;
-          return entityLength;
-        }
-        if(entityBody == null) throw new ContractViolationException("createStream returned a null stream.");
-        if(!metadata.Length.HasValue) entityLength = entityBody.CanSeek ? entityBody.Length : -1;
-      }
-
-      replacementStream = Context.OpenRequestBody();
-      bool isPartialUpdate; // verify that any requested partial update is valid
-      if(!CheckPartialUpdate(entityBody, entityLength, ref replacementStream, out isPartialUpdate)) return entityLength;
-
-      if(status != null) // if we have a 304 Not Modified precondition status
-      {
-        Status = status;
-      }
-      else
-      {
-        if(!isPartialUpdate) // otherwise, if it's a full update (i.e. replacement) of the entity body...
-        {
-          replacementStream.CopyTo(entityBody); // copy the replacement data to the stream and truncate it if necessary
-          if(entityBody.CanSeek && entityBody.Position < entityLength) entityBody.SetLength(entityBody.Position);
-          entityLength = entityBody.Position;
-        }
-        else // otherwise, it's a partial update...
-        {
-          entityLength = PartialPut(entityBody, entityLength, replacementStream);
-        }
-
-        // at this point, the entity body stream has been updated
-        Status = metadata.Exists ? ConditionCodes.NoContent : ConditionCodes.Created;
-      }
-    }
-    finally
-    {
-      Utility.Dispose(replacementStream);
     }
 
     return entityLength;

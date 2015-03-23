@@ -42,27 +42,28 @@ public class DeleteRequest : WebDAVRequest
 
   /// <summary>Completes processing of a standard <c>DELETE</c> request for the request resource. This does not delete the resource, but
   /// does remove its properties and locks. This method is intended to be called after the deletion was successfully performed, but you do
-  /// not need to call this method if you call <see cref="ProcessStandardRequest(Func{ConditionCode},bool)"/>, because it calls this method
+  /// not need to call this method if you call
+  /// <see cref="O:AdamMil.WebDAV.Server.DeleteRequest.ProcessStandardRequest">ProcessStandardRequest</see>, because it calls this method
   /// automatically.
   /// </summary>
   /// <param name="recursive">If true, locks and properties will be removed recursively. You should pass false if the request resource did
   /// not have children and true if it did have (or may have had) children.
   /// </param>
-  public void PostProcessRequest(bool recursive)
+  public virtual void PostProcessRequest(bool recursive)
   {
     PostProcessRequest(null, recursive);
   }
 
   /// <summary>Completes processing of a standard <c>DELETE</c> request for a resource. This does not delete the resource, but does remove
   /// its properties and locks. This method is intended to be called after the deletion was successfully performed, but you do not need to
-  /// call this method if you call <see cref="o:AdamMil.WebDAV.Server.DeleteRequest.ProcessStandardRequest"/>, because it calls this method
-  /// automatically.
+  /// call this method if you call <see cref="O:AdamMil.WebDAV.Server.DeleteRequest.ProcessStandardRequest">ProcessStandardRequest</see>,
+  /// because it calls this method automatically.
   /// </summary>
   /// <param name="canonicalPath">The canonical, relative path to the resource that was deleted.</param>
   /// <param name="recursive">If true, locks and properties will be removed recursively. You should pass false if the request resource did
   /// not have children and true if it did have (or may have had) children.
   /// </param>
-  public void PostProcessRequest(string canonicalPath, bool recursive)
+  public virtual void PostProcessRequest(string canonicalPath, bool recursive)
   {
     if(canonicalPath == null)
     {
@@ -95,7 +96,7 @@ public class DeleteRequest : WebDAVRequest
   /// instead.
   /// </param>
   /// <param name="recursive">False if the request resource did not have children or true if it did have (or may have had) children.</param>
-  public void ProcessStandardRequest(Func<ConditionCode> delete, bool recursive)
+  public virtual void ProcessStandardRequest(Func<ConditionCode> delete, bool recursive)
   {
     if(delete == null) throw new ArgumentNullException();
     ConditionCode precondition = CheckPreconditions(null);
@@ -119,7 +120,7 @@ public class DeleteRequest : WebDAVRequest
   /// conditions that create new resources during the deletion, the resource should have no children. If such race conditions are
   /// possible, you must decide how to handle them: either by deleting the resource recursively or failing with an error.
   /// </param>
-  public void ProcessStandardRequest<T>(T requestResource, Func<T,ConditionCode> deleteResource) where T : IStandardResource<T>
+  public virtual void ProcessStandardRequest<T>(T requestResource, Func<T, ConditionCode> deleteResource) where T : IStandardResource<T>
   {
     if(requestResource == null || deleteResource == null) throw new ArgumentNullException();
     ConditionCode precondition = CheckPreconditions(null, requestResource.CanonicalPath);
