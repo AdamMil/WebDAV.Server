@@ -1,5 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
-<!-- the default media type compression map -->
+<!-- This file contains the default media type compression map. Changes to this
+     file only take effect when the server is compiled, but you can modify this
+     file and link the modified version into a site using web.config. See
+     web.config.sample for details. (Search for "compression".)
+-->
 <!--
 AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.

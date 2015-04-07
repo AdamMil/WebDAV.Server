@@ -149,15 +149,20 @@ namespace AdamMil.WebDAV.Server.Tests
           </D:prop></D:set></D:propertyupdate>", 207));
 
       TestHelpers.AssertXmlEquals(
-          @"<D:multistatus xmlns:D=""DAV:"" xmlns=""TEST:""><D:response><D:href>/file</D:href><D:propstat><D:prop>
-          <b64/><bool/><byte/><custom/><date/><dateTime/><dateTimeZ/><decimal/><double/><duration/><empty/><float/><guid/><hex/><inf/><int/><long/><qname/><short/><sbyte/><uint/><ulong/><uri/><ushort/>
-          </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>",
+          "<D:multistatus xmlns:D=\"DAV:\" xmlns=\"TEST:\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ms=\"http://microsoft.com/wsdl/types/\">" +
+          "<D:response><D:href>/file</D:href><D:propstat><D:prop>" +
+          "<b64 xsi:type=\"xs:base64Binary\"/><bool xsi:type=\"xs:boolean\"/><byte xsi:type=\"xs:unsignedByte\"/><custom/><date xsi:type=\"xs:date\"/><dateTime xsi:type=\"xs:dateTime\"/>" +
+          "<dateTimeZ xsi:type=\"xs:dateTime\"/><decimal xsi:type=\"xs:decimal\"/><double xsi:type=\"xs:double\"/><duration xsi:type=\"xs:duration\"/><empty/><float xsi:type=\"xs:float\"/>" +
+          "<guid xsi:type=\"ms:guid\"/><hex xsi:type=\"xs:hexBinary\"/><inf xsi:type=\"xs:double\"/><int xsi:type=\"xs:int\"/><long xsi:type=\"xs:long\"/><qname xsi:type=\"xs:QName\"/>" +
+          "<short xsi:type=\"xs:short\"/><sbyte xsi:type=\"xs:byte\"/><string xsi:type=\"xs:string\"/><uint xsi:type=\"xs:unsignedInt\"/>" +
+          "<ulong xsi:type=\"xs:unsignedLong\"/><uri xsi:type=\"xs:anyURI\"/><ushort xsi:type=\"xs:unsignedShort\"/><ustring/>" +
+          "</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>",
         RequestXml("PROPPATCH", "file", null,
           "<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><set><prop>" +
           "<T:b64 xsi:type=\"xs:base64Binary\"> \t\nSGVsbG8sIHdvcmxkIQ==\t\n </T:b64>" +
           "<T:bool xsi:type=\"xs:boolean\"> \t\n1\t\n </T:bool>" +
           "<T:byte xsi:type=\"xs:unsignedByte\"> \t\n250\t\n </T:byte>" +
-          "<T:custom xml:lang=\"en\" xmlns:f=\"foo:\" xsi:type=\"f:bar\"> \t\nhi\t\n </T:custom>" +
+          "<T:custom xml:lang=\"en\" xmlns:f=\"foo:\" xmlns:g=\"bar:\" g:attr=\"atv\" xsi:type=\"f:bar\"> \t\nhi\t\n </T:custom>" + // custom types shouldn't get an xsi:type attribute in the response
           "<T:date xsi:type=\"xs:date\"> \t\n2002-10-10\t\n </T:date>" +
           "<T:dateTime xsi:type=\"xs:dateTime\"> \t\n2002-10-10T12:00:00\t\n </T:dateTime>" +
           "<T:dateTimeZ xsi:type=\"xs:dateTime\"> \t\n2002-10-10T12:00:00Z\t\n </T:dateTimeZ>" +
@@ -174,15 +179,17 @@ namespace AdamMil.WebDAV.Server.Tests
           "<T:qname xsi:type=\"xs:QName\"> \t\nxs:short\t\n </T:qname>" +
           "<T:short xsi:type=\"xs:short\"> \t\n30000\t\n </T:short>" +
           "<T:sbyte xsi:type=\"xs:byte\"> \t\n120\t\n </T:sbyte>" +
+          "<T:string xsi:type=\"xs:string\"> \t\nhello\n\t </T:string>" + // strings with a type should get an xsi:type attribute in the response
           "<T:uint xsi:type=\"xs:unsignedInt\"> \t\n3456789012\t\n </T:uint>" +
           "<T:ulong xsi:type=\"xs:unsignedLong\"> \t\n10223372036854775807\t\n </T:ulong>" +
           "<T:uri xsi:type=\"xs:anyURI\"> \t\nhttp://www.froogle.com/foo/bar\t\n </T:uri>" +
           "<T:ushort xsi:type=\"xs:unsignedShort\"> \t\n60000\t\n </T:ushort>" +
+          "<T:ustring> \t\nhello\n\t </T:ustring>" + // strings without a type shouldn't get an xsi:type attribute in the response
           "</prop></set></propertyupdate>", 207));
 
       TestHelpers.AssertXmlEquals("<multistatus xmlns=\"DAV:\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:a=\"TEST:\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><response><href>/file</href>" +
                                   "<propstat><prop><a:b64 xsi:type=\"xs:base64Binary\">SGVsbG8sIHdvcmxkIQ==</a:b64><a:bool xsi:type=\"xs:boolean\">true</a:bool><a:byte xsi:type=\"xs:unsignedByte\">250</a:byte>" +
-                                  "<a:custom xml:lang=\"en\" xmlns:f=\"foo:\" xsi:type=\"f:bar\"> \t\nhi\t\n </a:custom><a:date xsi:type=\"xs:date\">2002-10-10</a:date>" +
+                                  "<a:custom xml:lang=\"en\" xmlns:f=\"foo:\" xmlns:g=\"bar:\" g:attr=\"atv\" xsi:type=\"f:bar\"> \t\nhi\t\n </a:custom><a:date xsi:type=\"xs:date\">2002-10-10</a:date>" +
                                   "<a:dateTime xsi:type=\"xs:dateTime\">2002-10-10T12:00:00</a:dateTime><a:dateTimeZ xsi:type=\"xs:dateTime\">2002-10-10T12:00:00Z</a:dateTimeZ>" +
                                   "<a:decimal xsi:type=\"xs:decimal\">12678967.543233</a:decimal><a:double xsi:type=\"xs:double\">1.26743233E+15</a:double><a:duration xsi:type=\"xs:duration\">P1Y2MT2H</a:duration>" +
                                   "<a:empty xml:lang=\"nun\"/><a:float xsi:type=\"xs:float\">1.26743237E+15</a:float>" +

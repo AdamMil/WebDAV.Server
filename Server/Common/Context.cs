@@ -241,11 +241,11 @@ public sealed class WebDAVContext
   }
 
   /// <summary>Returns <see cref="IWebDAVResource.CanonicalPath"/> if <see cref="RequestResource"/> is not null, or the result of calling
-  /// <see cref="IWebDAVService.GetCanonicalPath"/> on the <see cref="RequestPath"/> otherwise.
+  /// <see cref="IWebDAVService.GetCanonicalUnmappedPath"/> on the <see cref="RequestPath"/> otherwise.
   /// </summary>
   public string GetCanonicalPath()
   {
-    return RequestResource != null ? RequestResource.CanonicalPath : Service.GetCanonicalPath(this, RequestPath);
+    return RequestResource != null ? RequestResource.CanonicalPath : Service.GetCanonicalUnmappedPath(this, RequestPath);
   }
 
   /// <summary>Returns an <see cref="XmlDocument"/> containing the request body loaded as XML, or null if the body is empty.</summary>
@@ -346,19 +346,19 @@ public sealed class WebDAVContext
     return wrappedStream ? stream : new DelegateStream(stream, false); // make sure the real output stream won't get closed
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression' and @name != 'encoding' and @name != 'disableBuffering']" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[not(@name)]" />
   public Stream OpenResponseBody()
   {
     return OpenResponseBody(true, false);
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'encoding']" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[not(@name='encoding')]" />
   public Stream OpenResponseBody(bool enableCompression, bool disableBuffering)
   {
     return OpenResponseBody(ChooseResponseEncoding(enableCompression), disableBuffering);
   }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[@name != 'enableCompression']" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVContext/OpenResponseBody/*[not(@name='enableCompression')]" />
   public Stream OpenResponseBody(ContentEncoding encoding, bool disableBuffering)
   {
     if(Response.BufferOutput) Response.SetContentEncodingHeader(encoding); // set the Content-Encoding header if we still can
@@ -379,6 +379,55 @@ public sealed class WebDAVContext
     Response.ContentEncoding = System.Text.Encoding.UTF8;
     Response.SetContentType("application/xml"); // media type specified by RFC 4918 section 8.2
     return XmlWriter.Create(OpenResponseBody(), new XmlWriterSettings() { CloseOutput = true, IndentChars = "\t", NewLineChars = "\n" });
+  }
+
+  /// <summary>Determines whether access should be denied to the resource named by the given path in the context of the current request.</summary>
+  /// <param name="relativePath">The path to a resource, relative to <see cref="ServiceRoot"/>, or null to reference the request resource.
+  /// If this parameter is not equal to <see cref="RequestPath"/>, then the resource must exist.
+  /// </param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='denyExistence')]" />
+  public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access)
+  {
+    bool denyAccess;
+    return ShouldDenyAccess(relativePath, access, out denyAccess);
+  }
+
+  /// <summary>Determines whether access should be denied to the resource named by the given path in the context of the current request.</summary>
+  /// <param name="relativePath">The path to a resource, relative to <see cref="ServiceRoot"/>, or null to reference the request resource.
+  /// If this parameter is not equal to <see cref="RequestPath"/>, then the resource must exist.
+  /// </param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
+  public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access, out bool denyExistence)
+  {
+    IWebDAVResource resource;
+    if(relativePath == null || relativePath.OrdinalEquals(RequestPath))
+    {
+      resource = RequestResource;
+    }
+    else
+    {
+      resource = Service.ResolveResource(this, relativePath);
+      if(resource == null) throw new ArgumentException("The resource \"" + relativePath + "\" could not be found.");
+    }
+    return Service.ShouldDenyAccess(this, resource, authFilters, access, out denyExistence);
+  }
+
+  /// <summary>Determines whether access should be denied to the given resource in the context of the current request.</summary>
+  /// <param name="resource">The resource to check.</param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='denyExistence')]" />
+  public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access)
+  {
+    bool denyAccess;
+    return ShouldDenyAccess(resource, access, out denyAccess);
+  }
+
+  /// <summary>Determines whether access should be denied to the given resource in the context of the current request.</summary>
+  /// <param name="resource">The resource to check.</param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
+  public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access, out bool denyExistence)
+  {
+    if(resource == null) throw new ArgumentNullException();
+    return Service.ShouldDenyAccess(this, resource, authFilters, access, out denyExistence);
   }
 
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>

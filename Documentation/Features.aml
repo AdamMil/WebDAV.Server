@@ -1,0 +1,162 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<topic id="5d7cbaa7-8e59-40b8-8c5e-9ef1fef91eaa" revisionNumber="1">
+  <developerConceptualDocument xmlns="http://ddue.schemas.microsoft.com/authoring/2003/5" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <summary>
+      <para>Some of the more notable server features (beyond basic WebDAV support) and how to take advantage of them are described here.</para>
+    </summary>
+    
+    <introduction>
+      <autoOutline />
+    </introduction>
+
+    <section address="Features.MediaTypes">
+      <title>Configurable Media Type Mapping</title>
+      <content>
+        <para>
+          The server contains a large, built-in media type map with about 1300 mappings between media types and file
+          extensions, including all of the mappings registered with the IANA as of March 2015 and several hundred
+          unregistered mappings that are in common use.
+          The mapping is capable of handling duplicate media types and extensions using the
+          concept of canonical/default extensions and media types. (For example, text/xml and
+          application/xml both map to .xml, but application/xml is the default media type for an .xml file.
+          Similarly, image/jpeg maps to .jpg, .jpe, and .jpeg, but .jpeg is the canonical extension for an
+          image/jpeg resource.) This map can be modified or replaced using elements in web.config, or by
+          writing an external XML file, whose schema can be found in the MediaTypes.xsd file from the WebDAV server
+          distribution, and linking to the XML file from web.config. See web.config.sample for more details.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.Compression">
+      <title>Transparent Compression</title>
+      <content>
+        <para>
+          The server supports transparent gzip and deflate compression on all types of responses. For GET
+          responses, whether the response is compressed can be configured per resource and per media type (with wildcards).
+          By default, the server compresses resources with common text-based media types, such as text/*, application/xml,
+          application/*+xml, application/*+json, application/javascript, and others.
+        </para>
+        <para>
+          A service doesn't need to do anything to benefit from compression, but if a service knows that
+          particular resources are compressible or incompressible, it can mark them appropriately. The media
+          type compression map can be modified or replaced using elements in web.config, or by writing an
+          external XML file, whose schema can be found in the Compression.xsd file from the WebDAV server distribution,
+          and linking to the XML file from web.config. See web.config.sample for more details.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.Partial">
+      <title>Partial Transfers</title>
+      <content>
+        <para>
+          The server supports the Range and If-Range headers in GET requests, allowing clients to request
+          one or more portions of the resource body, and the server will choose between a regular response
+          and a MIME multipart/byteranges response appropriately. This allows clients to resume broken downloads
+          and to retrieve some types of resources without transferring the entire file content.
+          A service doesn't need to do any particular work to allow partial GETs.
+        </para>
+        <para>
+          Additionally, the server supports the Content-Range header in PUT requests, allowing clients to overwrite a
+          portion of the resource with the content from the request. This allows clients to efficiently update
+          some types of resources without transferring the entire file content. A service need only supply a
+          seekable stream to the
+          <codeEntityReference linkText="PutRequest.ProcessStandardRequest" autoUpgrade="true">M:AdamMil.WebDAV.Server.PutRequest.ProcessStandardRequest(System.IO.Stream)</codeEntityReference>
+          method to support partial PUTs. (This extension has been officially banned in the most recent HTTP
+          specification, but the server continues to support it because some clients continue to use it.
+          If you require the standard-compliant behavior of denying such requests, see the 
+          <codeEntityReference>T:AdamMil.WebDAV.Server.PutRequest</codeEntityReference> documentation.)
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.Locking">
+      <title>Locking</title>
+      <content>
+        <para>
+          The server supports locking of resources and supports multiple lock types. You can use the standard write lock,
+          which is built in, or define your own lock types by instantiating new
+          <codeEntityReference>T:AdamMil.WebDAV.Server.LockType</codeEntityReference> objects. If you want to
+          customize how locks conflict with each other, you can derive new lock type classes from
+          <codeEntityReference>T:AdamMil.WebDAV.Server.LockType</codeEntityReference> and override the appropriate methods.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.DeadProperties">
+      <title>Dead Properties</title>
+      <content>
+        <para>
+          The server supports storing arbitrary dead properties, with proper understanding of XML, including
+          xml:lang inheritance and namespace rewriting within element names, attribute names, and, in some
+          cases, attribute values and text nodes. Services don't need to do anything to support dead
+          properties outside the DAV: namespace, but if a service wants to allow clients to set live
+          properties as well as dead properties it should call
+          <codeEntityReference>M:AdamMil.WebDAV.Server.PropPatchRequest.ProcessStandardRequest(System.Func{System.Xml.XmlQualifiedName,AdamMil.WebDAV.Server.PropertyPatchValue,AdamMil.WebDAV.Server.ConditionCode},System.Func{System.Xml.XmlQualifiedName,AdamMil.WebDAV.Server.ConditionCode},System.Func{System.Xml.XmlQualifiedName,AdamMil.WebDAV.Server.PropertyPatchValue,AdamMil.WebDAV.Server.ConditionCode},System.Func{System.Xml.XmlQualifiedName,AdamMil.WebDAV.Server.ConditionCode})</codeEntityReference>
+          or a similar function.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.StrongTyping">
+      <title>Strong Typing in Property Values</title>
+      <content>
+        <para>
+          The server will usually examine the xsi:type attribute of submitted properties (where 'xsi' may be any prefix that
+          references the http://www.w3.org/2001/XMLSchema-instance namespace) and use that to
+          validate and parse the values from the client. The server understands the following types (where
+          'xs' is defined in the usual way and 'ms' references the http://microsoft.com/wsdl/types/
+          namespace): xs:anyURI, xs:base64Binary, xs:boolean, xs:byte, xs:dateTime, xs:decimal, xs:double,
+          xs:duration, xs:float, ms:guid, xs:hexBinary, xs:int, xs:long, xs:QName, xs:short, xs:string,
+          xs:unsignedByte, xs:unsignedInt, xs:unsignedLong, and xs:unsignedShort. Of particular note is
+          support for xs:QName values, where an element such as
+          <codeInline><![CDATA[<f:custom xsi:type="xs:QName" xmlns:f="foo:" xmlns:x="bar:">x:element</f:custom>]]></codeInline>
+          may be returned to the client as
+          <codeInline><![CDATA[<a:custom xsi:type="xs:QName">b:element</a:custom>]]></codeInline>
+          where the prefixes 'a' and 'b' are defined on an ancestor. The important point is that it's capable
+          of understanding that "x:element" references a name within the bar: namespace, and then ensuring
+          that the name is rewritten to represent the same qualified name in the output.
+        </para>
+        <para>
+          Associating types with properties reduces storage requirements, simplifies server-side usage of
+          properties (since services receive strongly typed values and do not need to manually parse simple
+          XML elements), and can help ensure data integrity. Services do not need to do anything to get strong
+          typing of property values unless they want to support types besides those built into the server.
+          Strongly typed properties is a WebDAV extension described in RFC 4316.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.Preconditions">
+      <title>Request Preconditions</title>
+      <content>
+        <para>
+          The server supports the various precondition headers, such as If, If-Match, If-None-Match,
+          If-Modified-Since, and If-Unmodified-Since, and is capable of applying preconditions to any request.
+          The support for preconditions can be extended to support additional headers that a service may
+          define by customizing the request classes. See the <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVRequest</codeEntityReference>
+          class for more details.
+        </para>
+      </content>
+    </section>
+
+    <section address="Features.InterserviceCopyMove">
+      <title>Interservice Copies and Moves</title>
+      <content>
+        <para>
+          The server provides a means to copy and move resources between WebDAV services even when those
+          services know nothing about each other. For instance, you can copy http://server/service1/file to
+          http://server/service2/file where /service1 serves files out of a database and /service2 represents
+          the contents of a .zip file. This is accomplished by the
+          <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.CopyResource(AdamMil.WebDAV.Server.CopyOrMoveRequest,System.String,AdamMil.WebDAV.Server.IStandardResource)</codeEntityReference>
+          method, and implementing the method allows a service to accept resources copied or moved from other
+          services. In addition to this generic method, a service can provide optimized copies and moves to
+          services that it does know about. For instance, when copying from one file system service to
+          another, native OS functions to copy and move files can be used.
+        </para>
+      </content>
+    </section>
+
+    <relatedTopics />
+  </developerConceptualDocument>
+</topic>

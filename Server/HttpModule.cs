@@ -26,10 +26,12 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.RegularExpressions;
 using System.Web;
+using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
+// TODO: what access type should ShouldDenyAccess use for LOCK and UNLOCK requests? write? a custom type? the type submitted in the body?
 // TODO: in places where we use 405 Method Not Found, RFC 7231 section 6.5.5 requires supplying an Allow header containing a
 // list of legal methods, but it would be nontrivial to construct such a header... maybe we can do it centrally, though, in
 // WebDAVModule, or by adding an IWebDAVResource/Service.GetSupportedMethods method
@@ -98,6 +100,24 @@ public sealed class UriResolution
 
 #region WebDAVModule
 /// <summary>Implements an <see cref="IHttpModule"/> that provides WebDAV services.</summary>
+/// <remarks>You can derive from this class to customize the integration with ASP.NET by overriding the <see cref="Initialize"/> method
+/// and potentially the <see cref="Dispose"/> method. If you derive from this class, you may want to override the following virtual
+/// members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="Dispose"/></term>
+///   <description>You need to clean up data when the HTTP module is disposed.</description>
+/// </item>
+/// <item>
+///   <term><see cref="Initialize"/></term>
+///   <description>You need to perform additional tasks when the HTTP module is initialized.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class WebDAVModule : IHttpModule
 {
   /// <summary>Returns the given string or null, depending on the value of <see cref="Configuration.ShowSensitiveErrors"/>.</summary>
@@ -115,16 +135,18 @@ public class WebDAVModule : IHttpModule
   ///   relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
   ///   authority of the request URI will be used.
   /// </param>
-  /// <param name="performAccessChecks">If true, authorization checks will be performed against the resource. If access is denied, the
-  /// resource may not be resolved. Note that authorization checks may consider details of the request, such as the HTTP method, when
-  /// deciding whether to grant or deny access, so if just validating an <c>If</c> header, for example, you should skip the access checks.
-  /// The result of the check will be placed in the <see cref="UriResolution.AccessDenied"/> property.
+  /// <param name="performAccessChecks">If true, authorization checks will be performed against the resource using the null (read)
+  /// permission. If access is denied, the resource may not be resolved. The result of the check will be placed in the
+  /// <see cref="UriResolution.AccessDenied"/> property.Note that authorization checks may consider details of the request, such as the
+  /// HTTP method, when deciding whether to grant or deny access, so if just validating an <c>If</c> header, for example, you should skip
+  /// the access checks. If you need to check a different permission, you should skip access checks and call
+  /// <see cref="ShouldDenyAccess(WebDAVContext,Uri,XmlQualifiedName)"/> if the resource resolves.
   /// </param>
   public static UriResolution ResolveUri(WebDAVContext context, Uri uri, bool performAccessChecks)
   {
-    if(context == null) throw new ArgumentNullException();
+    if(context == null || uri == null) throw new ArgumentNullException();
 
-    LocationConfig location = ResolveLocation(context, uri);
+    LocationConfig location = ResolveLocation(uri, context);
     UriResolution info = new UriResolution();
     if(location != null)
     {
@@ -145,7 +167,7 @@ public class WebDAVModule : IHttpModule
 
       bool denyExistence;
       if(performAccessChecks && info.Resource != null &&
-         ShouldDenyAccess(context, info.Service, info.Resource, location, out denyExistence))
+         info.Service.ShouldDenyAccess(context, info.Resource, location.AuthFilters, null, out denyExistence))
       {
         info.AccessDenied = true;
         if(denyExistence) info.Resource = null;
@@ -156,26 +178,26 @@ public class WebDAVModule : IHttpModule
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
-  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri)
+  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access)
   {
     bool denyExistence;
-    return ShouldDenyAccess(context, uri, out denyExistence);
+    return ShouldDenyAccess(context, uri, access, out denyExistence);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
   /// <param name="denyExistence">A variable that will receive a value indicating whether the WebDAV server should deny the existence of
   /// the resource.
   /// </param>
-  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, out bool denyExistence)
+  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access, out bool denyExistence)
   {
-    LocationConfig location = ResolveLocation(context, uri);
+    LocationConfig location = ResolveLocation(uri, context);
     denyExistence = false;
     bool denyAccess = false;
     if(location != null)
     {
       IWebDAVService service = location.GetService();
       IWebDAVResource resource = service.ResolveResource(context, location.GetRelativeUrl(uri, context));
-      denyAccess = resource != null && ShouldDenyAccess(context, service, resource, location, out denyExistence);
+      denyAccess = resource != null && service.ShouldDenyAccess(context, resource, location.AuthFilters, access, out denyExistence);
     }
     return denyAccess;
   }
@@ -183,16 +205,16 @@ public class WebDAVModule : IHttpModule
   /// <summary>Disposes resources related to the <see cref="IHttpModule"/>. Note that this method is distinct from
   /// <see cref="IDisposable.Dispose"/>.
   /// </summary>
-  /// <remarks>Derived classes that override this method must call the base class implementation.</remarks>
+  /// <remarks><note type="inherit">Derived classes that override this method must call the base class implementation.</note></remarks>
   protected virtual void Dispose()
   {
     // we have nothing to dispose (and we don't need to remove the event handler delegate because we hold no reference to HttpApplication)
   }
 
   /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline.</summary>
-  /// <remarks>Derived classes that override this method must call the base implementation, and if you store a reference to
-  /// <paramref name="context"/>, you must release the reference in <see cref="Dispose"/>.
-  /// </remarks>
+  /// <remarks><note type="inherit">Derived classes that override this method must call the base implementation, and if you store a
+  /// reference to <paramref name="context"/>, you must release the reference in <see cref="Dispose"/>.
+  /// </note></remarks>
   protected virtual void Initialize(HttpApplication context)
   {
     if(context == null) throw new ArgumentNullException();     // validate the argument
@@ -498,7 +520,7 @@ public class WebDAVModule : IHttpModule
   static bool DeniedAccess(WebDAVContext context, LocationConfig location)
   {
     bool denyExistence;
-    if(ShouldDenyAccess(context, context.Service, context.RequestResource, location, out denyExistence))
+    if(context.Service.ShouldDenyAccess(context, location.AuthFilters, out denyExistence))
     {
       // issuing a 404 Not Found response when the request would normally create a new resource actually reveals its existence rather than
       // hiding it because a 404 response is never normally issued for those requests. so for requests that can create new resources,
@@ -598,7 +620,7 @@ public class WebDAVModule : IHttpModule
       context.WriteStatusResponse(new ConditionCode(HttpStatusCode.BadRequest, "Invalid XML body. " + ex.Message));
       return;
     }
-    process(request);
+    if(DAVUtility.IsSuccess(request.Status)) process(request);
     request.WriteResponse();
     Utility.Dispose(request);
   }
@@ -680,7 +702,9 @@ public class WebDAVModule : IHttpModule
       }
       else if(method.OrdinalEquals(DAVMethods.Options))
       {
-        ProcessMethod(context, context.Service.CreateOptions(context), context.RequestResource.Options);
+        OptionsRequest request = context.Service.CreateOptions(context);
+        ProcessMethod(context, request, // route all server-wide queries to IWebDAVService.Options
+                      request.IsServerQuery ? (Action<OptionsRequest>)context.Service.Options : context.RequestResource.Options);
       }
       else if(method.OrdinalEquals(DAVMethods.Delete))
       {
@@ -715,7 +739,7 @@ public class WebDAVModule : IHttpModule
     return true;
   }
 
-  static LocationConfig ResolveLocation(WebDAVContext context, Uri uri)
+  static LocationConfig ResolveLocation(Uri uri, WebDAVContext context)
   {
     uri = GetAbsoluteUri(uri, context);
     // find the service that matches the URL, if any
@@ -728,31 +752,6 @@ public class WebDAVModule : IHttpModule
       }
     }
     return null;
-  }
-
-  static bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, LocationConfig location,
-                               out bool denyExistence)
-  {
-    denyExistence = false;
-    bool denyAccess = false;
-    if(location.AuthFilters != null)
-    {
-      foreach(IAuthorizationFilter filter in location.AuthFilters)
-      {
-        if(filter.ShouldDenyAccess(context, service, resource, out denyExistence))
-        {
-          denyAccess = true;
-          if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
-        }
-      }
-    }
-
-    if((!denyAccess || !denyExistence) && resource != null && resource.ShouldDenyAccess(context, service, out denyExistence))
-    {
-      denyAccess = true;
-    }
-
-    return denyAccess;
   }
 
   /// <summary>Sets a 404 Not Found status response for the request URI.</summary>

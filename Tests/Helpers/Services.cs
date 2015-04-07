@@ -30,7 +30,7 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
   #region TestMemoryService
   public sealed class TestMemoryService : WebDAVService
   {
-    public override ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
+    public override ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, IStandardResource sourceResource)
     {
       Resource resource = (Resource)ResolveResource(request.Context, destinationPath);
       if(resource != null && !request.Overwrite) return ConditionCodes.PreconditionFailed;
@@ -43,12 +43,6 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
         request.Destination.PropertyStore.SetProperties(resource.CanonicalPath, properties, true);
       }
       return ConditionCodes.NoContent;
-    }
-
-    public override string GetCanonicalPath(WebDAVContext context, string relativePath)
-    {
-      Resource resource = (Resource)ResolveResource(context, relativePath);
-      return resource != null ? resource.CanonicalPath : relativePath;
     }
 
     public override void Options(OptionsRequest request)
@@ -79,7 +73,8 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
 
       public override void CopyOrMove(CopyOrMoveRequest request)
       {
-        request.ProcessStandardRequest(this);
+        if(request.IsMove) request.Status = ConditionCodes.Forbidden;
+        else request.ProcessStandardRequest(this);
       }
 
       public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
@@ -135,9 +130,14 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
       byte[] body;
 
       #region ISourceResource Members
-      bool IStandardResource<Resource>.IsCollection
+      bool IStandardResource.IsCollection
       {
         get { return children != null; }
+      }
+
+      ConditionCode IStandardResource.Delete()
+      {
+        return ConditionCodes.Forbidden;
       }
 
       IEnumerable<Resource> IStandardResource<Resource>.GetChildren(WebDAVContext context)
@@ -145,17 +145,17 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
         return children;
       }
 
-      IDictionary<XmlQualifiedName, object> IStandardResource<Resource>.GetLiveProperties(WebDAVContext context)
+      IDictionary<XmlQualifiedName, object> IStandardResource.GetLiveProperties(WebDAVContext context)
       {
         return GetLiveProperties();
       }
 
-      string IStandardResource<Resource>.GetMemberName(WebDAVContext context)
+      string IStandardResource.GetMemberName(WebDAVContext context)
       {
         return memberName;
       }
 
-      Stream IStandardResource<Resource>.OpenStream(WebDAVContext context)
+      Stream IStandardResource.OpenStream(WebDAVContext context)
       {
         return GetStream();
       }

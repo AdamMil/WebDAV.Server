@@ -22,16 +22,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Web;
 using System.Xml;
 using AdamMil.IO;
 using AdamMil.Utilities;
 using AdamMil.WebDAV.Server.Configuration;
 
-// TODO: authorization against the request URI and/or handling of access exceptions in resolving/loading the request resource
+// TODO: authorization against the request URI (i.e. implement ShouldDenyAccess)?
 // TODO: more cleanup and refactoring...
-// TODO: some type of permissions model that allows us to separate GET access from LOCK access. we should probably tie LOCK access to
-// write access... (people can layer this on top using an authorization filter, but it may be nice to have it built-in)
 
 namespace AdamMil.WebDAV.Server.Services
 {
@@ -110,12 +107,16 @@ public class FileSystemService : WebDAVService
   public string RootPath { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/CopyResource/node()" />
-  public override ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
+  public override ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, IStandardResource sourceResource)
   {
+    if(request == null || destinationPath == null || sourceResource == null) throw new ArgumentNullException();
     if(IsReadOnly) return ConditionCodes.Forbidden;
 
     string diskPath = GetDiskPath(destinationPath);
     if(diskPath == null) return ConditionCodes.Forbidden; // the path doesn't actually exist on disk and so can't be modified
+
+    // canonicalize the path for use by the lock manager and property store
+    destinationPath = NormalizePath(destinationPath);
 
     try
     {
@@ -125,6 +126,7 @@ public class FileSystemService : WebDAVService
       {
         if(File.Exists(diskPath)) { File.Delete(diskPath); overwrote = true; }
         else if(Directory.Exists(diskPath)) { DeleteDirectory(diskPath); overwrote = true; }
+        request.PostProcessOverwrite(destinationPath);
       }
       else if(File.Exists(diskPath) || Directory.Exists(diskPath))
       {
@@ -153,9 +155,6 @@ public class FileSystemService : WebDAVService
           }
         }
       }
-
-      // canonicalize the path for use by the lock manager and property store
-      destinationPath = NormalizePath(destinationPath);
 
       // preserve creation and modification times when moving objects
       if(request.IsMove)
@@ -200,8 +199,8 @@ public class FileSystemService : WebDAVService
     else request.ProcessStandardRequest(LockType.WriteLocks, () => CreateNewFile(request.Context, null));
   }
 
-  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCanonicalPath/node()" />
-  public override string GetCanonicalPath(WebDAVContext context, string relativePath)
+  /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCanonicalUnmappedPath/node()" />
+  public override string GetCanonicalUnmappedPath(WebDAVContext context, string relativePath)
   {
     if(context == null || relativePath == null) throw new ArgumentNullException();
     return NormalizePath(relativePath);
@@ -280,8 +279,8 @@ public class FileSystemService : WebDAVService
       {
         string path = NormalizePath(request.Context.RequestPath);
         request.ProcessStandardRequest(path, delegate(out Stream s) { s = stream; return null; });
-        if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed,
-        {                                                         // write the ETag and Last-Modified headers
+        if(DAVUtility.IsSuccess(request.Status)) // if the request was successfully executed, write the ETag and Last-Modified headers
+        {
           request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
           stream.Close(); // close the file to ensure the last modified time gets updated
           request.Context.Response.Headers[DAVHeaders.LastModified] = DAVUtility.GetHttpDateHeader(File.GetLastWriteTimeUtc(path));
@@ -481,7 +480,7 @@ public class FileSystemService : WebDAVService
             status = processRequest != null ? processRequest(stream) : null;
           }
 
-          if(status != null && !status.IsSuccessful)
+          if(!DAVUtility.IsSuccess(status))
           {
             try { File.Delete(path); }
             catch { }
@@ -569,8 +568,6 @@ public class FileSystemService : WebDAVService
 
   static DateTime GetTimePropertyValue(object value)
   {
-    Func<object> getter = value as Func<object>;
-    if(getter != null) value = getter();
     if(value is DateTime) return (DateTime)value;
     else if(value is DateTimeOffset) return ((DateTimeOffset)value).UtcDateTime;
     else return default(DateTime);
@@ -616,7 +613,8 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
     }
     else
     {
-      Func<CopyOrMoveRequest,string,FileSystemResource,ConditionCode> createDest = null;
+      Func<string,FileSystemResource,ConditionCode> createDest = null;
+      Func<FileSystemResource, ConditionCode> deleteSource = null;
       if(srcService != null && destService != null) // if both services are file system services...
       {
         // check to make sure we're not attempting to copy/move to an ancestor or descendant of the source
@@ -650,50 +648,43 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
         // if we have a return code from the path check, return it or a precondition status, which may take precedence
         if(pathStatus != null)
         {
-          ConditionCode precondition = request.CheckPreconditions(null);
-          request.Status = precondition != null && (precondition.IsError || pathStatus.IsSuccessful) ? precondition : pathStatus;
+          request.Status = request.CheckPreconditions(null) ?? pathStatus;
           return;
         }
 
         // the paths were okay, so create a custom createDest implementation that uses native file copying/moving APIs
-        createDest = (req, path, sourceFile) =>
+        createDest = (path, sourceFile) =>
         {
           string diskPath = destService.GetDiskPath(path);
           if(diskPath == null) return ConditionCodes.Forbidden;
 
           try
           {
+            // canonicalize the path for use by the lock manager and property store
+            path = FileSystemService.NormalizePath(path, CaseSensitive);
+
             // delete any existing item
             bool overwrote = false;
             if(Directory.Exists(diskPath))
             {
-              if(req.Overwrite) FileSystemService.DeleteDirectory(diskPath);
+              if(request.Overwrite) FileSystemService.DeleteDirectory(diskPath);
               else return ConditionCodes.PreconditionFailed;
               overwrote = true;
             }
             else if(File.Exists(diskPath))
             {
-              if(req.Overwrite) File.Delete(diskPath);
+              if(request.Overwrite) File.Delete(diskPath);
               else return ConditionCodes.PreconditionFailed;
               overwrote = true;
             }
+            if(overwrote) request.PostProcessOverwrite(path);
 
             // copy or move the item non-recursively
-            if(req.IsCopy) sourceFile.CopyTo(diskPath);
+            if(request.IsCopy) sourceFile.CopyTo(diskPath);
             else sourceFile.MoveTo(diskPath);
 
-            // canonicalize the path for use by the lock manager and property store
-            path = FileSystemService.NormalizePath(path, CaseSensitive);
-
-            // remove any locks that existed at the destination
-            if(req.Destination.LockManager != null) req.Destination.LockManager.RemoveLocks(path, LockRemoval.Nonrecursive);
-
-            // and copy the dead properties
-            if(req.Context.PropertyStore != null && req.Destination.PropertyStore != null)
-            {
-              IEnumerable<XmlProperty> properties = req.Context.PropertyStore.GetProperties(sourceFile.CanonicalPath).Values;
-              req.Destination.PropertyStore.SetProperties(path, properties, true);
-            };
+            // copy properties and remove any locks that existed at the destination
+            request.PostProcessCopy(sourceFile.CanonicalPath, path);
 
             return overwrote ? ConditionCodes.NoContent : ConditionCodes.Created;
           }
@@ -706,22 +697,22 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
             return FileSystemService.GetStatusFromException(ex);
           }
         };
+
+        deleteSource = res =>
+        {
+          try
+          {
+            if(res.IsCollection || createDest == null) res.Delete(); // files will have already been moved if we use our custom createDest
+            return null;
+          }
+          catch(Exception ex)
+          {
+            return FileSystemService.GetStatusFromException(ex);
+          }
+        };
       }
 
-      Func<FileSystemResource,ConditionCode> deleteFile = res =>
-      {
-        try
-        {
-          if(res.IsCollection || createDest == null) res.Delete(); // files will have already been moved if we use our custom createDest
-          return ConditionCodes.NoContent;
-        }
-        catch(Exception ex)
-        {
-          return FileSystemService.GetStatusFromException(ex);
-        }
-      };
-
-      request.ProcessStandardRequest(this, deleteFile, createDest, null);
+      request.ProcessStandardRequest(this, deleteSource, createDest, null);
     }
   }
 
@@ -776,7 +767,7 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
   protected bool IsReadOnly { get; private set; }
 
   /// <summary>Gets whether the resource is a collection resource (i.e. whether it contains child resources).</summary>
-  /// <remarks>The default implementation returns false.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns false.</note></remarks>
   internal virtual bool IsCollection
   {
     get { return false; }
@@ -789,7 +780,7 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
   internal abstract void Delete();
 
   /// <summary>Enumerates the children of this resource. This function may return null if <see cref="IsCollection"/> is false.</summary>
-  /// <remarks>The default implementation returns null.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns null.</note></remarks>
   internal virtual IEnumerable<FileSystemResource> GetChildResources()
   {
     return null;
@@ -809,7 +800,7 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
   /// <summary>Returns a stream for the resource with read access, or null if the resource has no stream. The stream will be closed by the
   /// caller.
   /// </summary>
-  /// <remarks>The default implementation returns null.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns null.</note></remarks>
   internal virtual Stream OpenStream()
   {
     return null;
@@ -834,9 +825,17 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
   }
 
   #region ISourceResource<T> Members
-  bool IStandardResource<FileSystemResource>.IsCollection
+  bool IStandardResource.IsCollection
   {
     get { return IsCollection; }
+  }
+
+  ConditionCode IStandardResource.Delete()
+  {
+    if(IsReadOnly) return ConditionCodes.Forbidden;
+    try { Delete(); }
+    catch(Exception ex) { return FileSystemService.GetStatusFromException(ex); }
+    return null;
   }
 
   IEnumerable<FileSystemResource> IStandardResource<FileSystemResource>.GetChildren(WebDAVContext context)
@@ -844,17 +843,17 @@ public abstract class FileSystemResource : WebDAVResource, IStandardResource<Fil
     return TryGetChildResources();
   }
 
-  IDictionary<XmlQualifiedName, object> IStandardResource<FileSystemResource>.GetLiveProperties(WebDAVContext context)
+  IDictionary<XmlQualifiedName, object> IStandardResource.GetLiveProperties(WebDAVContext context)
   {
     return TryGetLiveProperties(null);
   }
 
-  string IStandardResource<FileSystemResource>.GetMemberName(WebDAVContext context)
+  string IStandardResource.GetMemberName(WebDAVContext context)
   {
     return GetMemberName();
   }
 
-  Stream IStandardResource<FileSystemResource>.OpenStream(WebDAVContext context)
+  Stream IStandardResource.OpenStream(WebDAVContext context)
   {
     return OpenStream();
   }
@@ -1138,7 +1137,7 @@ public class FileResource : FileSystemResource<FileInfo>
         using(FileStream stream = Info.Open(FileMode.OpenOrCreate, FileAccess.ReadWrite))
         {
           request.ProcessStandardRequest(stream, GetEntityMetadata(false));
-          if(request.Status == null || request.Status.IsSuccessful) // if the request was successfully executed...
+          if(DAVUtility.IsSuccess(request.Status)) // if the request was successfully executed...
           {
             // write the ETag and Last-Modified headers
             request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
@@ -1319,9 +1318,9 @@ public class FileSystemRootResource : FileSystemResource<FileSystemInfo>
     properties.Add(DAVNames.resourcetype, ResourceType.Collection);
     if(!IsReadOnly && request.Context.LockManager != null)
     {
-      Func<object> getLocks = () => request.Context.LockManager.GetLocks("", LockSelection.SelfAndRecursiveAncestors, null);
       properties.Add(DAVNames.supportedlock, LockType.WriteLocks);
-      properties.Add(DAVNames.lockdiscovery, getLocks);
+      properties.Add(DAVNames.lockdiscovery, request.MustExcludePropertyValue(DAVNames.lockdiscovery) ?
+        null : request.Context.LockManager.GetLocks("", LockSelection.SelfAndRecursiveAncestors, null));
     }
     return properties;
   }

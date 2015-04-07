@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
+using System.Xml;
 
 // TODO: should an authorization filter be able to filter children/descendants on recursive queries as well?
 
@@ -35,7 +36,8 @@ public interface IAuthorizationFilter
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/GetCurrentUserId/node()" />
   bool GetCurrentUserId(WebDAVContext context, out string currentUserId);
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/ShouldDenyAccess/node()" />
-  bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, out bool denyExistence);
+  bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
+                        out bool denyExistence);
 }
 #endregion
 
@@ -44,14 +46,14 @@ public interface IAuthorizationFilter
 public abstract class AuthorizationFilter : IAuthorizationFilter
 {
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/CanDeleteLock/node()" />
-  /// <remarks>The default implementation returns null.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns null.</note></remarks>
   public virtual bool? CanDeleteLock(WebDAVContext context, ActiveLock lockObject)
   {
     return null;
   }
 
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/GetCurrentUserId/node()" />
-  /// <remarks>The default implementation returns false.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns false.</note></remarks>
   public virtual bool GetCurrentUserId(WebDAVContext context, out string currentUserId)
   {
     currentUserId = null;
@@ -59,8 +61,9 @@ public abstract class AuthorizationFilter : IAuthorizationFilter
   }
 
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/ShouldDenyAccess/node()" />
-  /// <remarks>The default implementation returns false.</remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, out bool denyExistence)
+  /// <remarks><note type="inherit">The default implementation returns false.</note></remarks>
+  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
+                                       out bool denyExistence)
   {
     denyExistence = false;
     return false;

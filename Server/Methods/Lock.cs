@@ -33,20 +33,106 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>LOCK</c> request.</summary>
-/// <remarks>The <c>LOCK</c> request is described in section 9.10 of RFC 4918.</remarks>
+/// <remarks>
+/// <para>The <c>LOCK</c> request is described in section 9.10 of RFC 4918. To service a <c>LOCK</c> request, you can normally just call
+/// the <see cref="O:AdamMil.WebDAV.Server.LockRequest.ProcessStandardRequest">ProcessStandardRequest</see> method.
+/// </para>
+/// <para>If you would like to handle it yourself, you should call <see cref="ILockManager.RefreshLock"/> using the lock token returned
+/// from <see cref="WebDAVRequest.GetSubmittedLockTokens"/> if <see cref="IsRefresh"/> is true, and call <see cref="ILockManager.AddLock"/>
+/// to create a new lock if <see cref="IsRefresh"/> is false. When creating a new lock on a nonexistent resource, a new, empty,
+/// non-collection resource should be created at the request URL and locked. In any case, if the request was successful the new or
+/// refreshed lock should be set in the <see cref="NewLock"/> property so it can be reported to the client. If any resources prevent the
+/// lock from being created (e.g. due to conflicting locks), you should add them to <see cref="FailedResources"/>, unless the only conflict
+/// was with the request resource itself, in which case you should simply report the error in <see cref="WebDAVRequest.Status"/>. The list
+/// of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/> (default)</term>
+///   <description>A lock was successfully created or refreshed. The response body must contain a <c>DAV:prop</c> element that contains a
+///     <c>DAV:lockdiscovery</c> element describing the lock. Such a response will be generated automatically if you set the
+///     <see cref="NewLock"/> property. This is the default status code returned when <see cref="WebDAVRequest.Status"/> is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>207 <see cref="ConditionCodes.MultiStatus">Multi-Status</see></term>
+///   <description>This status code should be used along with a <c>DAV:multistatus</c> XML body when multiple resources prevented the lock
+///     from being created, or when a single resource that was not the request resource prevented it from being created. Such a response
+///     will automatically be generated if items are added to <see cref="FailedResources"/>. The error codes listed in this table may be used
+///     for the resources in a 207 Multi-Status response, except 409 Conflict and 412 Precondition Failed. If the request resource itself
+///     didn't prevent the lock from being created, the response should include the request resource with a
+///     424 <see cref="ConditionCodes.FailedDependency">Failed Dependency</see> status.
+///   </description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The user doesn't have permission to lock the resource, or the server refuses to lock the resource for some other reason.</description>
+/// </item>
+/// <item>
+///   <term>405 <see cref="ConditionCodes.MethodNotAllowed">Method Not Allowed</see></term>
+///   <description>The request resource does not support being locked. If you return this status code, then you must not include the
+///     <c>LOCK</c> or <c>UNLOCK</c> method in responses to <c>OPTIONS</c> requests (i.e. <see cref="OptionsRequest.SupportsLocking"/>
+///     must be false).
+///   </description>
+/// </item>
+/// <item>
+///   <term>409 <see cref="ConditionCodes.Conflict"/></term>
+///   <description>The request was submitted to an unmapped URL but a new resource could not be created because the parent collection does
+///     not exist. This collection must not be created automatically.
+///   </description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>The client attempted to refresh a lock but the request URI didn't fall within the scope of the lock, or a conditional
+///     request was not executed because the condition wasn't true.
+///   </description>
+/// </item>
+/// <item>
+///   <term>423 <see cref="ConditionCodes.Locked"/></term>
+///   <description>The resource was already locked with a conflicting lock. This may be because the locks themselves conflicted, or because
+///     the user already has a lock on the resource and isn't allowed to create another. The response body should include the
+///     <c>DAV:no-conflicting-lock</c> precondition code if applicable.
+///   </description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="GetAppropriateTimeout"/></term>
+///   <description>You want to change how the lock timeout is chosen.</description>
+/// </item>
+/// <item>
+///   <term><see cref="ParseRequestXml"/></term>
+///   <description>You want to change how the request XML body is parsed or validated.</description>
+/// </item>
+/// <item>
+///   <term><see cref="ProcessStandardRequest(IEnumerable{LockType},bool,string,EntityMetadata,FileCreator)"/></term>
+///   <description>You want to change the standard request processing.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class LockRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="LockRequest"/> based on a new WebDAV request.</summary>
   public LockRequest(WebDAVContext context) : base(context)
   {
     // section 9.10.3 of RFC 4918 says a depth of infinity is the default, and a depth of 1 is disallowed
-    if(Depth == Depth.Unspecified) Depth = Depth.SelfAndDescendants;
-    else if(Depth == Depth.SelfAndChildren) throw Exceptions.BadRequest("The Depth header cannot be 1 for LOCK requests.");
+    string value = context.Request.Headers[DAVHeaders.Depth];
+    if(string.IsNullOrEmpty(value) || "infinity".OrdinalEquals(value)) Depth = Depth.SelfAndDescendants;
+    else if("0".OrdinalEquals(value)) Depth = Depth.Self;
+    else if("1".OrdinalEquals(value)) Depth = Depth.SelfAndChildren;
+    else throw Exceptions.BadRequest("The Depth header must be 0 or infinity for LOCK requests, or unspecified.");
 
-    FailedResources = new FailedResourceCollection();
-
-    // parse the Timeout header if specified
-    string value = context.Request.Headers[DAVHeaders.Timeout];
+    // parse the Timeout header if specified. (see RFC 4918 section 10.7)
+    value = context.Request.Headers[DAVHeaders.Timeout];
     if(string.IsNullOrEmpty(value))
     {
       RequestedTimeouts = new ReadOnlyListWrapper<uint>(new uint[0]);
@@ -71,22 +157,30 @@ public class LockRequest : WebDAVRequest
       }
       RequestedTimeouts = new ReadOnlyListWrapper<uint>(requestedTimeouts);
     }
+
+    FailedResources = new FailedResourceCollection();
   }
 
   /// <summary>A function called to create a new, empty file. The function should return a <see cref="ConditionCode"/> indicating whether
   /// the attempt succeeded or failed, or null for the standard success code.
   /// </summary>
   /// <param name="canonicalPath">A variable that will receive the canonical path to the newly created file, or null to use the path
-  /// passed to the <see cref="ProcessStandardRequest(IEnumerable{LockType},bool,string,EntityMetadata,FileCreator)"/> method. This
+  /// passed to the <see cref="O:AdamMil.WebDAV.Server.LockRequest.ProcessStandardRequest">ProcessStandardRequest</see> method. This
   /// exists to support resources whose canonical path is not known before they're created.
   /// </param>
   public delegate ConditionCode FileCreator(out string canonicalPath);
 
+  /// <summary>Gets the recursion depth requested by the client in the <c>Depth</c> header.</summary>
+  public Depth Depth { get; protected set; }
+
   /// <summary>Gets a collection that should be filled with <see cref="ResourceStatus"/> objects representing resources that prevented the
-  /// request resource from being locked. A <see cref="ResourceStatus"/> object representing the request resource itself can also be added,
-  /// but if that is the only resource with an error, it is better to represent the error by setting <see cref="WebDAVRequest.Status"/> and
-  /// leaving the collection empty.
+  /// request resource from being locked.
   /// </summary>
+  /// <remarks>A <see cref="ResourceStatus"/> object representing the request resource itself can also be added, but if that is the only
+  /// resource with an error, it is better to represent the error by setting <see cref="WebDAVRequest.Status"/> and leaving the collection
+  /// empty. If the request resource itself didn't prevent the lock from being created but other resources did, you should also add the
+  /// request resource with a 424 <see cref="ConditionCodes.FailedDependency">Failed Dependency</see> status.
+  /// </remarks>
   public FailedResourceCollection FailedResources { get; private set; }
 
   /// <summary>Gets whether the client wants to refresh an existing lock, as opposed to creating a new lock.</summary>
@@ -99,9 +193,8 @@ public class LockRequest : WebDAVRequest
   /// <remarks>This property is not valid until <see cref="ParseRequest"/> has been called.</remarks>
   public LockType LockType { get; protected set; }
 
-  /// <summary>Gets or sets an <see cref="ActiveLock"/> object representing the lock created or refreshed by the lock request. This should
-  /// be set when a lock was successfully created or refreshed.
-  /// </summary>
+  /// <summary>Gets or sets an <see cref="ActiveLock"/> object representing the lock created or refreshed by the lock request.</summary>
+  /// <remarks>This property should be set when a lock was successfully created or refreshed.</remarks>
   public ActiveLock NewLock { get; set; }
 
   /// <summary>Gets arbitrary information about and supplied by the client requesting the lock. If null, no owner information was
@@ -110,20 +203,24 @@ public class LockRequest : WebDAVRequest
   /// <remarks>This property is not valid until <see cref="ParseRequest"/> has been called.</remarks>
   public XmlElement OwnerData { get; protected set; }
 
-  /// <summary>Gets a collection of lock timeout values requested by the client, from most to least preferred. The expected behavior is
-  /// that the server should use the first timeout value it finds acceptable, but the server is not required to use any of them.
-  /// If empty, no timeout value was suggested by the client, and the server should use a default timeout value (usually infinite).
-  /// </summary>
+  /// <summary>Gets a collection of lock timeout values requested by the client, from most to least preferred.</summary>
+  /// <remarks>The expected behavior is that the server should use the first timeout value it finds acceptable, but the server is not
+  /// required to use any of them. If empty, no timeout value was suggested by the client, and the server should use a default timeout
+  /// value (usually infinite).
+  /// </remarks>
   public ReadOnlyListWrapper<uint> RequestedTimeouts { get; private set; }
 
   /// <summary>Gets or sets arbitrary data to be associated with any lock created by the lock request. If null, no additional information
-  /// will be associated with the lock. This property is not used if a lock is merely refreshed and so cannot be used to alter the data
-  /// associated with an existing lock.
+  /// will be associated with the lock.
   /// </summary>
+  /// <remarks>This property is not used if a lock is merely refreshed and so cannot be used to alter the data
+  /// associated with an existing lock. This property must be set before calling a method like
+  /// <see cref="O:AdamMil.WebDAV.Server.LockRequest.ProcessStandardRequest">ProcessStandardRequest</see>.
+  /// </remarks>
   public XmlElement ServerData { get; set; }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'createFile']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/param[not(@name) or @name = 'supportedLocks' or @name = 'createFile']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, FileCreator createFile)
   {
     if(createFile == null) throw new ArgumentNullException();
@@ -131,7 +228,7 @@ public class LockRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'createFile']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/param[not(@name) or @name = 'supportedLocks' or @name = 'createFile']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, Func<ConditionCode> createFile)
   {
     if(createFile == null) throw new ArgumentNullException();
@@ -139,28 +236,28 @@ public class LockRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/param[not(@name) or @name = 'supportedLocks' or @name = 'supportsRecursiveLocks']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks)
   {
     ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, (FileCreator)null);
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/param[not(@name) or @name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, FileCreator createFile)
   {
     ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, createFile);
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for a new or existing resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/param[not(@name) or @name = 'supportedLocks' or @name = 'supportsRecursiveLocks' or @name = 'createFile']" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, Func<ConditionCode> createFile)
   {
     ProcessStandardRequest(supportedLocks, supportsRecursiveLocks, null, null, GetFileCreator(createFile));
   }
 
   /// <summary>Processes a standard <c>LOCK</c> request for an existing resource.</summary>
-  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[@name != 'createFile']" />
+  /// <include file="documentation.xml" path="/DAV/LockRequest/ProcessStandardRequest/*[not(@name='createFile')]" />
   public void ProcessStandardRequest(IEnumerable<LockType> supportedLocks, bool supportsRecursiveLocks, string canonicalPath,
                                      EntityMetadata metadata)
   {
@@ -233,7 +330,7 @@ public class LockRequest : WebDAVRequest
                 if(newCanonicalPath != null) canonicalPath = newCanonicalPath;
                 return s;
               });
-              if(status != null && !status.IsSuccessful) // if that failed...
+              if(!DAVUtility.IsSuccess(status)) // if that failed...
               {
                 Context.LockManager.RemoveLock(NewLock); // remove the lock that we added
                 NewLock = null;
@@ -260,9 +357,9 @@ public class LockRequest : WebDAVRequest
   }
 
   /// <summary>Returns the most appropriate lock timeout requested by the client, or null if the client did not request a lock timeout.</summary>
-  /// <remarks>The default implementation checks the lock timeouts requested by the user against <see cref="LockManager.MaximumTimeout"/>
-  /// if <see cref="WebDAVContext.LockManager"/> derives from <see cref="LockManager"/>.
-  /// </remarks>
+  /// <remarks><note type="inherit">The default implementation checks the lock timeouts requested by the user against
+  /// <see cref="LockManager.MaximumTimeout"/> if <see cref="WebDAVContext.LockManager"/> derives from <see cref="LockManager"/>.
+  /// </note></remarks>
   protected virtual uint? GetAppropriateTimeout()
   {
     if(RequestedTimeouts.Count == 0)
@@ -292,12 +389,18 @@ public class LockRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
+    if(Depth != Depth.SelfAndDescendants && Depth != Depth.Self)
+    {
+      Status = new ConditionCode(HttpStatusCode.BadRequest, "The Depth header must be 0 or infinity for LOCK requests, or unspecified.");
+      return;
+    }
     ParseRequestXml(Context.LoadRequestXml());
   }
 
-  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body. The <see cref="XmlDocument"/> will be null if the
-  /// client did not submit a body.
+  /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body. The <see cref="XmlDocument"/> will be null
+  /// if the client did not submit a body.
   /// </summary>
+  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     if(xml == null) // if there's no request body, then the client wants us to refresh a lock
@@ -306,8 +409,8 @@ public class LockRequest : WebDAVRequest
       HashSet<string> lockTokens = GetSubmittedLockTokens();
       if(lockTokens.Count != 1)
       {
-        throw Exceptions.BadRequest("Exactly one lock token must be submitted when refreshing a lock." +
-                                    (lockTokens.Count == 0 ? " If you intended to create a lock, the request body was missing." : null));
+        Status = new ConditionCode(HttpStatusCode.BadRequest, "Exactly one lock token must be submitted when refreshing a lock." +
+                                   (lockTokens.Count == 0 ? " If you intended to create a lock, the request body was missing." : null));
       }
     }
     else
@@ -335,16 +438,16 @@ public class LockRequest : WebDAVRequest
         }
       }
 
-      if(type == null || !exclusive.HasValue) throw Exceptions.BadRequest("Expected a valid DAV:lockinfo element.");
-      LockType = new LockType(type, exclusive.Value);
+      if(type != null && exclusive.HasValue) LockType = new LockType(type, exclusive.Value);
+      else Status = new ConditionCode(HttpStatusCode.BadRequest, "Expected a valid DAV:lockinfo element.");
     }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
-  /// <remarks>This implementation writes a multi-status response if <see cref="FailedResources"/> is not empty, outputs a
-  /// <c>DAV:lockdiscovery</c> element if <see cref="NewLock"/> is not null, and writes a response based on
+  /// <remarks><note type="inherit">This implementation writes a multi-status response if <see cref="FailedResources"/> is not empty,
+  /// outputs a <c>DAV:lockdiscovery</c> element if <see cref="NewLock"/> is not null, and writes a response based on
   /// <see cref="WebDAVRequest.Status"/> otherwise.
-  /// </remarks>
+  /// </note></remarks>
   protected internal override void WriteResponse()
   {
     if(FailedResources.Count != 0)
@@ -368,7 +471,7 @@ public class LockRequest : WebDAVRequest
         writer.WriteEndElement(); // prop
       }
     }
-    else if(Status == null || Status.IsSuccessful)
+    else if(DAVUtility.IsSuccess(Status))
     {
       throw new ContractViolationException("A successful LOCK request must set NewLock to the new or refreshed lock.");
     }
@@ -399,7 +502,7 @@ public class LockRequest : WebDAVRequest
     }
     else if(!paths.Contains(DAVUtility.RemoveTrailingSlash(lockPath))) // if the request path didn't conflict but other paths did...
     {
-      // add the resource path with a 424 Failed Dependency error
+      // add the request resource with a 424 Failed Dependency error
       FailedResources.Add(Context.ServiceRoot, Context.RequestPath, ConditionCodes.FailedDependency);
     }
     else if(FailedResources.Count == 1) // if there was only one conflict, which related to the request path...

@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<topic id="dbe28361-bdf5-4fb6-b52c-656257712c45" revisionNumber="1">
+  <developerConceptualDocument xmlns="http://ddue.schemas.microsoft.com/authoring/2003/5" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <introduction />
+    <section address="Using">
+      <title>Using and Configuring the WebDAV Server</title>
+      <content>
+        <para>
+          If you only want to use WebDAV services developed by us or a third party, as opposed to developing new WebDAV services,
+          you need only add some lines to your web.config file. The documentation for the elements that can be added to web.config
+          are documented in the web.config.sample and web.config.minimal files in the WebDAV server distribution.
+        </para>
+      </content>
+    </section>
+    <relatedTopics />
+  </developerConceptualDocument>
+</topic>

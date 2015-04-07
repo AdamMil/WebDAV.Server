@@ -171,7 +171,7 @@ public static class DAVNames
   /// <summary>The <c>xsi:type</c> attribute, used to describe the type of an element's content.</summary>
   public static readonly XmlQualifiedName xsiType = new XmlQualifiedName("type", XmlSchemaInstance);
 
-  /* Other Names */
+  /* Type Names */
   /// <summary>The <c>http://microsoft.com/wsdl/types/:guid</c> type, which represents <see cref="Guid"/> data.</summary>
   public static readonly XmlQualifiedName msGuid = new XmlQualifiedName("guid", MSWSDLTypes);
   /// <summary>The <c>xs:boolean</c> type, which represents boolean data, where <c>xs</c> refers to the
@@ -281,12 +281,13 @@ public sealed class MultiStatusResponse : IDisposable
       // add xmlns attributes to define each of the other namespaces used within the response
       foreach(string ns in namespaces)
       {
-        // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional names xsi: and xs:. this isn't
-        // strictly necessary, but makes the output more readable and increases interoperability with poorly written clients that make
-        // assumptions about namespace prefixes
+        // select a prefix name for the namespace. XmlSchemaInstance and XmlSchema get their conventional prefixes xsi and xs. also, use
+        // ms for the MS WSDL types. this isn't strictly necessary, but makes the output more readable and increases interoperability with
+        // poorly written clients that make assumptions about namespace prefixes
         string prefix = ns.OrdinalEquals(DAVNames.DAV) ? null :
                         ns.OrdinalEquals(DAVNames.XmlSchemaInstance) ? "xsi" :
-                        ns.OrdinalEquals(DAVNames.XmlSchema) ? "xs" : MakeNamespacePrefix();
+                        ns.OrdinalEquals(DAVNames.XmlSchema) ? "xs" : 
+                        ns.OrdinalEquals(DAVNames.MSWSDLTypes) ? "ms" : MakeNamespacePrefix();
         if(prefix != null) writer.WriteAttributeString("xmlns", prefix, null, ns);
       }
     }

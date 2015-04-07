@@ -64,12 +64,6 @@ public class XmlService : WebDAVService
     }
   }
 
-  public override string GetCanonicalPath(WebDAVContext context, string relativePath)
-  {
-    IWebDAVResource resource = ResolveResource(context, relativePath);
-    return resource != null ? resource.CanonicalPath : relativePath;
-  }
-
   public override IWebDAVResource ResolveResource(WebDAVContext context, string resourcePath)
   {
     // paths with slashes embedded in the path segments can't match anything. (such paths are disallowed by our schema)
@@ -186,7 +180,12 @@ public class XmlService : WebDAVService
       return children;
     }
 
-    IDictionary<XmlQualifiedName, object> IStandardResource<XmlResource>.GetLiveProperties(WebDAVContext context)
+    ConditionCode IStandardResource.Delete()
+    {
+      return ConditionCodes.Forbidden;
+    }
+
+    IDictionary<XmlQualifiedName, object> IStandardResource.GetLiveProperties(WebDAVContext context)
     {
       var properties = new Dictionary<XmlQualifiedName, object>();
       properties[DAVNames.resourcetype] = IsCollection ? ResourceType.Collection : null;
@@ -204,14 +203,14 @@ public class XmlService : WebDAVService
       return properties;
     }
 
-    string IStandardResource<XmlResource>.GetMemberName(WebDAVContext context)
+    string IStandardResource.GetMemberName(WebDAVContext context)
     {
       if(path.Length < 2) return path;
       int slash = path.LastIndexOf('/', path.Length-2);
       return slash == -1 ? path : path.Substring(slash+1);
     }
 
-    Stream IStandardResource<XmlResource>.OpenStream(WebDAVContext context)
+    Stream IStandardResource.OpenStream(WebDAVContext context)
     {
       return OpenStream();
     }

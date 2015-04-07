@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
@@ -43,7 +44,23 @@ public interface IElementValue
 #region ResourceType
 /// <summary>Represents a resource type for use with the <c>DAV:resourcetype</c> property.</summary>
 /// <remarks>You can derive new resource types from this class if you need to create resource types that contain more than a simple
-/// element name.
+/// element name. If you derive from this class, you may want to override the following virtual members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="GetNamespaces"/></term>
+///   <description>The set of XML namespaces used by the XML representation of the resource type is more than just the namespace of
+///     <see cref="Name"/>.
+///   </description>
+/// </item>
+/// <item>
+///   <term><see cref="WriteValue"/></term>
+///   <description>The XML representation of the resource type is more than just an empty XML element.</description>
+/// </item>
+/// </list>
 /// </remarks>
 public class ResourceType : IElementValue
 {
@@ -58,7 +75,7 @@ public class ResourceType : IElementValue
   }
 
   /// <summary>Returns the XML namespaces used by the resource type.</summary>
-  /// <remarks>The default implementation returns the namespace of <see cref="Name"/>.</remarks>
+  /// <remarks><note type="inherit">The default implementation returns the namespace of <see cref="Name"/>.</note></remarks>
   public virtual IEnumerable<string> GetNamespaces()
   {
     return new string[] { Name.Namespace };
@@ -67,7 +84,7 @@ public class ResourceType : IElementValue
   /// <summary>Writes the resource type XML. The XML namespaces needed by the value will have already been added to an enclosing tag, so
   /// no new <c>xmlns</c> attributes should be added.
   /// </summary>
-  /// <remarks>The default implementation writes an empty element named <see cref="Name"/>.</remarks>
+  /// <remarks><note type="inherit">The default implementation writes an empty element named <see cref="Name"/>.</note></remarks>
   public virtual void WriteValue(XmlWriter writer, WebDAVContext context)
   {
     writer.WriteEmptyElement(Name);
@@ -83,12 +100,93 @@ public class ResourceType : IElementValue
 
 #region PropFindRequest
 /// <summary>Represents a <c>PROPFIND</c> request.</summary>
-/// <remarks>The <c>PROPFIND</c> request is described in section 9.1 of RFC 4918.</remarks>
+/// <remarks>
+/// <para>The <c>PROPFIND</c> request is described in section 9.1 of RFC 4918. To service a <c>PROPFIND</c> request, you can normally
+/// just call <see cref="ProcessStandardRequest{T}(T)"/> or one of its overrides.
+/// </para>
+/// <para>If you want to handle it yourself, you should examine the <see cref="Depth"/> property to determine which resources
+/// were targeted by the user and then examine the <see cref="Properties"/>, <see cref="IncludeAll"/>, and <see cref="NamesOnly"/>
+/// properties to determine which live and dead properties were requested by the user. Then, for each resource, you should add a new
+/// <see cref="PropFindResource"/> object to <see cref="Resources"/>, and for each such object, you should add all of the property values
+/// by calling <see cref="PropFindResource.SetName(XmlQualifiedName)"/> or <see cref="PropFindResource.SetValue(XmlQualifiedName,object)"/>
+/// or their overrides. Alternately, if the entire request failed, set <see cref="WebDAVRequest.Status"/> accordingly. In either case,
+/// <see cref="WriteResponse"/> will write the response to the client. The list of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>207 <see cref="ConditionCodes.MultiStatus">Multi-Status</see> (default)</term>
+///   <description>This status code should be used along with a <c>DAV:multistatus</c> XML body to report the names, values, and statuses
+///     for the properties requested by the client. This is the default status code that will be used if <see cref="WebDAVRequest.Status"/>
+///     is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The server refuses to process the request. For instance, the client may not have access to any of the request resources,
+///     or the client have requested an infinite-depth query that the server refuses to support. In the latter case, the
+///     <c>DAV:propfind-finite-depth</c> precondition code should be included in the response.
+///   </description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>A conditional request was not executed because the condition wasn't true.</description>
+/// </item>
+/// </list>
+/// Status codes that might be used for individual properties are:
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/></term>
+///   <description>The property exists (for requests where <see cref="NamesOnly"/> is true) or its value is successfully returned.</description>
+/// </item>
+/// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The property value cannot be viewed without the appropriate authorization.</description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The property value cannot be viewed regardless of authorization.</description>
+/// </item>
+/// <item>
+///   <term>404 <see cref="ConditionCodes.NotFound">Not Found</see></term>
+///   <description>A property specifically requested by the client did not exist.</description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="AddResource"/></term>
+///   <description>You want to change how the properties for a resource are added to the response during standard request processing.</description>
+/// </item>
+/// <item>
+///   <term><see cref="ParseRequestXml"/></term>
+///   <description>You want to change how the request XML body is parsed or validated.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class PropFindRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="PropFindRequest"/> based on a new WebDAV request.</summary>
   public PropFindRequest(WebDAVContext context) : base(context)
   {
+    // RFC4918 section 9.1 says PROPFIND should treat unspecified Depths as though infinity was specified
+    string value = context.Request.Headers[DAVHeaders.Depth];
+    if(string.IsNullOrEmpty(value) || "infinity".OrdinalEquals(value)) Depth = Depth.SelfAndDescendants;
+    else if("0".OrdinalEquals(value)) Depth = Depth.Self;
+    else if("1".OrdinalEquals(value)) Depth = Depth.SelfAndChildren;
+    else throw Exceptions.BadRequest("The Depth header must be 0, 1, or infinity.");
+
     Properties = new PropertyNameSet();
     Resources  = new PropFindResourceCollection();
   }
@@ -102,6 +200,9 @@ public class PropFindRequest : WebDAVRequest
     internal PropFindResourceCollection() { }
   }
   #endregion
+
+  /// <summary>Gets the recursion depth requested by the client in the <c>Depth</c> header.</summary>
+  public Depth Depth { get; protected set; }
 
   /// <summary>Gets whether "all" properties should be included. When <see cref="NamesOnly"/> is true, all available property names should
   /// be returned (but their values needn't be computed). Otherwise, the values of the the properties listed in <see cref="Properties"/>
@@ -161,9 +262,7 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="properties">A dictionary containing the properties for the request resource. Live properties that are expensive
   /// to compute or transmit only need to be added if they are referenced by the <see cref="Properties"/> collection or if
   /// <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored and can be null). Dead properties should
-  /// not be added unless you need to override properties from the configured <see cref="IPropertyStore"/>. In addition to property values,
-  /// the dictionary can also contain <c>Func&lt;object&gt;</c> delegates that will provide the values when executed. This allows you to
-  /// add delegates that compute expensive properties only when needed.
+  /// not be added unless you need to override properties from the configured <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest(IDictionary<XmlQualifiedName, object> properties)
   {
@@ -190,7 +289,7 @@ public class PropFindRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/PropFindRequest/ProcessStandardRequestRec/node()" />
-  /// <remarks>This method will use <see cref="IStandardResource{T}.GetLiveProperties"/> to obtain the properties for a resource. This is
+  /// <remarks>This method will use <see cref="IStandardResource.GetLiveProperties"/> to obtain the properties for a resource. This is
   /// suitable if it returns all available properties, but if it omits expensive properties then you must use an override that takes a
   /// <c>getProperties</c> parameter that includes the normally-omitted properties if explicitly requested by the user.
   /// </remarks>
@@ -204,8 +303,7 @@ public class PropFindRequest : WebDAVRequest
   /// properties. Live properties that are expensive to compute or transmit only need to be returned if they are referenced by the
   /// <see cref="Properties"/> collection or if <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored
   /// and can be null). Dead properties should not be returned unless you need to override properties from the configured
-  /// <see cref="IPropertyStore"/>. In addition to property values, the dictionary can also contain <c>Func&lt;object&gt;</c> delegates
-  /// that will provide the values when executed. This allows you to add delegates that compute expensive properties only when needed.
+  /// <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest<T>(T rootResource, Func<T, IDictionary<XmlQualifiedName, object>> getProperties)
     where T : IStandardResource<T>
@@ -218,9 +316,7 @@ public class PropFindRequest : WebDAVRequest
   /// properties. Live Properties that are expensive to compute or transmit only need to be returned if they are referenced by the
   /// <see cref="Properties"/> collection or if <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored
   /// and can be null). Dead properties should not be added unless you need to override properties from the configured
-  /// <see cref="IPropertyStore"/>. In addition to property values, the <see cref="PropFindValue.Value"/>s can be <c>Func&lt;object&gt;</c>
-  /// delegates that will provide the values when executed. This allows you to add delegates that compute expensive properties only when
-  /// needed.
+  /// <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest<T>(T rootResource, Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties)
     where T : IStandardResource<T>
@@ -232,7 +328,7 @@ public class PropFindRequest : WebDAVRequest
   /// <see cref="Resources"/>. All <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see>
   /// methods ultimately call this method to add properties to the output.
   /// </summary>
-  /// <typeparam name="V">The type of property values stored within the <paramref name="properties"/> dictionary.</typeparam>
+  /// <typeparam name="TValue">The type of property values stored within the <paramref name="properties"/> dictionary.</typeparam>
   /// <param name="requestPath">The relative path to the resource using the <see cref="WebDAVContext.RequestPath"/> as the base. This is
   /// the path that should be reported to the client.
   /// </param>
@@ -243,8 +339,8 @@ public class PropFindRequest : WebDAVRequest
   /// properties whose names conflict with those of dead properties, in which case these properties should take precedence.
   /// </param>
   /// <param name="setValue">A function that is called to add a property and its value to a <see cref="PropFindResource"/>.</param>
-  protected virtual void AddResource<V>(string requestPath, string canonicalPath, IDictionary<XmlQualifiedName, V> properties,
-                                        Action<PropFindResource,XmlQualifiedName,V> setValue)
+  protected virtual void AddResource<TValue>(string requestPath, string canonicalPath, IDictionary<XmlQualifiedName, TValue> properties,
+                                             Action<PropFindResource,XmlQualifiedName,TValue> setValue)
   {
     if(properties == null || setValue == null) throw new ArgumentNullException();
     PropFindResource resource = new PropFindResource(requestPath);
@@ -263,7 +359,7 @@ public class PropFindRequest : WebDAVRequest
       {
         foreach(XmlQualifiedName name in Properties) // for each explicitly requested property name...
         {
-          V value;
+          TValue value;
           XmlProperty deadProp;
           if(properties.TryGetValue(name, out value)) setValue(resource, name, value);
           else if(deadProps != null && deadProps.TryGetValue(name, out deadProp)) resource.SetValue(name, GetPropFindValue(deadProp));
@@ -273,7 +369,7 @@ public class PropFindRequest : WebDAVRequest
 
       if(IncludeAll) // if the client requested all other properties too...
       {
-        foreach(KeyValuePair<XmlQualifiedName, V> pair in properties) // first add service properties
+        foreach(KeyValuePair<XmlQualifiedName, TValue> pair in properties) // first add service properties
         {
           if(!Properties.Contains(pair.Key)) setValue(resource, pair.Key, pair.Value); // set the property if we haven't already...
         }
@@ -293,14 +389,13 @@ public class PropFindRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
-    // RFC4918 section 9.1 says PROPFIND should treat unspecified Depths as though infinity was specified
-    if(Depth == Depth.Unspecified) Depth = Depth.SelfAndDescendants;
     ParseRequestXml(Context.LoadRequestXml());
   }
 
-  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body. The <see cref="XmlDocument"/> will be null if the
-  /// client did not submit a body.
+  /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body. The <see cref="XmlDocument"/> will be null
+  /// if the client did not submit a body.
   /// </summary>
+  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     // the body of the request must either be empty (in which case we default to an allprop request) or an XML fragment describing the
@@ -329,20 +424,30 @@ public class PropFindRequest : WebDAVRequest
       }
 
       // make sure there was exactly one query type specified, and disallow requests for no properties
-      if(!(allProp | prop | propName)) throw Exceptions.BadRequest("The type of query was not specified.");
-      if((allProp ? 1 : 0) + (prop ? 1 : 0) + (propName ? 1 : 0) > 1) throw Exceptions.BadRequest("Multiple query types were specified.");
-      if(include && !allProp) throw Exceptions.BadRequest("The include element must be used with the allprop element.");
-
-      // use the elements we saw to set Flags
-      IncludeAll = allProp | propName; // propName implies that we want /all/ names, so set IncludeAll when propName is true
-      NamesOnly  = propName;
+      if(!(allProp | prop | propName))
+      {
+        Status = new ConditionCode(HttpStatusCode.BadRequest, "The type of query was not specified.");
+      }
+      else if((allProp ? 1 : 0) + (prop ? 1 : 0) + (propName ? 1 : 0) > 1)
+      {
+        Status = new ConditionCode(HttpStatusCode.BadRequest, "Multiple query types were specified.");
+      }
+      else if(include && !allProp)
+      {
+        Status = new ConditionCode(HttpStatusCode.BadRequest, "The include element must be used with the allprop element.");
+      }
+      else
+      {
+        IncludeAll = allProp | propName; // propName implies that we want /all/ names, so set IncludeAll when propName is true
+        NamesOnly  = propName;
+      }
     }
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal override void WriteResponse()
   {
-    if(Status != null)
+    if(Status != null && Status.StatusCode != 207) // if the Status is something other than the default 207 Multi-Status...
     {
       Context.WriteStatusResponse(Status);
       return;
@@ -484,9 +589,15 @@ public class PropFindRequest : WebDAVRequest
   void ProcessStandardRequest<T,V>(T resource, string requestPath, Func<T, IDictionary<XmlQualifiedName, V>> getProperties,
                                    Action<PropFindResource,XmlQualifiedName,V> setValue, bool isRoot) where T : IStandardResource<T>
   {
-    // add the given resource, validating the return values from the delegates first
     if(resource == null) throw new ArgumentNullException();
-    IDictionary<XmlQualifiedName,V> properties = getProperties(resource);
+    bool denyExistence;
+    if(Context.ShouldDenyAccess(resource, null, out denyExistence)) // the request resource should have been checked already
+    {
+      if(!denyExistence) AddResource(requestPath, resource.CanonicalPath, new Dictionary<XmlQualifiedName, V>(), setValue);
+      return;
+    }
+
+    IDictionary<XmlQualifiedName, V> properties = getProperties(resource);
     if(properties == null) throw new ArgumentException("The properties dictionary for " + requestPath + " was null.");
     AddResource(requestPath, resource.CanonicalPath, properties, setValue);
 
@@ -619,7 +730,7 @@ public class PropFindRequest : WebDAVRequest
       // the writer. ideally we'd be able to do this for all QName-valued attributes, but we don't know which ones those are...
       if(attr.HasName(DAVNames.xsiType))
       {
-        writer.WriteStartAttribute(attr.LocalName, attr.NamespaceURI);
+        writer.WriteStartAttribute(DAVNames.xsiType);
         XmlQualifiedName qname = element.ParseQualifiedName(attr.Value);
         writer.WriteQualifiedName(qname.Name, qname.Namespace);
         writer.WriteEndAttribute();
@@ -767,7 +878,6 @@ public sealed class PropFindResource
   public void SetValue(XmlQualifiedName property, object value, string language)
   {
     XmlQualifiedName type = null;
-    value = GetPropertyValue(value);
     if(value != null && !XmlProperty.builtInTypes.ContainsKey(property)) type = DAVUtility.GetXsiType(value);
     SetValueCore(property, value, type, language);
   }
@@ -784,7 +894,6 @@ public sealed class PropFindResource
   public void SetValue(XmlQualifiedName property, object value, XmlQualifiedName type, string language)
   {
     if(property == null) throw new ArgumentNullException();
-    value = GetPropertyValue(value);
     // if it's a type defined in xml schema (xs:), validate that the value is of that type
     if(value != null && type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema) &&
        !XmlProperty.builtInTypes.ContainsKey(property))
@@ -964,16 +1073,6 @@ public sealed class PropFindResource
     {
       if(child.NodeType == XmlNodeType.Element) AddElementNamespaces((XmlElement)child, namespaces);
     }
-  }
-
-  static object GetPropertyValue(object value)
-  {
-    if(value != null)
-    {
-      Func<object> getter = value as Func<object>;
-      if(getter != null) value = getter();
-    }
-    return value;
   }
 
   static object ValidatePropertyValue(XmlQualifiedName property, object value, XmlQualifiedName expectedType)
