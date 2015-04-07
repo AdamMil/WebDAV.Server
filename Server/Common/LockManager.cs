@@ -146,6 +146,7 @@ public sealed class ActiveLock : IElementValue
   /// </summary>
   public bool ConflictsWith(string path, LockType type, string userId)
   {
+    if(type == null) throw new ArgumentNullException();
     bool typesConflict = Type.ConflictsWith(type), isSameUser = OwnerId != null && OwnerId.OrdinalEquals(userId);
     // if it's the exact same resource, the locks conflict normally and also a user can't have two locks of the same type on the same
     // resource. if the resources are different, the locks don't conflict if they're both taken by the same user
@@ -225,7 +226,7 @@ public sealed class ActiveLock : IElementValue
 
   void IElementValue.WriteValue(XmlWriter writer, WebDAVContext context)
   {
-    if(writer == null) throw new ArgumentNullException();
+    if(writer == null || context == null) throw new ArgumentNullException();
     // NOTE: the RFC 4918 is inconsistent about the order of the lockscope and locktype elements. all of the LOCK method examples use type
     // and then scope, but the PROPFIND examples and the DTD fragment use scope and then type. we could change the order depending on
     // whether the element is going into a response to a LOCK request or a PROPFIND request, but it's simpler to choose a single ordering,
@@ -487,6 +488,22 @@ public interface ILockManager
 /// <summary>Provides a base class for implementing lock managers. This class maintains an in-memory representation of the locks for a
 /// WebDAV service. Derived classes are responsible for saving and loading the locks to and from persistent storage.
 /// </summary>
+/// <remarks>If you derive from this class, you may want to override the following virtual members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="Dispose(bool)"/></term>
+///   <description>You need to clean up data when the lock manager is disposed.</description>
+/// </item>
+/// <item>
+///   <term><see cref="GetRefreshTimeout"/></term>
+///   <description>You want to alter the default timeout used when a lock is refreshed.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public abstract class LockManager : IDisposable, ILockManager
 {
   /// <summary>Initializes a new <see cref="LockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
@@ -808,9 +825,9 @@ public abstract class LockManager : IDisposable, ILockManager
   /// <param name="requestedTimeout">The requested timeout, in seconds, or zero if the lock should not time out, or null if no specific
   /// timeout is requested.
   /// </param>
-  /// <remarks>The default implementation returns <paramref name="requestedTimeout"/> if it's not null and
+  /// <remarks><note type="inherit">The default implementation returns <paramref name="requestedTimeout"/> if it's not null and
   /// <see cref="ActiveLock.Timeout"/> otherwise.
-  /// </remarks>
+  /// </note></remarks>
   protected virtual uint? GetRefreshTimeout(ActiveLock lockObject, uint? requestedTimeout)
   {
     if(lockObject == null) throw new ArgumentNullException();
@@ -900,6 +917,19 @@ public abstract class LockManager : IDisposable, ILockManager
 
 #region FileLockManager
 /// <summary>Implements a <see cref="LockManager"/> that stores locks in a file on disk.</summary>
+/// <remarks>If you derive from this class, you may want to override the following virtual members, in addition to those from the base
+/// class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="ElevatePrivileges"/></term>
+///   <description>You need to elevate privileges so that the lock file can be opened.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class FileLockManager : LockManager
 {
   /// <summary>Initializes a new <see cref="FileLockManager"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
@@ -997,7 +1027,7 @@ public class FileLockManager : LockManager
   /// <summary>Called to execute the given action, such as opening the lock file, in an elevated privilege context when the
   /// <c>revertToSelf</c> parameter is false.
   /// </summary>
-  /// <remarks>The default implementation simply executes the action without altering privileges in any way.</remarks>
+  /// <remarks><note type="inherit">The default implementation simply executes the action without altering privileges in any way.</note></remarks>
   protected virtual void ElevatePrivileges(Action action)
   {
     if(action == null) throw new ArgumentNullException();

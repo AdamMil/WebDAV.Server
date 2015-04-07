@@ -151,6 +151,7 @@ public sealed class XmlProperty
   /// <summary>Saves the property to a <see cref="BinaryWriter"/>.</summary>
   public void Save(BinaryWriter writer)
   {
+    if(writer == null) throw new ArgumentNullException();
     writer.Write((byte)0); // version 0
     writer.Write(Element != null);
     if(Element != null)
@@ -296,6 +297,18 @@ public interface IPropertyStore
 /// <summary>Provides a base class for implementing property stores. This class maintains an in-memory representation of the dead
 /// properties for a WebDAV resource. Derived classes are responsible for saving and loading the properties to and from persistent storage.
 /// </summary>
+/// <remarks>If you derive from this class, you may want to override the following virtual members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="Dispose(bool)"/></term>
+///   <description>You need to clean up data when the property store is disposed.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public abstract class PropertyStore : IDisposable, IPropertyStore
 {
   /// <summary>Initializes a new <see cref="PropertyStore"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
@@ -460,6 +473,19 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
 
 #region FilePropertyStore
 /// <summary>Implements a <see cref="PropertyStore"/> that stores properties in a file on disk.</summary>
+/// <remarks>If you derive from this class, you may want to override the following virtual members, in addition to those from the base
+/// class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="ElevatePrivileges"/></term>
+///   <description>You need to elevate privileges so that the lock file can be opened.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class FilePropertyStore : PropertyStore
 {
   /// <summary>Initializes a new <see cref="FilePropertyStore"/> that loads its configuration from a <see cref="ParameterCollection"/>.</summary>
@@ -552,7 +578,7 @@ public class FilePropertyStore : PropertyStore
   /// <summary>Called to execute the given action, such as opening the property file, in an elevated privilege context when the
   /// <c>revertToSelf</c> parameter is false.
   /// </summary>
-  /// <remarks>The default implementation simply executes the action without altering privileges in any way.</remarks>
+  /// <remarks><note type="inherit">The default implementation simply executes the action without altering privileges in any way.</note></remarks>
   protected virtual void ElevatePrivileges(Action action)
   {
     if(action == null) throw new ArgumentNullException();

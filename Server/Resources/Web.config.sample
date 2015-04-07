@@ -1,6 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
-<!-- This is a sample configuration file, parts of which can be merged into a Web application's configuration file to configure it for use
-     with AdamMil.WebDAV.Server.
+<!-- This is a sample configuration file, parts of which can be merged into a web application's configuration file to configure it for use
+     with AdamMil.WebDAV.Server. Note that if you compile the server yourself or receive a binary from a third party, you may need to
+     change the public key tokens to match the public key used to compile the binary, if any.
 -->
 <configuration>
   <!-- The AdamMil.WebDAV configuration must be in the AdamMil.WebDAV section. -->
@@ -202,7 +203,7 @@
            * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
                            mapping will be used - the same mapping that would be used if the entire 'mediaTypeMap' element was omitted. For
                            the format of the default mapping file, see Resources/MedaiTypes.xml and Resources/MediaTypes.xsd in the WebDAV
-                           server source code.
+                           server distribution.
            * defaultExtension - This attribute specifies the file extension that the server will use when generating a file name for a
                                 resource with an unknown media type. If omitted, the default from 'defaultFile' will be used, which is
                                 normally to not use any file extension.
@@ -239,7 +240,7 @@
            * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
                            mapping will be used - the same mapping that would be used if the entire 'compression' element was omitted. For
                            the format of the default mapping file, see Resources/Compression.xml and Resources/Compression.xsd in the
-                           WebDAV server source code.
+                           WebDAV server distribution.
       -->
       <compression defaultFile="D:\data\compressionMap.xml">
         <!-- Each compression mapping element has the following attributes:

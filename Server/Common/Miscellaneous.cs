@@ -765,7 +765,7 @@ public static class DAVUtility
   {
     if(entityBody == null) throw new ArgumentNullException();
     if(rewindStream) entityBody.Position = 0;
-    return new EntityTag(Convert.ToBase64String(BinaryUtility.HashSHA1(entityBody)), false, false);
+    return new EntityTag(BinaryUtility.HashSHA1(entityBody), false);
   }
 
   /// <summary>Returns a random MIME boundary.</summary>
@@ -851,7 +851,16 @@ public static class DAVUtility
   /// </summary>
   public static bool IsDAVName(XmlQualifiedName name)
   {
+    if(name == null) throw new ArgumentNullException();
     return name.Namespace.OrdinalEquals(DAVNames.DAV);
+  }
+
+  /// <summary>Returns true if the given status is null (representing a default success code), or if
+  /// <see cref="ConditionCode.IsSuccessful"/> is true (representing a 2xx status).
+  /// </summary>
+  public static bool IsSuccess(ConditionCode status)
+  {
+    return status == null || status.IsSuccessful;
   }
 
   /// <summary>Parses an <c>HTTP-date</c> value, as defined in RFC 7231 section 7.1.1.1.</summary>
@@ -1156,6 +1165,12 @@ public static class DAVUtility
     return type;
   }
 
+  /// <summary>Determines whether the given XML type is a type we know how to parse and validate.</summary>
+  internal static bool IsKnownXsiType(XmlQualifiedName type)
+  {
+    return type != null && (type.Namespace.OrdinalEquals(DAVNames.XmlSchema) ? knownXsTypes.Contains(type.Name) : type == DAVNames.msGuid);
+  }
+
   /// <summary>Determines whether a property value of the given type can be stored .</summary>
   internal static bool IsStorablePropertyType(object value)
   {
@@ -1312,12 +1327,6 @@ public static class DAVUtility
   {
     if(action == null) throw new ArgumentNullException();
     return TryExecute(() => action(a1, a2));
-  }
-
-  internal static ConditionCode TryExecute<A1,A2,A3>(Func<A1,A2,A3,ConditionCode> action, A1 a1, A2 a2, A3 a3)
-  {
-    if(action == null) throw new ArgumentNullException();
-    return TryExecute(() => action(a1, a2, a3));
   }
 
   /// <summary>Tries to parse a value which may be either an absolute URI or an absolute path.</summary>
@@ -1711,6 +1720,14 @@ public static class DAVUtility
                                 " (inclusive), but was " + value.ToString());
   }
 
+  static readonly HashSet<string> knownXsTypes = new HashSet<string>()
+  {
+    DAVNames.xsB64Binary.Name, DAVNames.xsBoolean.Name, DAVNames.xsDate.Name, DAVNames.xsDateTime.Name, DAVNames.xsDecimal.Name,
+    DAVNames.xsDouble.Name, DAVNames.xsDuration.Name, DAVNames.xsFloat.Name, DAVNames.xsHexBinary.Name, DAVNames.xsInt.Name,
+    DAVNames.xsLong.Name, DAVNames.xsQName.Name, DAVNames.xsSByte.Name, DAVNames.xsShort.Name, DAVNames.xsString.Name,
+    DAVNames.xsUByte.Name, DAVNames.xsUInt.Name, DAVNames.xsULong.Name, DAVNames.xsUri.Name, DAVNames.xsUShort.Name
+  };
+
   static readonly Dictionary<int, string> statusMessages = new Dictionary<int, string>()
   {
     { 100, "Continue" }, { 101, "Switching Protocols" },
@@ -1751,14 +1768,11 @@ public static class DAVUtility
 /// </remarks>
 public sealed class EntityTag : IElementValue
 {
-  /// <summary>Initializes a new <see cref="EntityTag"/>.</summary>
+  /// <include file="documentation.xml" path="/DAV/EntityTag/ctor/node()" />
   /// <param name="tag">The entity tag. This is an arbitrary string value that represents the state of a resource's content, such that
   /// identical tag values represent either identical or equivalent content, depending on the value of the <paramref name="isWeak"/>
-  /// parameter.
-  /// </param>
-  /// <param name="isWeak">If false, this represents a strong entity tag, where entities may have the same tag only if they are
-  /// byte-for-byte identical. If true, this represents a weak entity tag, where entities may have the same tag as long as they could be
-  /// swapped with no significant change in semantics.
+  /// parameter. The tag should consist of printable low ASCII characters with no double-quote characters. Backslash characters are
+  /// strongly discouraged. See the remarks.
   /// </param>
   /// <remarks>Note that the format of HTTP entity tags changed between RFC 2616 and RFC 7232. In the former, it was defined as an HTTP
   /// <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
@@ -1766,6 +1780,13 @@ public sealed class EntityTag : IElementValue
   /// in entity tags to prevent clients written to the older standard from performing backslash unescaping.
   /// </remarks>
   public EntityTag(string tag, bool isWeak) : this(tag, isWeak, true) { }
+
+  /// <include file="documentation.xml" path="/DAV/EntityTag/ctor/node()" />
+  /// <param name="tagData">The entity tag data. This is an arbitrary binary value that represents the state of a resource's content, such
+  /// that identical tag values represent either identical or equivalent content, depending on the value of the <paramref name="isWeak"/>
+  /// parameter. The actual entity tag will be the base-64 encoding of the tag data.
+  /// </param>
+  public EntityTag(byte[] tagData, bool isWeak) : this(Convert.ToBase64String(tagData), isWeak, false) { }
 
   /// <summary>Initializes a new <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header.</summary>
   public EntityTag(string headerValue)

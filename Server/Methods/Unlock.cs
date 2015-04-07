@@ -25,7 +25,63 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>UNLOCK</c> request.</summary>
-/// <remarks>The <c>UNLOCK</c> request is described in section 9.11 of RFC 4918.</remarks>
+/// <remarks>
+/// <para>The <c>UNLOCK</c> request is described in section 9.11 of RFC 4918. To service an <c>UNLOCK</c> request, you can normally just
+/// call the <see cref="ProcessStandardRequest()"/> method or one of its overrides.
+/// </para>
+/// <para>If you would like to handle it yourself, you should remove the lock whose token is in <see cref="LockToken"/> if the client has
+/// permission to remove it, and return a status of 204 No Content. The list of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/></term>
+///   <description>The lock was removed, and a body was included in the response. There is no standard body for successful <c>UNLOCK</c>
+///     requests, but you can define your own if the client can understand it.
+///   </description>
+/// </item>
+/// <item>
+/// <term>204 <see cref="ConditionCodes.NoContent">No Content</see> (default)</term>
+/// <description>The lock was removed, and there is no body in the response. This is the default status code returned when
+///   <see cref="WebDAVRequest.Status"/> is null.
+/// </description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The user doesn't have permission to delete the lock, or the server refuses to remove the lock for some other reason.</description>
+/// </item>
+/// <item>
+///   <term>405 <see cref="ConditionCodes.MethodNotAllowed">Method Not Allowed</see></term>
+///   <description>The request resource does not support locking. If you return this status code, then you must not include the <c>LOCK</c>
+///     or <c>UNLOCK</c> method in responses to <c>OPTIONS</c> requests (i.e. <see cref="OptionsRequest.SupportsLocking"/> must be false).
+///   </description>
+/// </item>
+/// <item>
+///   <term>409 <see cref="ConditionCodes.Conflict"/></term>
+///   <description>The lock does not exist, or the request URI is not in the scope of the lock. The
+///     <c>DAV:lock-token-matches-request-uri</c> precondition code should be returned in the body.
+///   </description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>A conditional request was not executed because the condition wasn't true.</description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="ProcessStandardRequest(string)"/></term>
+///   <description>You want to change the standard request processing.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class UnlockRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="UnlockRequest"/> based on a new WebDAV request.</summary>

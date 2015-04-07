@@ -23,8 +23,6 @@ using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
 
-// TODO: add processing examples and documentation
-
 namespace AdamMil.WebDAV.Server
 {
 
@@ -138,7 +136,9 @@ public sealed class PropertyNameSet : AccessLimitedCollectionBase<XmlQualifiedNa
     get { return true; }
   }
 
-  /// <inheritdoc/>
+  /// <summary>Determines whether the set contains the given <see cref="XmlQualifiedName"/>. The name may be null, in which case this method
+  /// will return false.
+  /// </summary>
   public new bool Contains(XmlQualifiedName qname)
   {
     return qname != null && names != null && names.Contains(qname);
@@ -191,26 +191,74 @@ public sealed class ResourceStatus
 
 #region WebDAVRequest
 /// <summary>Represents a WebDAV request.</summary>
+/// <remarks>A <see cref="WebDAVRequest"/> has a simple lifecycle.
+/// <list type="number">
+/// <item><description>First, the constructor is called. The constructor can validate the request headers and throw a
+/// <see cref="WebDAVException"/> using <see cref="ConditionCodes.BadRequest"/> if the request is so malformed that the class cannot
+/// function properly, but most validation should be done in <see cref="ParseRequest"/>.
+/// </description></item>
+/// <item><description><see cref="ParseRequest"/> is called. It should set <see cref="Status"/> to an error code if the request is
+/// malformed rather than throwing an exception, although if an <see cref="XmlException"/> or <see cref="WebDAVException"/> is thrown by a
+/// child method, it needn't be caught and converted to a <see cref="ConditionCode"/>, as that will be done automatically.
+/// </description></item>
+/// <item><description>The request object is passed to a processing function, such as <see cref="IWebDAVResource.Delete"/>, which uses the
+/// properties and methods of the request object to execute the request.
+/// </description></item>
+/// <item><description><see cref="WriteResponse"/> is called to write the response to the client.</description></item>
+/// <item><description>The request object is disposed if it implements <see cref="IDisposable"/>. <see cref="WebDAVRequest"/> objects are
+///   not reused between requests.
+/// </description></item>
+/// </list>
+/// <note type="inherit">WebDAV request classes correspond to HTTP methods. For instance, all <c>PUT</c> requests are handled by the
+/// <see cref="PutRequest"/> class or a class derived from it, so if you want to alter the handling of <c>PUT</c> requests you must derive
+/// from <see cref="PutRequest"/>. The only case in which you should derive directly from this class is when you want to create a handler
+/// for an HTTP method not handled by any other class in the server, such as <c>TRACE</c> or a custom method, and in that case you might
+/// consider deriving from <see cref="SimpleRequest"/> if it's suitable.
+/// </note>
+/// If you derive from this class, you may want to override the following virtual members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="CheckPreconditions(EntityMetadata,string)"/></term>
+///   <description>You need to support additional precondition headers besides those defined by RFC 4918 and RFC 7232.</description>
+/// </item>
+/// <item>
+///   <term><see cref="CheckSubmittedLockTokens(string)"/></term>
+///   <description>Your request may fail if a resource is locked.</description>
+/// </item>
+/// <item>
+///   <term><see cref="FilterSubmittedLockToken"/></term>
+///   <description>You want to change how lock tokens are filtered. The default is to filter out tokens for locks not owned by the current
+///     user.
+///   </description>
+/// </item>
+/// <item>
+///   <term><see cref="ParseRequest"/></term>
+///   <description>You want to add additional request validation.</description>
+/// </item>
+/// <item>
+///   <term><see cref="PreconditionsMayNeedEntityTag"/></term>
+///   <description>You need to support additional precondition headers besides those defined by RFC 4918 and RFC 7232, and at least one of
+///     those headers performs a comparison against the request resource's entity tag.
+///   </description>
+/// </item>
+/// </list>
+/// </remarks>
 public abstract class WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="WebDAVRequest"/> based on a new WebDAV request.</summary>
+  /// <remarks>This constructor parses the and validates <c>Depth</c>, <c>If-Match</c>, <c>If-None-Match</c>, <c>If-Modified-Since</c>,
+  /// <c>If-Unmodified-Since</c>, and <c>If</c> headers from the client.
+  /// </remarks>
   protected WebDAVRequest(WebDAVContext context)
   {
     if(context == null) throw new ArgumentNullException();
+    Context = context;
 
-    Context    = context;
-    MethodName = context.Request.HttpMethod;
-
-    string value = context.Request.Headers[DAVHeaders.Depth];
-    if(value != null)
-    {
-      if("0".OrdinalEquals(value)) Depth = Depth.Self;
-      else if("1".OrdinalEquals(value)) Depth = Depth.SelfAndChildren;
-      else if("infinity".OrdinalEquals(value)) Depth = Depth.SelfAndDescendants;
-      else throw Exceptions.BadRequest("The Depth header must be 0, 1, or infinity.");
-    }
-
-    value = context.Request.Headers[DAVHeaders.IfMatch];
+    string value = context.Request.Headers[DAVHeaders.IfMatch];
     if(value != null) ifMatch = ParseIfMatch(value, DAVHeaders.IfMatch);
 
     value = context.Request.Headers[DAVHeaders.IfNoneMatch];
@@ -229,26 +277,27 @@ public abstract class WebDAVRequest
   /// <summary>Gets the <see cref="WebDAVContext"/> in which the request is being executed.</summary>
   public WebDAVContext Context { get; private set; }
 
-  /// <summary>Gets the recursion depth requested by the client.</summary>
-  public Depth Depth { get; protected set; }
-
-  /// <summary>Gets the HTTP method name sent by the client.</summary>
-  public string MethodName { get; private set; }
-
   /// <summary>Gets or sets the <see cref="ConditionCode"/> indicating the overall result of the request. If the status is null, the
   /// request is assumed to have been successful and an appropriate response will be used. In general, setting a status value will
   /// prevent a default entity body from being generated.
   /// </summary>
   public ConditionCode Status { get; set; }
 
-  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/*[@name != 'canonicalPath']" />
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/*[not(@name='canonicalPath')]" />
   public ConditionCode CheckPreconditions(EntityMetadata requestMetadata)
   {
     return CheckPreconditions(requestMetadata, null);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
-  public ConditionCode CheckPreconditions(EntityMetadata requestMetadata, string canonicalPath)
+  /// <remarks><note type="inherit">The default implementation supports the condition headers defined in RFC 7232 and RFC 4918, except for
+  /// <c>If-Range</c>, which is only used for partial <c>GET</c> and <c>HEAD</c> requests and is implemented in the
+  /// <see cref="GetOrHeadRequest"/> class. This includes the <c>If-Match</c>, <c>If-None-Match</c>, <c>If-Modified-Since</c>,
+  /// <c>If-Unmodified-Since</c>, and <c>If</c> headers. You can override this method to check for additional precondition codes. If you
+  /// do so, you should allow error (4xx) codes from your derived class to override any non-error (e.g. 3xx) codes returned by the base
+  /// class, since precondition error codes take precedence over non-error codes.
+  /// </note></remarks>
+  public virtual ConditionCode CheckPreconditions(EntityMetadata requestMetadata, string canonicalPath)
   {
     // RFC 7232 section 6 defines the evaluation order when multiple conditions are mixed together, although it doesn't specify how the
     // standard HTTP conditions should be combined with conditions from extensions such as WebDAV. the general idea, though, is to try
@@ -364,8 +413,11 @@ public abstract class WebDAVRequest
   /// <remarks>The main usage of this method is to avoid computing the <see cref="EntityMetadata.EntityTag"/> in cases when it won't be
   /// needed. If this property is false, then the <see cref="EntityMetadata"/> object passed to
   /// <see cref="CheckPreconditions(EntityMetadata)"/> will not require an <see cref="EntityTag"/>. Otherwise, it probably will.
+  /// <note type="inherit">The default implementation checks the <c>If-Match</c>, <c>If-None-Match</c>, and <c>If</c> headers for clauses
+  /// that match entity tags.
+  /// </note>
   /// </remarks>
-  public bool PreconditionsMayNeedEntityTag()
+  public virtual bool PreconditionsMayNeedEntityTag()
   {
     if(ifMatch != null || ifNoneMatch != null) return true;
     if(ifClauses != null)
@@ -379,11 +431,11 @@ public abstract class WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
-  /// <remarks>The default implementation always returns null.
-  /// <note type="inherit">Derived classes should typically implement this method by calling
+  /// <remarks><include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensRemarks/remarks/node()" />
+  /// <note type="inherit">The default implementation always returns null. This is suitable for requests whose operation doesn't conflict
+  /// with any locks. Derived classes should typically implement this method by calling
   /// <see cref="CheckSubmittedLockTokens(LockType,string,bool,bool)"/> or one of its overrides.
-  /// </note>
-  /// </remarks>
+  /// </note></remarks>
   protected virtual ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
     return null;
@@ -408,7 +460,8 @@ public abstract class WebDAVRequest
   /// request service will be used.
   /// </param>
   /// <param name="lockManager">The <see cref="ILockManager"/> for the service containing the resource named by
-  /// <paramref name="canonicalPath"/>. If null, the lock manager for the request service will be used.
+  /// <paramref name="canonicalPath"/>. If null, the lock manager for the request service will be used. This parameter can be used to
+  /// check locks from multiple services, when a request affects resources from multiple services.
   /// </param>
   protected ConditionCode CheckSubmittedLockTokens(LockType lockType, string canonicalPath, bool checkParent, bool checkDescendants,
                                                    string serviceRoot, ILockManager lockManager)
@@ -483,9 +536,10 @@ public abstract class WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/FilterSubmittedLockToken/node()" />
-  /// <remarks>The default implementation filters out lock tokens that are not owned by the current user. (If the current user is
-  /// anonymous, locks created by other anonymous users will not be filtered out, since there is no way to distinguish the two.)
-  /// </remarks>
+  /// <remarks><note type="inherit">The default implementation filters out lock tokens that are not owned by the current user. (If the
+  /// current user is anonymous, locks created by other anonymous users will not be filtered out, since there is no way to distinguish the
+  /// two.)
+  /// </note></remarks>
   protected virtual bool FilterSubmittedLockToken(string lockToken)
   {
     ActiveLock lockObject = Context.LockManager.GetLock(lockToken, null);
@@ -493,7 +547,7 @@ public abstract class WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
-  /// <remarks>The default implementation does nothing.</remarks>
+  /// <remarks><note type="inherit">The default implementation does nothing.</note></remarks>
   protected internal virtual void ParseRequest() { }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
@@ -938,16 +992,19 @@ public abstract class WebDAVRequest
 #endregion
 
 #region SimpleRequest
-/// <summary>Represents a simple WebDAV request that doesn't need any special parameters.</summary>
+/// <summary>Represents a WebDAV request that replies at least sometimes by simply returning a status code.</summary>
+/// <remarks>This class simply overrides <see cref="WebDAVRequest.WriteResponse"/> to call <see cref="WebDAVContext.WriteStatusResponse"/>
+/// using <see cref="WebDAVRequest.Status"/> (or 204 <see cref="ConditionCodes.NoContent">No Content</see> if the status is null).
+/// </remarks>
 public abstract class SimpleRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="SimpleRequest"/> based on a new WebDAV request.</summary>
   protected SimpleRequest(WebDAVContext context) : base(context) { }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
-  /// <remarks>The default implementation sets the response status based on <see cref="WebDAVRequest.Status"/>, using
-  /// <see cref="ConditionCodes.NoContent"/> if the status is null.
-  /// </remarks>
+  /// <remarks><note type="inherit">The default implementation sets the response status based on <see cref="WebDAVRequest.Status"/>, using
+  /// 204 <see cref="ConditionCodes.NoContent">No Content</see> if the status is null.
+  /// </note></remarks>
   protected internal override void WriteResponse()
   {
     Context.WriteStatusResponse(Status ?? ConditionCodes.NoContent);

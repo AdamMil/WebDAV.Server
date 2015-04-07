@@ -106,6 +106,67 @@ public struct ByteRange
 
 #region GetOrHeadRequest
 /// <summary>Represents a <c>GET</c> or <c>HEAD</c> request.</summary>
+/// <remarks>
+/// <para>The <c>GET</c> and <c>HEAD</c> requests are described in sections 4.3.1 and 4.3.2 of RFC 7231 and section 9.4 of RFC 4918.
+/// Requests for partial content are described in RFC 7233. To service a <c>GET</c> or <c>HEAD</c> request, you can normally just call the
+/// <see cref="WriteStandardResponse{T}(IStandardResource{T})"/> or <see cref="WriteSimpleIndexHtml{T}(IStandardResource{T})"/> method or
+/// one of their overrides.
+/// </para>
+/// <para>If you would like to handle it yourself, you should send an entity body to the client along with valid <c>Content-Length</c>,
+/// <c>Content-Type</c>, <c>ETag</c>, and <c>Last-Modified</c> headers. (For a <c>HEAD</c> request, the same status and headers should be
+/// sent but the body should be omitted.) The list of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/> (default)</term>
+///   <description>The body of the resource representation is returned to the client. This status code should be used even for a <c>HEAD</c>
+///     request (which omits the entity body), since <c>HEAD</c> requests should return the same status as the corresponding <c>GET</c>
+///     request.
+///   </description>
+/// </item>
+/// <item>
+///   <term>206 <see cref="ConditionCodes.PartialContent">Partial Content</see></term>
+///   <description>The server is sending one or more fragments of the entity body in response to a request for partial content. Multiple
+///     fragments must be sent as a <c>multipart/byteranges</c> response. (See RFC 7233 for information about partial content.)
+///   </description>
+/// </item>
+/// <item>
+///   <term>304 <see cref="ConditionCodes.NotModified">Not Modified</see></term>
+///   <description>A <c>If-Unmodified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The client does not have access to the resource.</description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>A precondition other than <c>If-Unmodified-Since</c> and <c>If-None-Match</c> was false.</description>
+/// </item>
+/// <item>
+///   <term>416 <see cref="ConditionCodes.RequestedRangeNotSatisfiable">Requested Range Not Satisfiable</see></term>
+///   <description>The client requested partial content, but none of the requested ranges overlapped the range of available content.</description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="WriteSimpleIndexHtml(IEnumerable{IndexItem})"/></term>
+///   <description>You want to change how the index.html-like response is rendered.</description>
+/// </item>
+/// <item>
+///   <term><see cref="WriteStandardResponse(Stream,EntityMetadata)"/></term>
+///   <description>You want to change how entity bodies are sent to the client.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class GetOrHeadRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="GetOrHeadRequest"/> based on a new WebDAV request.</summary>
@@ -180,14 +241,14 @@ public class GetOrHeadRequest : WebDAVRequest
   }
 
   /// <summary>Gets the value parsed from the HTTP <c>If-Range</c> header. This is either null (if the header was unspecified or invalid)
-  /// or an <see cref="EntityTag"/> or a <see cref="DateTime"/> (which is interpreted as a modification date). If null or if the entity has
-  /// not been modified (as determined by the entity tag or modification date matching the current values), the request should be processed
-  /// normally. Otherwise, if the entity has been modified (i.e. if the entity doesn't match or the modification date is too early), the
-  /// request should be processed as though no <c>Range</c> header was submitted. That is, the <see cref="GetByteRanges"/> method should
-  /// not be used (or should be considered to have returned null) and the entire entity body should be returned to the client.
+  /// or an <see cref="EntityTag"/> or a <see cref="DateTime"/> (which is interpreted as a modification date).
   /// </summary>
   /// <remarks>This property is automatically used by <see cref="WriteStandardResponse(Stream,EntityMetadata)"/>. You only need to use it
-  /// if you process the request manually.
+  /// if you process the request manually. If null or if the entity has not been modified (as determined by the entity tag or modification
+  /// date exactly matching the current values), the request should be processed normally. Otherwise, if the entity has been modified (i.e.
+  /// if the entity tag or the modification date doesn't match exactly), the request should be processed as though no <c>Range</c> header
+  /// was submitted. That is, the <see cref="GetByteRanges"/> method should not be used (or should be considered to have returned null) and
+  /// the entire entity body should be returned to the client.
   /// </remarks>
   public object IfRange { get; private set; }
 
@@ -261,12 +322,12 @@ public class GetOrHeadRequest : WebDAVRequest
   public sealed class IndexItem
   {
     /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given path segment.</summary>
-    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment']" />
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[not(@name='pathSegment')]" />
     /// <remarks>The name of the item will be initialized by URL-decoding the path segment and removing any trailing slash.</remarks>
     public IndexItem(string pathSegment) : this(pathSegment, DAVUtility.RemoveTrailingSlash(DAVUtility.UriPathDecode(pathSegment))) { }
 
     /// <summary>Initializes a new <see cref="IndexItem"/> with the given path segment.</summary>
-    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'pathSegment' or @name = 'isDirectory']" />
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[not(@name='pathSegment') or not(@name='isDirectory')]" />
     /// <remarks>The name of the item will be initialized by URL-decoding the path segment and removing any trailing slash.</remarks>
     public IndexItem(string pathSegment, bool isDirectory) : this(pathSegment)
     {
@@ -276,7 +337,7 @@ public class GetOrHeadRequest : WebDAVRequest
     /// <summary>Initializes a new <see cref="IndexItem"/> representing a file (non-collection member) with the given name and path
     /// segment.
     /// </summary>
-    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name = 'name' or @name = 'pathSegment']" />
+    /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/ItemIndex/Cons/param[@name='name' or @name='pathSegment']" />
     public IndexItem(string pathSegment, string name)
     {
       if(string.IsNullOrEmpty(pathSegment) || string.IsNullOrEmpty(name))
@@ -457,20 +518,20 @@ public class GetOrHeadRequest : WebDAVRequest
   }
 
   /// <summary>Processes a standard <c>GET</c> or <c>HEAD</c> request for an <see cref="IStandardResource{T}"/>. The resource's data stream
-  /// from <see cref="IStandardResource{T}.OpenStream"/> will be sent to the client if it's not null. Otherwise, if the resource is a
+  /// from <see cref="IStandardResource.OpenStream"/> will be sent to the client if it's not null. Otherwise, if the resource is a
   /// directory, an HTML index page will be sent. Otherwise, an empty body will be sent.
   /// </summary>
   public void WriteStandardResponse<T>(IStandardResource<T> requestResource) where T : IStandardResource<T>
   {
     if(requestResource == null) throw new ArgumentNullException();
-    using(Stream stream = requestResource.OpenStream(Context)) // directories can theoretically have data streams...
+    using(Stream stream = requestResource.OpenStream(Context)) // collections can theoretically have data streams...
     {
       if(stream == null && requestResource.IsCollection) WriteSimpleIndexHtml(requestResource); // but if they don't, write an index
       else WriteStandardResponse(stream ?? new MemoryStream()); // otherwise, write the stream (or an empty stream if none)
     }
   }
 
-  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[@name != 'mediaType' and @name != 'metadata']" />
+  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[not(@name='mediaType') and not(@name='metadata')]" />
   /// <remarks>This method is intended to be used with dynamically generated output. The
   /// <see cref="WriteStandardResponse(Stream,EntityMetadata)"/> override is preferred if you have metadata about the entity body.
   /// </remarks>
@@ -479,7 +540,7 @@ public class GetOrHeadRequest : WebDAVRequest
     WriteStandardResponse(entityBody, (EntityMetadata)null);
   }
 
-  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[@name != 'metadata']" />
+  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[not(@name='metadata')]" />
   /// <remarks>This method is intended to be used with dynamically generated output. The
   /// <see cref="WriteStandardResponse(Stream,EntityMetadata)"/> override is preferred if you have additional metadata about the entity
   /// body.
@@ -489,7 +550,7 @@ public class GetOrHeadRequest : WebDAVRequest
     WriteStandardResponse(entityBody, new EntityMetadata() { MediaType = mediaType });
   }
 
-  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[@name != 'mediaType']" />
+  /// <include file="documentation.xml" path="/DAV/GetOrHeadRequest/WriteStandardResponse/*[not(@name='mediaType')]" />
   public virtual void WriteStandardResponse(Stream entityBody, EntityMetadata metadata)
   {
     if(entityBody == null) throw new ArgumentNullException();
@@ -588,9 +649,9 @@ public class GetOrHeadRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
-  /// <remarks>The default implementation does not write any response if <see cref="WebDAVRequest.Status"/> is null. Otherwise, it writes
-  /// a response based on the status.
-  /// </remarks>
+  /// <remarks><note type="inherit">The default implementation does not write any response if <see cref="WebDAVRequest.Status"/> is null.
+  /// Otherwise, it writes a response based on the status.
+  /// </note></remarks>
   protected internal override void WriteResponse()
   {
     if(Status != null) Context.WriteStatusResponse(Status);

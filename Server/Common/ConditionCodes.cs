@@ -27,6 +27,22 @@ namespace AdamMil.WebDAV.Server
 
 #region ConditionCode
 /// <summary>A representation of a WebDAV status code, which gives additional information about a result.</summary>
+/// <remarks>If you derive from this class, you may want to override the following virtual members.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="Equals(ConditionCode)"/></term>
+///   <description>You add additional state to the class.</description>
+/// </item>
+/// <item>
+///   <term><see cref="WriteErrorElement"/></term>
+///   <description>You need to write something other than an empty XML element into a <c>DAV:error</c> response.</description>
+/// </item>
+/// </list>
+/// </remarks>
 [Serializable]
 public class ConditionCode
 {
@@ -137,10 +153,10 @@ public class ConditionCode
                                  ErrorElement == null ? null : ErrorElement.ToString(), Message);
   }
 
-  /// <summary>If <see cref="ErrorElement"/> is not null, this method may be called to write a description of the error. The context will
-  /// be a <c>DAV:error</c> element (which will have already been written) where the <c>DAV:</c> namespace has been defined as the default
-  /// namespace. If any other namespaces are needed, appropriate <c>xmlns</c> attributes should be used to define them.
-  /// </summary>
+  /// <summary>If <see cref="ErrorElement"/> is not null, this method may be called to write a description of the error.</summary>
+  /// <remarks>The context will be a <c>DAV:error</c> element (which will have already been written). If any namespaces besides "DAV:" are
+  /// needed, appropriate <c>xmlns</c> attributes should be used to define them.
+  /// </remarks>
   protected virtual void WriteErrorElement(XmlWriter writer)
   {
     if(ErrorElement == null) throw new InvalidOperationException();
@@ -307,6 +323,9 @@ public static class ConditionCodes
   /// </summary>
   public static readonly ConditionCode BadPathCharacters = new ConditionCode(HttpStatusCode.Forbidden, "Illegal characters in path.");
 
+  /// <summary>A <see cref="ConditionCode"/> based on the HTTP 400 Bad Request status code.</summary>
+  public static readonly ConditionCode BadRequest = new ConditionCode(HttpStatusCode.BadRequest);
+
   /// <summary>The DAV:cannot-modify-protected-property precondition, used when a PROPPATCH request attempts to modify a protected
   /// property.
   /// </summary>
@@ -412,6 +431,9 @@ public static class ConditionCodes
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 401 Unauthorized status code.</summary>
   public static readonly ConditionCode Unauthorized = new ConditionCode(HttpStatusCode.Unauthorized);
+
+  /// <summary>A <see cref="ConditionCode"/> based on the WebDAV 422 Unprocessable Entity status code.</summary>
+  public static readonly ConditionCode UnprocessableEntity = new ConditionCode(422);
 
   /// <summary>A <see cref="ConditionCode"/> based on the HTTP 415 Unsupported Media Type status code.</summary>
   public static readonly ConditionCode UnsupportedMediaType = new ConditionCode(HttpStatusCode.UnsupportedMediaType);

@@ -1,0 +1,185 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<topic id="ee6ce39d-3809-4679-a1f9-1f9c3951fe57" revisionNumber="1">
+  <developerConceptualDocument xmlns="http://ddue.schemas.microsoft.com/authoring/2003/5" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <summary>
+      <para>The page describes some basic concepts that need to be understood to implement new services.</para>
+    </summary>
+    <introduction>
+      <autoOutline />
+    </introduction>
+    <section address="NewService.Objects">
+      <title>Object Model</title>
+      <content>
+        <para>
+          There are three main types of objects in our WebDAV server: services, resources, and requests. These are supported by
+          three minor types of objects: lock managers, property stores, and authorization filters. When implementing a new
+          service, you generally must create a service class and one or more resource classes, but can use the built-in request,
+          lock manager, and property store classes.
+        </para>
+      </content>
+      <sections>
+        <section address="NewService.Service">
+          <title>Services</title>
+          <content>
+            <para>
+              A service is responsible for managing a subtree within a URL namespace (e.g. <literal>http://server/davdb/</literal> and
+              all URLs beneath it), creating the resource and request objects to serve requests within that namespace, determining which
+              users are allowed to perform which requests, and serving requests that don't map to any existing resource. Services must
+              implement the <codeEntityReference>T:AdamMil.WebDAV.Server.IWebDAVService</codeEntityReference> interface, but it's usually
+              easiest and best to derive from the <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVService</codeEntityReference> base
+              class.
+            </para>
+          </content>
+        </section>
+        <section address="NewService.Resource">
+          <title>Resources</title>
+          <content>
+            <para>
+              A resource represents a file, directory, web page, or other piece of static or dynamic data referred to by one or more
+              URLs, and is responsible for serving requests to retrieve and change that data, and for determining which users are
+              allowed to access the resource and in what ways. A resource object is created and managed by a service. Resources must
+              implement the <codeEntityReference>T:AdamMil.WebDAV.Server.IWebDAVResource</codeEntityReference> interface, but it's
+              usually easiest and best to derive from the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVResource</codeEntityReference> base class.
+            </para>
+          </content>
+        </section>
+        <section address="NewService.Request">
+          <title>Requests</title>
+          <content>
+            <para>
+              A request object represents an HTTP request for a particular URL. There are different types of request objects
+              corresponding to different HTTP methods, which encapsulate the logic required to handle those methods. Many requests
+              have both medium-level and high-level response interfaces, in addition to the low-level interface provided by the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVContext</codeEntityReference> class. The high-level interface
+              generally allows a request to be serviced by calling a single function and passing it the data it needs. This is the
+              recommend way of servicing a request, as it allows the server to do almost all of the work and reduces code duplication.
+              (These methods are conventionally named "ProcessStandardRequest", although the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.GetOrHeadRequest</codeEntityReference> class uses
+              <codeEntityReference autoUpgrade="true">M:AdamMil.WebDAV.Server.GetOrHeadRequest.WriteStandardResponse(System.IO.Stream)</codeEntityReference> and
+              <codeEntityReference autoUpgrade="true">M:AdamMil.WebDAV.Server.GetOrHeadRequest.WriteSimpleIndexHtml(System.Collections.Generic.IEnumerable{AdamMil.WebDAV.Server.GetOrHeadRequest.IndexItem})</codeEntityReference>,
+              due to the their different placement in the request lifecycle.) The medium-level interface allows the response class to handle the
+              request using properties and methods of the request class rather than parsing the HTTP request and generating the HTTP
+              response directly. Usually the high-level interface is implemented on top of the medium-level interface, and it's
+              recommended that you similarly structure any new request objects you might create, where applicable. (If the response to the
+              client is relatively simple, such as the just the HTTP status code, you should omit the medium-level interface and just have
+              the high-level interface.) Request classes ultimately derive from
+              <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVRequest</codeEntityReference>, but there are subclasses for
+              different types of HTTP methods. For example, all request objects that serve PUT requests should derive from
+              <codeEntityReference>T:AdamMil.WebDAV.Server.PutRequest</codeEntityReference>.
+            </para>
+          </content>
+        </section>
+        <section address="NewService.LockManager">
+          <title>Lock Managers</title>
+          <content>
+            <para>
+              A lock manager is responsible for storing resource locks and, to a large degree, determining how locks conflict with
+              each other and how locks are inherited. Lock managers must implement the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.ILockManager</codeEntityReference> interface, but the server provides some
+              built-in lock manager classes that should suffice for most purposes, and you should generally use the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.LockManager</codeEntityReference> base class to implement any new lock
+              managers, since it implements everything except the storage of locks.
+            </para>
+          </content>
+        </section>
+        <section address="NewService.PropertyStore">
+          <title>Property Stores</title>
+          <content>
+            <para>
+              A property store is responsible for storing dead properties. Property stores must implement the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.IPropertyStore</codeEntityReference> interface, but the server provides some
+              built-in property store classes that should suffice for most purposes, and you should generally use the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.PropertyStore</codeEntityReference> base class to implement any new
+              property stores, since it implements everything except the storage of property values.
+            </para>
+          </content>
+        </section>
+        <section address="NewService.AuthorizationFilter">
+          <title>Authorization Filters</title>
+          <content>
+            <para>
+              An authorization filter is responsible for determining who the current user is for a request, whether that user can
+              access a resource in the context of a request, and whether that user can delete a lock owned by another user. They are
+              called "filters" because these responsibilities are already handled by services and resources, but authorization filters
+              get the first chance to respond. Authorization filters are associated with a service and multiple filters can be stacked.
+              Authorization filters must implement the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.IAuthorizationFilter</codeEntityReference> interface, but the
+              <codeEntityReference>T:AdamMil.WebDAV.Server.AuthorizationFilter</codeEntityReference> base class exists to slightly
+              simplify the development of new authorization filters.
+            </para>
+          </content>
+        </section>
+      </sections>
+    </section>
+    
+    <section address="NewService.Lifecycle">
+      <title>Request Lifecycle</title>
+      <content>
+        <para>
+          When a request comes in from a client, it's received by the
+          <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVModule</codeEntityReference> class, which examines the request URL and
+          matches it against the configured WebDAV service locations. The first matching location gets to handle the request. If
+          the location corresponds to an enabled service, the service object is asked to resolve the URL to a resource object and
+          to create a request object. The request object's
+          <codeEntityReference>M:AdamMil.WebDAV.Server.WebDAVRequest.ParseRequest</codeEntityReference> method is then called to
+          parse and validate the request from the client. If the URL could be successfully resolved, the request object is passed
+          to the resource object, which is responsible for handling the request. Otherwise, the request object is passed to the
+          service object. After the request has been handled by the resource or service, the request's
+          <codeEntityReference>M:AdamMil.WebDAV.Server.WebDAVRequest.WriteResponse</codeEntityReference> method is called to write
+          the response to the client. (Usually, when a resource or service handles a request, it does not write a response
+          directly but only prepares the request object to write the response. The main exception is GET requests, which usually
+          send a representation of the resource to the client as part of their handling.)
+        </para>
+        <para>To make this more concrete, consider the following example.</para>
+        <list class="ordered">
+          <listItem><para>ASP.NET receives a PROPFIND request from a user.</para></listItem>
+          <listItem><para>
+            <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVModule</codeEntityReference> intercepts the request, matches the URL against
+            the WebDAV service locations found in the web.config file, and finds that the location is served by your service class,
+            FooService.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.ResolveResource(AdamMil.WebDAV.Server.WebDAVContext,System.String)</codeEntityReference>
+            is called on the FooService to resolve the URL into an
+            <codeEntityReference>T:AdamMil.WebDAV.Server.IWebDAVResource</codeEntityReference>, and your class returns a FooResource
+            object.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,System.Collections.Generic.IEnumerable{AdamMil.WebDAV.Server.IAuthorizationFilter},System.Boolean@)</codeEntityReference>
+            is called on the FooService to see whether the user can execute the request. Since the request mapped to a resource, the
+            service is expected to call
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVResource.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,AdamMil.WebDAV.Server.IWebDAVService,System.Xml.XmlQualifiedName,System.Boolean@)</codeEntityReference>
+            on the resource as well. (Any configured authorization filters also get a chance to respond.) Access is granted.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.CreatePropFind(AdamMil.WebDAV.Server.WebDAVContext)</codeEntityReference>
+            is called on the FooService to create a request object of type <codeEntityReference>T:AdamMil.WebDAV.Server.PropFindRequest</codeEntityReference>
+            (or a derived type). FooService derives from <codeEntityReference>T:AdamMil.WebDAV.Server.WebDAVService</codeEntityReference>
+            and doesn't change the default implementation, so the base class simply returns a new
+            <codeEntityReference>T:AdamMil.WebDAV.Server.PropFindRequest</codeEntityReference>.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.WebDAVRequest.ParseRequest</codeEntityReference> is called on the request object
+            to parse the request body from the user. The XML submitted by the user is valid, so the method does not report an error.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVResource.PropFind(AdamMil.WebDAV.Server.PropFindRequest)</codeEntityReference>
+            is called on the FooResource, which simply calls
+            <codeEntityReference autoUpgrade="true">M:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest``1(``0)</codeEntityReference>
+            to obtain the standard handling for a PROPFIND request.
+          </para></listItem>
+          <listItem><para>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.WebDAVRequest.WriteResponse</codeEntityReference> is called on the PropFindRequest
+            to write the response XML to the client.
+          </para></listItem>
+          <listItem><para>
+            The request object is disposed if it implements <codeEntityReference>T:System.IDisposable</codeEntityReference>
+            and the response is complete.
+          </para></listItem>
+        </list>
+      </content>
+    </section>
+    <relatedTopics />
+  </developerConceptualDocument>
+</topic>

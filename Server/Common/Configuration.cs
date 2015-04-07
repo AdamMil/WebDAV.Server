@@ -601,6 +601,7 @@ public sealed class MediaMapElement : ConfigurationElement
   /// <inheritdoc/>
   protected override void DeserializeElement(XmlReader reader, bool serializeCollectionKey)
   {
+    if(reader == null) throw new ArgumentNullException();
     elementName = reader.LocalName;
     base.DeserializeElement(reader, serializeCollectionKey);
   }

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- This is a sample web.config file that demonstrates the minimal elements that need to be merged into a web application's configuration
+     file to obtain a working WebDAV site. See web.config.sample for documentation of the elements in this file and changes that may need
+     to be made to them.
+ -->
+<configuration>
+  <configSections>
+    <sectionGroup name="AdamMil.WebDAV">
+      <section name="server" type="AdamMil.WebDAV.Server.Configuration.WebDAVServerSection, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
+    </sectionGroup>
+  </configSections>
+
+  <system.webServer>
+    <modules>
+      <add name="AdamMil.WebDAV" type="AdamMil.WebDAV.Server.WebDAVModule, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
+    </modules>
+  </system.webServer>
+
+  <AdamMil.WebDAV>
+    <server>
+      <!-- These elements are only needed if you need to support locks or dead properties.
+      <davLockManager type="AdamMil.WebDAV.Server.FileLockManager, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
+                      lockDir="D:\data\webdav\locks\" />
+      <propertyStore type="AdamMil.WebDAV.Server.FilePropertyStore, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
+                     propertyDir="D:\data\webdav\props\" />
+      -->
+      <locations>
+        <add match="/" type="YourWebDAV.ServiceProvider, YourWebDAV, Version=1.0.0.0, Culture=neutral, PublicKeyToken=0123456789abcdef" />
+      </locations>
+    </server>
+  </AdamMil.WebDAV>
+</configuration>

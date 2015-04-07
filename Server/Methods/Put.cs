@@ -22,15 +22,111 @@ using System.IO;
 using AdamMil.IO;
 using AdamMil.Utilities;
 
+// TODO: should the default Status depend on whether Context.RequestResource is null? ditto for LOCK
+
 namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents a <c>PUT</c> request.</summary>
-/// <remarks>The <c>PUT</c> request is described in section 4.3.4 of RFC 7231 and section 9.7 of RFC 4918.
-/// Note that this implementation supports partial PUTs using the <c>Content-Range</c> header, even though such requests are now disallowed
-/// by the latest HTTP specification in RFC 7231. The standard requires the server to reply with 400 Bad Request, but this implementation
-/// does not. If you require the standard-compliant behavior, you should override <see cref="WebDAVRequest.ParseRequest"/> and reply with
-/// 400 Bad Request if <see cref="ContentRange"/> is not null.
+/// <remarks>
+/// <para>The <c>PUT</c> request is described in section 4.3.4 of RFC 7231 and section 9.7 of RFC 4918. To service a <c>PUT</c> request,
+/// you can normally just call <see cref="ProcessStandardRequest(Stream)"/> or one of its overrides and then set the new <c>ETag</c> and
+/// <c>Last-Modified</c> headers if the request was successful. This method supports partial PUTs using the <c>Content-Range</c> header,
+/// even though such requests are now disallowed by the latest HTTP specification in RFC 7231. The standard requires the server to reply
+/// with 400 <see cref="ConditionCodes.BadRequest">Bad Request</see>, but this implementation does not. If you require the
+/// standard-compliant behavior, you should override <see cref="WebDAVRequest.ParseRequest"/> and set <see cref="WebDAVRequest.Status"/> to
+/// 400 <see cref="ConditionCodes.BadRequest">Bad Request</see> if <see cref="ContentRange"/> is not null.
+/// </para>
+/// <para>If you want to handle the request yourself, you should use the entity body supplied by the client to replace the entity body of
+/// the request resource, creating it if it doesn't exist, and reply with 201 <see cref="ConditionCodes.Created"/> or
+/// 204 <see cref="ConditionCodes.NoContent">No Content</see> along with the <c>ETag</c> and <c>Last-Modified</c> headers for the new or
+/// updated resource. The list of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/></term>
+///   <description>The request succeeded, and an entity body is being sent to the client. There is no standard entity body defined for
+///     <c>PUT</c> requests, but you can send one if the client can understand it.
+///   </description>
+/// </item>
+/// <item>
+///   <term>201 <see cref="ConditionCodes.Created"/></term>
+///   <description>The request succeeded and a new resource was created at the request URI.</description>
+/// </item>
+/// <item>
+///   <term>202 <see cref="ConditionCodes.Accepted"/></term>
+///   <description>The request was processed, is valid, and will succeed (barring exceptional circumstances), but the execution of the
+///     request has been deferred until later.
+///   </description>
+/// </item>
+/// <item>
+///   <term>204 <see cref="ConditionCodes.NoContent">No Content</see> (default)</term>
+///   <description>An existing resource was successfully updated by the request, and no entity body is being sent to the client. This is
+///     the default status code returned when <see cref="WebDAVRequest.Status"/> is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>400 <see cref="ConditionCodes.BadRequest">Bad Request</see></term>
+///   <description>The client submitted an invalid request, such as a <c>Content-Range</c> header. (The HTTP standard now disallows
+///     <c>Content-Range</c> headers in <c>PUT</c> requests, but it's still supported by the <see cref="PutRequest"/> class by default.)
+///   </description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The user doesn't have permission to create or alter the resource, or the server refuses to create or alter the resource
+///     for some other reason.
+///   </description>
+/// </item>
+/// <item>
+///   <term>405 <see cref="ConditionCodes.MethodNotAllowed">Method Not Allowed</see></term>
+///   <description>The request resource does not support content updates, for instance because it's read-only, or it's a collection
+///     resource and the server doesn't support <c>PUT</c> requests on collection resources. If you return this status code, then you must
+///     not include the <c>PUT</c> method in responses to <c>OPTIONS</c> requests.
+///   </description>
+/// </item>
+/// <item>
+///   <term>409 <see cref="ConditionCodes.Conflict"/></term>
+///   <description>The entity body sent by the client is incompatible with the resource based on criteria other than its media type, or
+///     a resource could not be created at the request URI because the parent collection does not exist. The parent collection
+///     must not be created automatically.
+///   </description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>A conditional request was not executed because the condition wasn't true.</description>
+/// </item>
+/// <item>
+///   <term>415 <see cref="ConditionCodes.UnsupportedMediaType">Unsupported Media Type</see></term>
+///   <description>The entity body or <c>Content-Type</c> header sent by the client is incompatible with the resource due to its media
+///     type.
+///   </description>
+/// </item>
+/// <item>
+///   <term>423 <see cref="ConditionCodes.Locked"/></term>
+///   <description>The request resource was locked and no valid lock token was submitted. You should include the
+///     <c>DAV:lock-token-submitted</c> precondition code in the response.
+///   </description>
+/// </item>
+/// <item>
+///   <term>507 <see cref="ConditionCodes.InsufficientStorage">Insufficient Storage</see></term>
+///   <description>The collection could not be created because there was insufficient storage space.</description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="ProcessStandardRequest(Stream,FileCreator,EntityMetadata,string)"/></term>
+///   <description>You want to change the standard request processing.</description>
+/// </item>
+/// </list>
 /// </remarks>
 public class PutRequest : SimpleRequest
 {
@@ -67,7 +163,13 @@ public class PutRequest : SimpleRequest
   /// </remarks>
   public ContentRange ContentRange { get; private set; }
 
-  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequest/*[@name != 'canonicalPath']" />
+  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequest/*[not(@name='canonicalPath') and not(@name='metadata')]" />
+  public long ProcessStandardRequest(Stream entityBody)
+  {
+    return ProcessStandardRequest(entityBody, null, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequest/*[not(@name='canonicalPath')]" />
   public long ProcessStandardRequest(Stream entityBody, EntityMetadata metadata)
   {
     return ProcessStandardRequest(entityBody, metadata, null);
@@ -79,7 +181,7 @@ public class PutRequest : SimpleRequest
     return ProcessStandardRequest(entityBody, null, metadata, canonicalPath);
   }
 
-  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequestNew/*[@name != 'canonicalPath']" />
+  /// <include file="documentation.xml" path="/DAV/PutRequest/ProcessStandardRequestNew/*[not(@name='canonicalPath')]" />
   public long ProcessStandardRequest(FileCreator createFile)
   {
     return ProcessStandardRequest(null, createFile);
@@ -94,9 +196,12 @@ public class PutRequest : SimpleRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
-  /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources. That is, the
-  /// implementation does not support <c>PUT</c> requests made to collection resources. If <see cref="WebDAVContext.RequestResource"/> is
-  /// null, the implementation assumes that the <c>PUT</c> request would create a new resource and checks the parent collection for locks.
+  /// <remarks><include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensRemarks/remarks/node()" />
+  /// <note type="inherit">This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant
+  /// resources. That is, the implementation does not support <c>PUT</c> requests made to collection resources. If
+  /// <see cref="WebDAVContext.RequestResource"/> is null, the implementation assumes that the <c>PUT</c> request would create a new
+  /// resource and checks the parent collection for locks.
+  /// </note>
   /// </remarks>
   protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
@@ -116,26 +221,23 @@ public class PutRequest : SimpleRequest
 
     if(!entityBody.CanWrite) throw new ArgumentException("The entity body is not writable.");
 
+    bool needEntityTag = PreconditionsMayNeedEntityTag();
     if(metadata == null)
     {
       metadata = Context.RequestResource == null ? new EntityMetadata() { Exists = false }
-                                                 : Context.RequestResource.GetEntityMetadata(!entityBody.CanSeek || !entityBody.CanRead);
+                                                 : Context.RequestResource.GetEntityMetadata(needEntityTag);
     }
 
     long entityLength = metadata.Length.HasValue ? metadata.Length.Value : entityBody.CanSeek ? entityBody.Length : -1;
 
     // if no entity tag was provided and we need one and the stream is readable and seekable (or it's readable and we'll be replacing it),
     // compute the entity tag using the default method
-    if(metadata.Exists && metadata.EntityTag == null && entityBody.CanRead && (createFile != null || entityBody.CanSeek) &&
-       PreconditionsMayNeedEntityTag())
+    if(needEntityTag && metadata.EntityTag == null && metadata.Exists && entityBody.CanRead && (createFile != null || entityBody.CanSeek))
     {
       metadata = metadata.Clone();
       metadata.EntityTag = DAVUtility.ComputeEntityTag(entityBody, entityBody.CanSeek); // compute an entity tag from the body
       if(entityBody.CanSeek) entityBody.Position = 0;
     }
-
-    // if we're creating a new resource, try a bit harder to canonicalize the URL
-    if(canonicalPath == null) canonicalPath = Context.GetCanonicalPath();
 
     // check request preconditions. as per the CheckPreconditions documentation, allow errors to take precedence over 304 Not Modified
     ConditionCode status = CheckPreconditions(metadata, canonicalPath);

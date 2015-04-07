@@ -79,19 +79,30 @@
     <Compile Include="Common\Xml.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="AdamMil.snk" />
     <EmbeddedResource Include="Resources\MediaTypes.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>
     <EmbeddedResource Include="Resources\Compression.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>
-    <None Include="Web.config.sample" />
+    <EmbeddedResource Include="Resources\Compression.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\MediaTypes.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <None Include="Resources\Web.config.minimal">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Resources\Web.config.sample">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Content Include="documentation.xml" />
-    <EmbeddedResource Include="Resources\Compression.xml" />
-    <EmbeddedResource Include="Resources\MediaTypes.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="AdamMil.snk" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\AdamMil.net\Collections\AdamMil.Collections.csproj">

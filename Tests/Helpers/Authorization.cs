@@ -1,5 +1,5 @@
 ﻿using System;
-using AdamMil.WebDAV.Server;
+using System.Xml;
 
 namespace AdamMil.WebDAV.Server.Tests.Helpers
 {
@@ -11,10 +11,12 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
       else return null;
     }
 
-    public override bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, out bool denyExistence)
+    public override bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
+                                          out bool denyExistence)
     {
       denyExistence = context.RequestPath.IndexOf("hidden", StringComparison.OrdinalIgnoreCase) >= 0;
-      return denyExistence || context.RequestPath.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0;
+      return denyExistence || context.RequestPath.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             context.RequestPath.IndexOf("readonly", StringComparison.OrdinalIgnoreCase) >= 0 && access == DAVNames.write;
     }
 
     public override bool GetCurrentUserId(WebDAVContext context, out string currentUserId)

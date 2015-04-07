@@ -27,7 +27,10 @@ namespace AdamMil.WebDAV.Server
 {
 
 /// <summary>Represents an <c>OPTIONS</c> request.</summary>
-/// <remarks>The <c>OPTIONS</c> request is described in section 4.3.7 of RFC 7231 and various sections (e.g. section 10.1) of RFC 4918.</remarks>
+/// <remarks>The <c>OPTIONS</c> request is described in section 4.3.7 of RFC 7231 and various sections (e.g. section 10.1) of RFC 4918. To
+/// service an <c>OPTIONS</c> request, set the various properties of this class. If you want, you can override the
+/// <see cref="WriteResponse"/> method and add additional headers.
+/// </remarks>
 public class OptionsRequest : SimpleRequest
 {
   /// <summary>Initializes a new <see cref="OptionsRequest"/> based on a new WebDAV request.</summary>
@@ -97,9 +100,11 @@ public class OptionsRequest : SimpleRequest
 
   /// <summary>Gets or sets whether the resource or service supports partial <c>GET</c> responses using the HTTP <c>Range</c> header. Since
   /// the <see cref="GetOrHeadRequest.WriteStandardResponse(System.IO.Stream)"/> method supports partial <c>GET</c> responses and it is
-  /// assumed that <see cref="GetOrHeadRequest.WriteStandardResponse(System.IO.Stream)"/> will be used in most cases, the default is true.
+  /// assumed that it will be used in most cases, the default is true.
   /// </summary>
-  /// <remarks>This property controls the value of the <c>Accept-Ranges</c> header sent in the response.</remarks>
+  /// <remarks>This property controls the value of the <c>Accept-Ranges</c> header sent in the response. If the header is set manually
+  /// before <see cref="WriteResponse"/> is called, it will not be overwritten and this property will be ignored.
+  /// </remarks>
   public bool AllowPartialGet { get; private set; }
 
   /// <summary>Gets or sets whether the resource or service is DAV-compliant, as defined by RFC 4918. The default is true.</summary>
@@ -142,14 +147,22 @@ public class OptionsRequest : SimpleRequest
   protected bool OutOfScope { get; private set; }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
-  /// <remarks>The default implementation </remarks>
+  /// <remarks><note type="inherit">The default implementation sets headers and the <see cref="WebDAVRequest.Status"/> based on the
+  /// properties of the class and the capabilities of the server.
+  /// </note></remarks>
   protected internal override void WriteResponse()
   {
     // report support for encoded bodies and partial transfers (but only if the request is in the WebDAV service's scope)
     if(!OutOfScope)
     {
-      Context.Response.Headers[DAVHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
-      Context.Response.Headers[DAVHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 7233 section 2.3
+      if(Context.Response.Headers[DAVHeaders.AcceptEncoding] != null) // don't overwrite headers supplied by the service or resource
+      {
+        Context.Response.Headers[DAVHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
+      }
+      if(Context.Response.Headers[DAVHeaders.AcceptRanges] != null)
+      {
+        Context.Response.Headers[DAVHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 7233 section 2.3
+      }
     }
 
     bool useEmptyResponseHack = false; // a hack for the buggy Microsoft Office (Web Folder) client. see below

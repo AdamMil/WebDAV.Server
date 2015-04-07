@@ -4,4 +4,5 @@ syntax: glob
 **/obj/
 *.csproj.user
 *.suo
+Documentation/output
 Tests/App.config

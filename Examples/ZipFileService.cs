@@ -126,7 +126,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     // methods for moving or renaming items in the archive, so we can't do better than the generic algorithm
     if(request == null) throw new ArgumentNullException();
     if(archive.IsReadOnly && request.IsMove) request.Status = ConditionCodes.Forbidden; // disallow moving read-only resources
-    else lock(archive) request.ProcessStandardRequest(this, resource => { resource.Delete(); return null; });
+    else lock(archive) request.ProcessStandardRequest(this);
   }
 
   public override void Delete(DeleteRequest request)
@@ -136,7 +136,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     // ProcessStandardRequest<T>(T, Func<T,ConditionCode>) override, which works recursively on individual resources, should be used
     if(request == null) throw new ArgumentNullException();
     if(archive.IsReadOnly || string.IsNullOrEmpty(path)) request.Status = ConditionCodes.Forbidden; // the root can't be deleted
-    else lock(archive) request.ProcessStandardRequest(() => { Delete(); return null; }, IsCollection);
+    else lock(archive) request.ProcessStandardRequest(this);
   }
 
   public override EntityMetadata GetEntityMetadata(bool includeEntityTag)
@@ -187,7 +187,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     if(request == null) throw new ArgumentNullException();
     if(!archive.IsReadOnly) // but if the resource is not read-only, report to the client that some additional methods are allowed
     {
-      if(!string.IsNullOrEmpty(path)) request.AllowedMethods.Add(DAVMethods.Delete); // all resources except the root can be deleted
+      if(!string.IsNullOrEmpty(path)) request.AllowedMethods.Add(DAVMethods.Delete); // the root can't be deleted
       if(!IsCollection) request.AllowedMethods.Add(DAVMethods.Put); // files can have their content replaced
       request.SupportsLocking = request.Context.LockManager != null; // support locking for writable resources if there's a lock manager
     }
@@ -219,9 +219,9 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
         {
           using(Stream stream = entry.Open())
           {
-            long newLength = request.ProcessStandardRequest(stream, GetEntityMetadata(false));
-            if(request.Status == null || request.Status.IsSuccessful) // if the request was successful,
-            {                                                         // send the ETag and Last-Modified headers to the client
+            long newLength = request.ProcessStandardRequest(stream);
+            if(DAVUtility.IsSuccess(request.Status)) // if the request succeeded, send the ETag and Last-Modified headers to the client
+            {
               entry.LastWriteTime = DateTime.Now; // update the entry's LastWriteTime, which isn't done automatically
               request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
               request.Context.Response.Headers[DAVHeaders.LastModified] = DAVUtility.GetHttpDateHeader(entry.LastWriteTime.UtcDateTime);
@@ -311,8 +311,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     if(!archive.IsReadOnly && request != null && request.Context.LockManager != null)
     {
       // here we want to include the lockdiscovery value unless it must not be returned. we'll use the MustExcludePropertyValue function
-      // to replace the value with null whenever it's not needed. alternately, we could specify its value as a Func<object> delegate that
-      // would compute its value on demand
+      // to replace the value with null whenever it's not needed
       properties[DAVNames.lockdiscovery] = request.MustExcludePropertyValue(DAVNames.lockdiscovery) ?
         null : request.Context.LockManager.GetLocks(CanonicalPath, LockSelection.SelfAndRecursiveAncestors, null);
       properties[DAVNames.supportedlock] = LockType.WriteLocks;
@@ -351,22 +350,29 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   }
 
   #region ISourceResource<T> Members
+  ConditionCode IStandardResource.Delete()
+  {
+    if(archive.IsReadOnly) return ConditionCodes.Forbidden;
+    lock(archive) Delete();
+    return null;
+  }
+
   IEnumerable<ZipEntryResource> IStandardResource<ZipEntryResource>.GetChildren(WebDAVContext context)
   {
     return GetChildren();
   }
 
-  IDictionary<XmlQualifiedName, object> IStandardResource<ZipEntryResource>.GetLiveProperties(WebDAVContext context)
+  IDictionary<XmlQualifiedName, object> IStandardResource.GetLiveProperties(WebDAVContext context)
   {
     return GetLiveProperties(null);
   }
 
-  string IStandardResource<ZipEntryResource>.GetMemberName(WebDAVContext context)
+  string IStandardResource.GetMemberName(WebDAVContext context)
   {
     return GetMemberName();
   }
 
-  Stream IStandardResource<ZipEntryResource>.OpenStream(WebDAVContext context)
+  Stream IStandardResource.OpenStream(WebDAVContext context)
   {
     return !IsCollection ? OpenStream() : null;
   }
@@ -430,7 +436,7 @@ public class ZipFileService : WebDAVService, IDisposable
 
   ~ZipFileService() { Dispose(false); }
 
-  public override ConditionCode CopyResource<T>(CopyOrMoveRequest request, string destinationPath, IStandardResource<T> sourceResource)
+  public override ConditionCode CopyResource(CopyOrMoveRequest request, string destinationPath, IStandardResource sourceResource)
   {
     // this method is called when the service is the destination of a COPY or MOVE request, in order to create a new file or directory at
     // the given location, potentially overwriting an existing resource there. this works for copies and moves between unrelated services
@@ -449,10 +455,11 @@ public class ZipFileService : WebDAVService, IDisposable
         if(resource != null) // if a resource already exists at the destination path...
         {
           if(!request.Overwrite) return ConditionCodes.PreconditionFailed; // return 412 Precondition Failed if we can't overwrite it
-          ZipEntryResource zipResource = resource as ZipEntryResource;
-          // if the resource isn't a ZipEntryResource (e.g. if this class was extended), then we don't know how to overwrite it, so give up
-          if(zipResource == null) return ConditionCodes.Forbidden;
-          zipResource.Delete(); // otherwise, delete the existing resource
+          IStandardResource stdResource = resource as IStandardResource;
+          if(stdResource == null) return ConditionCodes.Forbidden; // if it's not a standard resource, then we don't know how to delete it
+          status = stdResource.Delete(); // otherwise, try to delete the existing resource
+          if(!DAVUtility.IsSuccess(status)) return status;
+          request.PostProcessOverwrite(stdResource.CanonicalPath); // delete its locks and dead properties
           overwrote = true; // and remember that we overwrote it
         }
 
@@ -478,7 +485,7 @@ public class ZipFileService : WebDAVService, IDisposable
         status = GetStatusFromException(ex);
       }
 
-      if(status == null || status.IsSuccessful) // if the copy was okay, do postprocessing of locks and properties
+      if(DAVUtility.IsSuccess(status)) // if the copy was okay, do postprocessing of locks and properties
       {
         // preserve modification time when moving objects
         if(request.IsMove)
@@ -517,17 +524,6 @@ public class ZipFileService : WebDAVService, IDisposable
         else request.ProcessStandardRequest(LockType.WriteLocks, () => CreateNewFile(request.Context, null, null));
       }
     }
-  }
-
-  public override string GetCanonicalPath(WebDAVContext context, string relativePath)
-  {
-    // this function is called to obtain the canonical representation of a path that may or may not be mapped to a resource. paths inside
-    // .zip files are case-sensitive, have no aliases, and allow files and directories with the same name to coexist side-by-side, so no
-    // canonicalization is needed. however, it's bad practice for web servers to treat /path/ differently from /path when /path is a
-    // directory, so we'll normalize references to directories so they always have a trailing slash. (as a result, we don't support files
-    // and directories with the same name coexisting side-by-side)
-    IWebDAVResource resource = ResolveResource(context, relativePath);
-    return resource != null ? resource.CanonicalPath : relativePath;
   }
 
   public override void MakeCollection(MkColRequest request)
@@ -572,6 +568,7 @@ public class ZipFileService : WebDAVService, IDisposable
       {
         request.AllowedMethods.Add(DAVMethods.Put);
       }
+      request.SupportsLocking = request.Context.LockManager != null;
     }
   }
 
@@ -600,8 +597,8 @@ public class ZipFileService : WebDAVService, IDisposable
           request.Status = CreateNewFile(request.Context, null, stream => // this delegate is called if an empty file was created
           {
             request.ProcessStandardRequest(delegate(out Stream s) { s = stream; return null; }); // try to set the body
-            if(request.Status == null || request.Status.IsSuccessful) // if the request was successful,
-            {                                                         // send the ETag and Last-Modified headers to the client
+            if(DAVUtility.IsSuccess(request.Status)) // if the request succeeded, send the ETag and Last-Modified headers to the client
+            {
               ZipArchiveEntry entry = zipArchive.GetEntry(DAVUtility.UriPathDecode(request.Context.RequestPath));
               request.Context.Response.Headers[DAVHeaders.ETag] = DAVUtility.ComputeEntityTag(stream, true).ToHeaderString();
               request.Context.Response.Headers[DAVHeaders.LastModified] = DAVUtility.GetHttpDateHeader(entry.LastWriteTime.UtcDateTime);

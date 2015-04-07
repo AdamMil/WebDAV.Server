@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
@@ -134,13 +135,120 @@ public sealed class PropertyPatchValue
 
 #region PropPatchRequest
 /// <summary>Represents a <c>PROPPATCH</c> request.</summary>
-/// <remarks>The <c>PROPPATCH</c> request is described in section 9.2 of RFC 4918.</remarks>
+/// <remarks>
+/// <para>The <c>PROPPATCH</c> request is described in section 9.2 of RFC 4918. To service a <see cref="PropPatchRequest"/>, you can
+/// normally just call <see cref="ProcessStandardRequest()"/> or one of its overrides.
+/// </para>
+/// <para>If you want to handle it yourself, you should examine the <see cref="Patches"/> collection to see which properties the client
+/// wants to set and remove on the request resource, execute the operations in order, and set on each <see cref="PropertyPatchValue"/> and
+/// <see cref="PropertyRemoval"/> object a <see cref="ConditionCode"/> representing the result of attempting to set or remove that
+/// property. Note that the property patches must be applied atomically. Either all operations must succeed or none of them. This may
+/// require undoing changes that have already been made if an error occurs. Alternately, if the entire request failed, set
+/// <see cref="WebDAVRequest.Status"/> accordingly. In either case, <see cref="WriteResponse"/> will write the response to the client.
+/// The list of expected status codes for the response follows.
+/// </para>
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>207 <see cref="ConditionCodes.MultiStatus">Multi-Status</see> (default)</term>
+///   <description>This status code should be used along with a <c>DAV:multistatus</c> XML body to report the names and statuses of the
+///     properties within the property patches requested by the client. This is the default status code that will be used if
+///     <see cref="WebDAVRequest.Status"/> is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The user doesn't have permission to alter any resource properties, or the server refuses to alter the resource for some
+///     other reason.
+///   </description>
+/// </item>
+/// <item>
+///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
+///   <description>A conditional request was not executed because the condition wasn't true.</description>
+/// </item>
+/// <item>
+///   <term>423 <see cref="ConditionCodes.Locked"/></term>
+///   <description>The request resource was locked and no valid lock token was submitted. The <c>DAV:lock-token-submitted</c> precondition
+///     code should be included in the response.
+///   </description>
+/// </item>
+/// <item>
+///   <term>507 <see cref="ConditionCodes.InsufficientStorage">Insufficient Storage</see></term>
+///   <description>The server did not have enough space to record the property changes.</description>
+/// </item>
+/// </list>
+/// Status codes that might be used for individual properties are:
+/// <list type="table">
+/// <listheader>
+///   <term>Status</term>
+///   <description>Should be returned if...</description>
+/// </listheader>
+/// <item>
+///   <term>200 <see cref="ConditionCodes.OK"/></term>
+///   <description>The property set or removal succeeded. Note that if this appears for one property, then it must appear for all
+///     properties, due to the atomicity of the <c>PROPPATCH</c> request.
+///   </description>
+/// </item>
+/// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The property value cannot be changed without the appropriate authorization.</description>
+/// </item>
+/// <item>
+///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
+///   <description>The property value cannot be changed regardless of authorization. This may occur when a client attempts to change a
+///     protected property, such as <c>DAV:getetag</c>, in which case the status should contain the
+///     <c>DAV:cannot-modify-protected-property</c> precondition code.
+///   </description>
+/// </item>
+/// <item>
+///   <term>409 <see cref="ConditionCodes.Conflict"/></term>
+///   <description>The client provided a property value whose semantics are not appropriate for the property.</description>
+/// </item>
+/// <item>
+///   <term>422 <see cref="ConditionCodes.UnprocessableEntity">Unprocessable Entity</see></term>
+///   <description>The property value was syntactically invalid for the type of the property. For example, if the client submitted the
+///     property <c>&lt;myprop xsi:type="xs:int"&gt;hello&lt;/mpprop&gt;</c> (where <c>xs</c> and <c>xsi</c> are declared in the usual
+///     way), you might return this status because the property is declared to be an integer but "hello" is not a valid integer. On the
+///     other hand, you may wish to preserve the XML value from the client verbatim.
+///   </description>
+/// </item>
+/// <item>
+///   <term>424 <see cref="ConditionCodes.FailedDependency">Failed Dependency</see></term>
+///   <description>The property could not be changed because another property change failed.</description>
+/// </item>
+/// <item>
+///   <term>507 <see cref="ConditionCodes.InsufficientStorage">Insufficient Storage</see></term>
+///   <description>The server did not have enough space to record the property change.</description>
+/// </item>
+/// </list>
+/// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.
+/// <list type="table">
+/// <listheader>
+///   <term>Member</term>
+///   <description>Should be overridden if...</description>
+/// </listheader>
+/// <item>
+///   <term><see cref="IsProtected(XmlQualifiedName)"/></term>
+///   <description>You want to change which properties are never allowed to be changed by the client during standard processing.</description>
+/// </item>
+/// <item>
+///   <term><see cref="ParseRequestXml"/></term>
+///   <description>You want to change how the request XML body is parsed or validated.</description>
+/// </item>
+/// <item>
+///   <term><see cref="TryParseValue"/></term>
+///   <description>You want to change how an <see cref="XmlElement"/> from the request body is parsed into an <see cref="XmlProperty"/>.</description>
+/// </item>
+/// </list>
+/// </remarks>
 public class PropPatchRequest : WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="PropPatchRequest"/> based on a new WebDAV request.</summary>
   public PropPatchRequest(WebDAVContext context) : base(context)
   {
-    if(Depth == Depth.Unspecified) Depth = Depth.Self; // see ParseRequest() for details
     Patches = new PropertyPatchCollection();
   }
 
@@ -184,47 +292,16 @@ public class PropPatchRequest : WebDAVRequest
     ProcessStandardRequest(canonicalPath, null, null, null, null, null, null);
   }
 
-  /// <summary>Performs standard processing of a <c>PROPPATCH</c> request.</summary>
-  /// <param name="canonicalPath">The canonical, relative path of the resource whose properties will be modified. If null, the path to the
-  /// <see cref="WebDAVContext.RequestResource"/> will be used, if it's available. If null and the request resource is not available, an
-  /// exception will be thrown.
-  /// </param>
-  /// <param name="protectedProperties">A set of properties that the client is not allowed to set, in addition to those that are required
-  /// to be protected by the WebDAV protocol. If null, only the minimum set of properties will be protected (but you can also use
-  /// <paramref name="canSetProperty"/> and <paramref name="canRemoveProperty"/> to restrict access to protected properties).
-  /// </param>
-  /// <param name="canSetProperty">A function that takes a property name and value, and determines whether the service can set the named
-  /// property to that value. If the function returns a <see cref="ConditionCode"/> indicating an error, the property will not be set.
-  /// If the function returns a <see cref="ConditionCode"/> indicating success (typically <see cref="ConditionCodes.OK"/>), that
-  /// represents a promise that a subsequent call to <paramref name="setProperty"/> will succeed. If the function returns null, that
-  /// indicates that the named property is not handled by the service, in which case if the name does not have the WebDAV namespace it
-  /// will be considered to be a dead property. If the function is null, only dead properties can be set.
-  /// </param>
-  /// <param name="canRemoveProperty">A function that takes a property name and determines whether the service can removed the named
-  /// property. If the function returns a <see cref="ConditionCode"/> indicating an error, the property will not be removed. If the
-  /// function returns a <see cref="ConditionCode"/> indicating success (typically <see cref="ConditionCodes.OK"/>), that represents a
-  /// promise that a subsequent call to <paramref name="removeProperty"/> will succeed. If the function returns null, that indicates that
-  /// the named property is not handled by the service, in which case if the name does not have the WebDAV namespace it will be considered
-  /// to be a dead property. If the function is null, only dead properties can be removed.
-  /// </param>
-  /// <param name="setProperty">A function that takes a property name and value, and sets the named property to the given value. If the
-  /// value was set successfully, the function should return a <see cref="ConditionCode"/> indicating success (typically
-  /// <see cref="ConditionCodes.OK"/>). If setting the property failed, the function should return a <see cref="ConditionCode"/> describing
-  /// the failure. If the property is not handled by the service, the function should return null, in which case the property will be
-  /// treated as a dead property if it's not in the WebDAV namespace. This function can only be null if <paramref name="canSetProperty"/>
-  /// never returns success.
-  /// </param>
-  /// <param name="removeProperty">A function that takes a property name and removes the named property. If the property was removed
-  /// successfully, the function should return a <see cref="ConditionCode"/> indicating success (typically
-  /// <see cref="ConditionCodes.OK"/>). If removing the property failed, the function should return a <see cref="ConditionCode"/>
-  /// describing the failure. If the property is not handled by the service, the function should return null, in which case the property
-  /// will be treated as a dead property if it's not in the WebDAV namespace. This function can only be null if
-  /// <paramref name="canRemoveProperty"/> never returns success.
-  /// </param>
-  /// <param name="applyChanges">A method that is called if all changes have been applied successfully. This should be used by services
-  /// whose <paramref name="setProperty"/> and <paramref name="removeProperty"/> functions work transactionally, in which case
-  /// <paramref name="applyChanges"/> provides the signal that the changes should be committed.
-  /// </param>
+  /// <include file="documentation.xml" path="/DAV/PropPatchRequest/ProcessStandardRequest/*[not(@name='canonicalPath') and not(@name='protectedProperties') and not(@name='applyChanges')]" />
+  public void ProcessStandardRequest(Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
+                                     Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
+                                     Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> setProperty,
+                                     Func<XmlQualifiedName,ConditionCode> removeProperty)
+  {
+    ProcessStandardRequest(null, null, canSetProperty, canRemoveProperty, setProperty, removeProperty, null);
+  }
+
+  /// <include file="documentation.xml" path="/DAV/PropPatchRequest/ProcessStandardRequest/node()" />
   public virtual void ProcessStandardRequest(string canonicalPath, HashSet<XmlQualifiedName> protectedProperties,
                                              Func<XmlQualifiedName,PropertyPatchValue,ConditionCode> canSetProperty,
                                              Func<XmlQualifiedName,ConditionCode> canRemoveProperty,
@@ -254,7 +331,9 @@ public class PropPatchRequest : WebDAVRequest
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokens/node()" />
-  /// <remarks>This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources.</remarks>
+  /// <remarks><include file="documentation.xml" path="/DAV/WebDAVRequest/CheckSubmittedLockTokensRemarks/remarks/node()" />
+  /// <note type="inherit">This implementation checks <c>DAV:write</c> locks on the resource and does not check descendant resources.</note>
+  /// </remarks>
   protected override ConditionCode CheckSubmittedLockTokens(string canonicalPath)
   {
     return CheckSubmittedLockTokens(LockType.ExclusiveWrite, canonicalPath, false, false);
@@ -263,24 +342,22 @@ public class PropPatchRequest : WebDAVRequest
   /// <summary>Determines whether the named WebDAV property is protected (i.e. whether it is not allowed to be changed by the client).</summary>
   protected virtual bool IsProtected(XmlQualifiedName propertyName)
   {
-    return propertyName == DAVNames.getcontentlength || propertyName == DAVNames.getetag || propertyName == DAVNames.lockdiscovery; 
+    if(propertyName == null) throw new ArgumentNullException();
+    return propertyName.Namespace.OrdinalEquals(DAVNames.DAV) &&
+           (propertyName.Name.OrdinalEquals(DAVNames.getcontentlength.Name) || propertyName.Name.OrdinalEquals(DAVNames.getetag.Name) ||
+            propertyName.Name.OrdinalEquals(DAVNames.lockdiscovery.Name)); 
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequest/node()" />
   protected internal override void ParseRequest()
   {
-    // disallow recursive PROPPATCH requests. this behavior of PROPPATCH with respect to the Depth property doesn't seem to be specified
-    // precisely in RFC 4918, but it does say in section 9.2 that it operates on "the resource identified by the Request-URI", as opposed
-    // to what it says in section 9.1 for the PROPFIND method, which is that it operates on "the resource identified by the Request-URI
-    // and potentially its member resources", so we'll assume that means it never operates recursively
-    if(Depth != Depth.Self) throw Exceptions.BadRequest("The Depth header must be 0 or unspecified for PROPPATCH requests.");
-
-    XmlDocument xml = Context.LoadRequestXml();
-    if(xml == null) throw Exceptions.BadRequest("The request body was missing."); // an XML body is required by RFC 4918 section 9.2
-    ParseRequestXml(xml);
+    XmlDocument xml = Context.LoadRequestXml(); // an XML body is required by RFC 4918 section 9.2
+    if(xml == null) Status = new ConditionCode(HttpStatusCode.BadRequest, "The request body was missing.");
+    else ParseRequestXml(xml);
   }
 
-  /// <summary>Called by <see cref="ParseRequest"/> to parse the XML request body.</summary>
+  /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body.</summary>
+  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     if(xml == null) throw new ArgumentNullException();
@@ -303,7 +380,8 @@ public class PropPatchRequest : WebDAVRequest
           }
           catch(ArgumentException) // an ArgumentException will be thrown if the property name already exists
           {
-            throw Exceptions.BadRequest("Duplicate property name " + prop.GetQualifiedName().ToString());
+            Status = new ConditionCode(HttpStatusCode.BadRequest, "Duplicate property name " + prop.GetQualifiedName().ToString());
+            return;
           }
         }
         Patches.Add(patch);
@@ -329,7 +407,7 @@ public class PropPatchRequest : WebDAVRequest
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />
   protected internal override void WriteResponse()
   {
-    if(Status != null) Context.WriteStatusResponse(Status);
+    if(Status != null && Status.StatusCode != 207) Context.WriteStatusResponse(Status); // if Status isn't the default 207 Multi-Status...
     else WriteResponseCore();
   }
 
@@ -365,7 +443,7 @@ public class PropPatchRequest : WebDAVRequest
         if(pair.Value.Status == null) // if this is a dead property...
         {
           if(deadPropsToSet == null) deadPropsToSet = new List<XmlProperty>();
-          deadPropsToSet.Add(pair.Value.Property);
+          deadPropsToSet.Add(pair.Value.Property); // .Property should have parsed okay. otherwise it would have had an error status
         }
       }
       if(deadPropsToSet != null) // set dead properties if there are any
@@ -463,24 +541,50 @@ public class PropPatchRequest : WebDAVRequest
       throw new ContractViolationException("PROPPATCH changes must either all succeed or all fail.");
     }
 
-    // collect the namespaces used in the response. while we're at it, also group the property names by status code. use a hash set
+    // collect the namespaces used in the response. while we're at it, also group the property names by status code. use a nested
     // dictionary rather than a list because properties can theoretically be named multiple times in the request, for instance being
     // set and then removed, or set and then set again. it's still possible for properties to be named multiple times if they have
     // different statuses, but i'm not sure what the proper output should be for that
+    // also, RFC 4316 section 4 says that if we understood and accepted the xsi:type supplied by the client, we should echo that type back
+    // in the response, but if we didn't understand the type then we shouldn't. therefore, we'll keep track of the xsi:type that we'll
+    // supply on the output elements in the dictionary
     HashSet<string> namespaces = new HashSet<string>();
-    var namesByStatus = new HashSetDictionary<ConditionCode, XmlQualifiedName>();
+    var namesByStatus = new Dictionary<ConditionCode, Dictionary<XmlQualifiedName,XmlQualifiedName>>();
     ConditionCode defaultCode = hadFailure ? ConditionCodes.FailedDependency : ConditionCodes.OK;
+    bool hadType = false;
     foreach(PropertyPatch patch in Patches)
     {
       foreach(PropertyRemoval removal in patch.Remove)
       {
         namespaces.Add(removal.Name.Namespace);
-        namesByStatus.Add(removal.Status ?? defaultCode, removal.Name);
+        ConditionCode status = removal.Status ?? defaultCode;
+        Dictionary<XmlQualifiedName, XmlQualifiedName> dict = namesByStatus.TryGetValue(status);
+        if(dict == null) namesByStatus[status] = dict = new Dictionary<XmlQualifiedName, XmlQualifiedName>();
+        dict[removal.Name] = null; // removed properties have no xsi:type attribute
       }
       foreach(KeyValuePair<XmlQualifiedName,PropertyPatchValue> pair in patch.Set)
       {
         namespaces.Add(pair.Key.Namespace);
-        namesByStatus.Add(pair.Value.Status ?? defaultCode, pair.Key);
+        ConditionCode status = pair.Value.Status ?? defaultCode;
+        Dictionary<XmlQualifiedName, XmlQualifiedName> dict = namesByStatus.TryGetValue(status);
+        if(dict == null) namesByStatus[status] = dict = new Dictionary<XmlQualifiedName, XmlQualifiedName>();
+        // set properties get an xsi:type attribute if the set was successful, the client sent an xsi:type, and the type was well-known
+        XmlQualifiedName type = status.IsSuccessful && pair.Value.Property != null ? pair.Value.Property.Type : null;
+        dict[pair.Key] = type != null && DAVUtility.IsKnownXsiType(type) ? type : null;
+        if(type != null) hadType = true;
+      }
+    }
+
+    // add namespaces for any xsi:type attributes that we set
+    if(hadType)
+    {
+      namespaces.Add(DAVNames.XmlSchemaInstance);
+      foreach(Dictionary<XmlQualifiedName, XmlQualifiedName> dict in namesByStatus.Values)
+      {
+        foreach(XmlQualifiedName type in dict.Values)
+        {
+          if(type != null) namespaces.Add(type.Namespace);
+        }
       }
     }
 
@@ -490,13 +594,23 @@ public class PropPatchRequest : WebDAVRequest
       writer.WriteStartElement(DAVNames.response);
       writer.WriteElementString(DAVNames.href, Context.ServiceRoot + DAVUtility.UriPathPartialEncode(Context.RequestPath));
 
-      foreach(KeyValuePair<ConditionCode, HashSet<XmlQualifiedName>> pair in namesByStatus)
+      foreach(KeyValuePair<ConditionCode, Dictionary<XmlQualifiedName,XmlQualifiedName>> spair in namesByStatus)
       {
         writer.WriteStartElement(DAVNames.propstat);
         writer.WriteStartElement(DAVNames.prop);
-        foreach(XmlQualifiedName name in pair.Value) writer.WriteEmptyElement(name);
+        foreach(KeyValuePair<XmlQualifiedName, XmlQualifiedName> ppair in spair.Value)
+        {
+          writer.WriteStartElement(ppair.Key); // write the property name
+          if(ppair.Value != null) // if the element should have an xsi:type attribute, write that
+          {
+            writer.WriteStartAttribute(DAVNames.xsiType);
+            writer.WriteQualifiedName(ppair.Value);
+            writer.WriteEndAttribute();
+          }
+          writer.WriteEndElement();
+        }
         writer.WriteEndElement(); // </prop>
-        response.WriteStatus(pair.Key);
+        response.WriteStatus(spair.Key);
         writer.WriteEndElement(); // </propstat>
       }
 
@@ -504,14 +618,14 @@ public class PropPatchRequest : WebDAVRequest
     }
   }
 
-  // for unparsable values, use 422 Unprocessable Entity. i tend to think that 400 Bad Request would be more fitting, since 422
-  // Unprocessable Entity is supposed to be used for syntactically correct requests that are nonetheless unprocessable (as per RFC 4918
-  // section 11.2), and an ill-formed value isn't syntactically correct. (you could argue that it's syntactically correct XML, and
-  // only semantically incorrect, but i'd respond that RFC 4918 uses 400 Bad Request for cases where XML is syntactically correct but
-  // wrong.) however, RFC 4316 section 4.2 uses 422 Unprocessable Entity in an example reply to a PROPPATCH request with an unparsable
-  // value. while it doesn't specify in the text that 422 should be used, clearly the example implies it. on the other hand, RFC 4316
-  // seems to be a bit poorly designed and written compared to RFC 4918, which seems to prefer 400 Bad Request. nonetheless, i will
-  // follow the example of RFC 4316 and use 422 Unprocessable Entity, since that is the RFC that defines the type extensions
+  // for unparsable values, use 422 Unprocessable Entity. 400 Bad Request might be more fitting, since 422 Unprocessable Entity is supposed
+  // to be used for syntactically correct requests that are nonetheless unprocessable (as per RFC 4918 section 11.2), and an ill-formed
+  // value isn't syntactically correct. (you could argue that it's syntactically correct XML, and only semantically incorrect, but i'd
+  // respond that RFC 4918 uses 400 Bad Request for cases where XML is syntactically correct but wrong.) however, RFC 4316 section 4.2 uses
+  // 422 Unprocessable Entity in an example reply to a PROPPATCH request with an unparsable value. while it doesn't specify in the text
+  // that 422 should be used, clearly the example implies it. on the other hand, RFC 4316 seems to be a bit poorly designed and written
+  // compared to RFC 4918, which seems to prefer 400 Bad Request. nonetheless, i will follow the example of RFC 4316 and use
+  // 422 Unprocessable Entity, since that is the RFC that defines the type extensions
   static readonly ConditionCode BadValueStatus = new ConditionCode(422, "The value was not formatted correctly for its type.");
 }
 #endregion

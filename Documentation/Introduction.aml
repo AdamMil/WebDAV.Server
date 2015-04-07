@@ -1,0 +1,88 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<topic id="5543b1ea-6017-48af-bb5b-6403dde37dec" revisionNumber="1">
+  <developerConceptualDocument xmlns="http://ddue.schemas.microsoft.com/authoring/2003/5" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <introduction />
+    <section address="Introduction">
+      <content>
+      <para>
+        WebDAV is an extension to the HTTP protocol that extends the set of standard HTTP methods for
+        changing data (PUT and DELETE) with additional methods for creating collections (MKCOL), copying and
+        moving resources (COPY and MOVE), getting and setting arbitrarily complex properties on resources
+        (PROPFIND and PROPPATCH), and locking resources to facilitate collaboration with other users (LOCK
+        and UNLOCK). WebDAV is often used to make HTTP resources appear and work like files and directories
+        on a local filesystem, which allows systems to interface with common software that doesn't know
+        anything about them, but WebDAV and the rest of HTTP can be used to allow data to be viewed and
+        modified in more complex ways.
+      </para>
+
+      <para>
+        For example, consider a database exposed through WebDAV. A database table might be exposed
+        in multiple formats, such as .csv, .xlsx, etc. Editing any of these virtual files could
+        transparently update the database, allowing easy database editing via any spreadsheet program. A web
+        interface exposed via virtual web (.html) pages could allow editing the database in a web browser.
+        Almost any system can expose its data through WebDAV.
+      </para>
+
+      <para>
+        WebDAV is specified in <externalLink><linkText>RFC 4918</linkText><linkUri>https://tools.ietf.org/html/rfc4918</linkUri></externalLink>,
+        while the newest HTTP standards are specified in RFCs
+        <externalLink><linkText>7230</linkText><linkUri>https://tools.ietf.org/html/rfc7230</linkUri></externalLink>,
+        <externalLink><linkText>7231</linkText><linkUri>https://tools.ietf.org/html/rfc7231</linkUri></externalLink>,
+        <externalLink><linkText>7232</linkText><linkUri>https://tools.ietf.org/html/rfc7232</linkUri></externalLink>,
+        <externalLink><linkText>7233</linkText><linkUri>https://tools.ietf.org/html/rfc7233</linkUri></externalLink>,
+        <externalLink><linkText>7234</linkText><linkUri>https://tools.ietf.org/html/rfc7234</linkUri></externalLink>, and
+        <externalLink><linkText>7235</linkText><linkUri>https://tools.ietf.org/html/rfc7235</linkUri></externalLink>.
+        Some additional WebDAV extensions are specified in RFCs
+        <externalLink><linkText>4316</linkText><linkUri>https://tools.ietf.org/html/rfc4316</linkUri></externalLink> and
+        <externalLink><linkText>5689</linkText><linkUri>https://tools.ietf.org/html/rfc5689</linkUri></externalLink>.
+        Familiarity with these RFCs is important for implementing any complex WebDAV system, but the
+        <externalLink><linkText>AdamMil.net WebDAV server</linkText><linkUri>http://www.adammil.net/WebDAV</linkUri></externalLink>
+        (hereafter "our WebDAV server") allows many WebDAV systems to be implemented
+        without such specialized knowledge and without writing much code. Most free WebDAV servers can only
+        serve files on disk, can only serve read-only data, and/or are rudimentary and highly noncompliant
+        with the WebDAV standard. We wrote our WebDAV server to conform as closely to the HTTP and WebDAV standards as we could
+        reasonably make it, and to allow clients to edit arbitrary dynamic data. We also added many optional or required but rarely
+        implemented features such as transparent compression, partial transfers, partial updates, locking, editing, dead properties,
+        strong typing in property values, request preconditions, interservice copies and moves, and more.
+      </para>
+
+      <para>
+        Like WebDAV itself, our WebDAV server is designed to be extensible. You can add new services
+        exposing arbitary hierarchical data, add new resources to existing services, customize existing
+        resources, alter the way requests are processed by existing services, customize the storage of locks
+        and dead properties, extend the authentication mechanisms, and extend the set of supported HTTP
+        methods. The server is implemented on top of ASP.NET, allowing it to be easily deployed in existing
+        environments and used across platforms. If you just want to use the WebDAV server with a built-in service
+        or a service developed by a third party, you need only add a few elements to your web.config file.
+      </para>
+
+      <para>
+        Our WebDAV server is not without its shortcomings. Some features that have not been needed by us or our clients,
+        such as content negotiation and a complex permissions model, are missing. While such features are possible to have
+        using our server, it does not provide many built-in tools to simplify their implementation. In
+        addition, there are many poorly implemented WebDAV clients that require workarounds or non-standard server
+        behavior. Some widely deployed examples are the various WebDAV clients provided by Microsoft, such
+        as Windows Explorer and Microsoft Office. Although we've implemented workarounds for client bugs
+        when we've come across them, including the bugs we've found in the aforementioned Microsoft clients,
+        there may be other bugs and other buggy clients that cannot currently interoperate with the server.
+        Furthermore, like almost all web servers, there are some minor points of non-compliance with the
+        HTTP standard. Some of these are deliberate, such as support for partial updates that are now
+        disallowed by the latest HTTP standard but are sometimes expected by WebDAV clients, and others are
+        due to limitations on our available time and energy. That said, we have found the server to be more
+        than adequate so far for the needs of our users, and we are usually glad to make any improvements requested.
+      </para>
+
+      <para>
+        The server is <externalLink><linkText>Free Software</linkText><linkUri>https://www.gnu.org/philosophy/free-sw</linkUri></externalLink>
+        licensed under the
+        <externalLink><linkText>GNU GPL version 2</linkText><linkUri>https://www.gnu.org/licenses/gpl-2.0.html</linkUri></externalLink>,
+        which means that you have the freedom to use, copy, distribute, change, and even sell our software, provided that you
+        don't try to deny to others the same freedoms we've granted to you. Information about the latest
+        official version of the server can be found <externalLink><linkText>here</linkText><linkUri>http://www.adammil.net/WebDAV</linkUri></externalLink>.
+      </para>
+      </content>
+    </section>
+
+    <relatedTopics />
+  </developerConceptualDocument>
+</topic>

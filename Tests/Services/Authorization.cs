@@ -17,6 +17,7 @@ namespace AdamMil.WebDAV.Server.Tests
       Server.CreateFile("file", "huh");
       Server.CreateFile("denied", "can't get me");
       Server.CreateFile("hidden", "can't see me");
+      Server.CreateFile("readonly", "can't touch me");
     }
 
     [Test]
@@ -25,12 +26,14 @@ namespace AdamMil.WebDAV.Server.Tests
       // test that operations that access existing resources return the right status codes
       byte[] patchBody = System.Text.Encoding.UTF8.GetBytes("<propertyupdate xmlns=\"DAV:\" xmlns:T=\"TEST:\"><set><prop><T:ice>tea</T:ice></prop></set></propertyupdate>");
       TestRequest("GET", "file", 200);
+      TestRequest("GET", "readonly", 200);
       TestRequest("GET", "denied", 403);
-      TestRequest("GET", "hidden", 404); // we should get 404 on methods that only access existing resources
+      TestRequest("GET", "hidden", 404); // we should get 404 on methods that only access existing resources on hidden URLs
       TestRequest("PROPPATCH", "denied", null, patchBody, 403);
       TestRequest("PROPPATCH", "missing", null, patchBody, 404);
       TestRequest("PUT", "denied", null, new byte[1], 403);
-      TestRequest("PUT", "hidden", null, new byte[1], 403); // we should get 403 on methods that can create resources
+      TestRequest("PUT", "hidden", null, new byte[1], 403); // we should get 403 on methods that can create resources on hidden URLs
+      TestRequest("PUT", "readonly", null, new byte[1], 403);
 
       // the auth filter gets the user ID from UserId2 and allows admin2 to delete locks
       LockInfo info = Lock("file");
