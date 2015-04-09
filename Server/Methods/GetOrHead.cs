@@ -124,7 +124,7 @@ public struct ByteRange
 /// <item>
 ///   <term>200 <see cref="ConditionCodes.OK"/> (default)</term>
 ///   <description>The body of the resource representation is returned to the client. This status code should be used even for a <c>HEAD</c>
-///     request (which omits the entity body), since <c>HEAD</c> requests should return the same status as the corresponding <c>GET</c>
+///     request (which omits the entity body), since a <c>HEAD</c> request should return the same status as the corresponding <c>GET</c>
 ///     request.
 ///   </description>
 /// </item>
@@ -136,7 +136,7 @@ public struct ByteRange
 /// </item>
 /// <item>
 ///   <term>304 <see cref="ConditionCodes.NotModified">Not Modified</see></term>
-///   <description>A <c>If-Unmodified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
+///   <description>A <c>If-Modified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
 /// </item>
 /// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
@@ -144,7 +144,7 @@ public struct ByteRange
 /// </item>
 /// <item>
 ///   <term>412 <see cref="ConditionCodes.PreconditionFailed">Precondition Failed</see></term>
-///   <description>A precondition other than <c>If-Unmodified-Since</c> and <c>If-None-Match</c> was false.</description>
+///   <description>A precondition other than <c>If-Modified-Since</c> and <c>If-None-Match</c> was false.</description>
 /// </item>
 /// <item>
 ///   <term>416 <see cref="ConditionCodes.RequestedRangeNotSatisfiable">Requested Range Not Satisfiable</see></term>
