@@ -202,8 +202,8 @@
            attributes:
            * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
                            mapping will be used - the same mapping that would be used if the entire 'mediaTypeMap' element was omitted. For
-                           the format of the default mapping file, see Resources/MedaiTypes.xml and Resources/MediaTypes.xsd in the WebDAV
-                           server distribution.
+                           the format of the default mapping file, see Documentation/MediaTypes.xml and Documentation/MediaTypes.xsd in the
+                           WebDAV server distribution.
            * defaultExtension - This attribute specifies the file extension that the server will use when generating a file name for a
                                 resource with an unknown media type. If omitted, the default from 'defaultFile' will be used, which is
                                 normally to not use any file extension.
@@ -239,8 +239,8 @@
            default mapping will be used. In general, this element should be omitted. The element has these attributes:
            * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
                            mapping will be used - the same mapping that would be used if the entire 'compression' element was omitted. For
-                           the format of the default mapping file, see Resources/Compression.xml and Resources/Compression.xsd in the
-                           WebDAV server distribution.
+                           the format of the default mapping file, see Documentation/Compression.xml and Documentation/Compression.xsd in
+                           the WebDAV server distribution.
       -->
       <compression defaultFile="D:\data\compressionMap.xml">
         <!-- Each compression mapping element has the following attributes:

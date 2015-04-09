@@ -155,11 +155,11 @@ public class OptionsRequest : SimpleRequest
     // report support for encoded bodies and partial transfers (but only if the request is in the WebDAV service's scope)
     if(!OutOfScope)
     {
-      if(Context.Response.Headers[DAVHeaders.AcceptEncoding] != null) // don't overwrite headers supplied by the service or resource
+      if(Context.Response.Headers[DAVHeaders.AcceptEncoding] == null) // don't overwrite headers supplied by the service or resource
       {
         Context.Response.Headers[DAVHeaders.AcceptEncoding] = "gzip, deflate"; // we support gzip and deflate encodings by default
       }
-      if(Context.Response.Headers[DAVHeaders.AcceptRanges] != null)
+      if(Context.Response.Headers[DAVHeaders.AcceptRanges] == null)
       {
         Context.Response.Headers[DAVHeaders.AcceptRanges] = AllowPartialGet ? "bytes" : "none"; // see RFC 7233 section 2.3
       }

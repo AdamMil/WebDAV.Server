@@ -31,7 +31,7 @@ using AdamMil.WebDAV.Server.Configuration;
 // this file demonstrates how to implement a read-only WebDAV service that serves data from an XML file. it supports the full range of
 // WebDAV features you'd expect from a read-only service, including strongly typed dead properties, partial GETs, conditional requests,
 // and the ability to copy data to other types of services. the XML files are expected to conform to the schema given in XmlService.xsd.
-// a sample XML file is available in XmlService.xml. this file is not as heavily commented as ZipFileService, so you may want to look therer
+// a sample XML file is available in XmlService.xml. this file is not as heavily commented as ZipFileService, so you may want to look there
 // for comments about service implementation.
 //
 // to serve data from XML files, you might add a location like the following to the WebDAV <locations> in your web.config file:
