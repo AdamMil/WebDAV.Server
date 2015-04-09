@@ -30,6 +30,9 @@ namespace AdamMil.WebDAV.Server.Tests
       TestDAVSupport("dav/dir", "+1, 2, 3", "!PUT", "LOCK");
       TestDAVSupport("dav/dir/file", "+1, 2, 3", "PUT", "LOCK");
       TestDAVSupport("dav/dir/missing", "+1, 2, 3", "PUT", "LOCK");
+
+      // test other headers
+      TestRequest("OPTIONS", "dav/dir/file", null, 204, new string[] { DAVHeaders.AcceptEncoding, "gzip, deflate", DAVHeaders.AcceptRanges, "bytes" });
     }
 
     void Setup(bool writable, bool enableLocking, bool serveRootOptions)
