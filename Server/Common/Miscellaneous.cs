@@ -472,7 +472,7 @@ public enum ContentEncoding
 
 #region ContentRange
 /// <summary>Represents a value from the HTTP <c>Content-Range</c> header.</summary>
-public sealed class ContentRange
+public sealed class ContentRange : IEquatable<ContentRange>
 {
   /// <summary>Initializes a new <see cref="ContentRange"/> that represents an entire entity body of any length.</summary>
   public ContentRange()
@@ -525,6 +525,24 @@ public sealed class ContentRange
 
   /// <summary>Gets the total length of the entity body, or -1 if the total length is unspecified.</summary>
   public long TotalLength { get; private set; }
+
+  /// <inheritdoc/>
+  public override bool Equals(object obj)
+  {
+    return Equals(obj as ContentRange);
+  }
+
+  /// <summary>Determines whether two <see cref="ContentRange"/> objects are equal.</summary>
+  public bool Equals(ContentRange other)
+  {
+    return other != null && other.Start == Start && other.Length == Length && other.TotalLength == TotalLength;
+  }
+
+  /// <inheritdoc/>
+  public override int GetHashCode()
+  {
+    return Start.GetHashCode() ^ Length.GetHashCode() ^ (TotalLength.GetHashCode() << 8);
+  }
 
   /// <summary>Returns a string suitable for an HTTP <c>Content-Range</c> value.</summary>
   public string ToHeaderString()
@@ -1761,24 +1779,24 @@ public static class DAVUtility
 
 #region EntityTag
 /// <summary>Represents an HTTP entity tag. (See the description of entity tags in RFC 7232 for more details.)</summary>
-/// <remarks>Note that the format of HTTP entity tags changed between RFC 2616 and RFC 7232. In the former, it was defined as an HTTP
-/// <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
-/// to be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters
-/// in entity tags to prevent clients written to the older standard from performing backslash unescaping.
-/// </remarks>
-public sealed class EntityTag : IElementValue
+/// <remarks><note type="caution">The format of HTTP entity tags changed from RFC 2616 to RFC 7232. In the former, it was defined as an
+/// HTTP <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined to
+/// be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters in
+/// entity tags to prevent clients written to the older standard from performing backslash unescaping.
+/// </note></remarks>
+public sealed class EntityTag : IElementValue, IEquatable<EntityTag>
 {
   /// <include file="documentation.xml" path="/DAV/EntityTag/ctor/node()" />
   /// <param name="tag">The entity tag. This is an arbitrary string value that represents the state of a resource's content, such that
   /// identical tag values represent either identical or equivalent content, depending on the value of the <paramref name="isWeak"/>
-  /// parameter. The tag should consist of printable low ASCII characters with no double-quote characters. Backslash characters are
-  /// strongly discouraged. See the remarks.
+  /// parameter. The tag should consist of printable low ASCII characters with no whitespace or double-quote characters. Backslash
+  /// characters are allowed but strongly discouraged. See the remarks.
   /// </param>
-  /// <remarks>Note that the format of HTTP entity tags changed between RFC 2616 and RFC 7232. In the former, it was defined as an HTTP
-  /// <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
-  /// to be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters
-  /// in entity tags to prevent clients written to the older standard from performing backslash unescaping.
-  /// </remarks>
+  /// <remarks><note type="caution">The format of HTTP entity tags changed from RFC 2616 to RFC 7232. In the former, it was defined as an
+  /// HTTP <c>quoted-string</c>, and thus allowed backslash escaping and embedded double-quote characters. In the latter, it was redefined
+  /// to be an opaque string that does not allow double-quote characters, with no escaping. Thus, you should avoid backslash characters in
+  /// entity tags to prevent clients written to the older standard from performing backslash unescaping.
+  /// </note></remarks>
   public EntityTag(string tag, bool isWeak) : this(tag, isWeak, true) { }
 
   /// <include file="documentation.xml" path="/DAV/EntityTag/ctor/node()" />
@@ -1814,14 +1832,25 @@ public sealed class EntityTag : IElementValue
   /// <summary>Gets the entity tag string.</summary>
   public string Tag { get; private set; }
 
-  /// <summary>If true, this represents a weak entity tag. If false, it represents a strong entity tag.</summary>
+  /// <summary>Indicates whether the entity tag only weakly identifies the entity body. If false, this represents a strong entity tag,
+  /// where entities may have the same tag only if they are byte-for-byte identical. If true, this represents a weak entity tag, where
+  /// entities may have the same tag as long as they could be swapped with no significant change in semantics. (See the description of
+  /// entity tags in RFC 7232 for more details.)
+  /// </summary>
   public bool IsWeak { get; private set; }
 
   /// <inheritdoc/>
-  /// <remarks>This method is uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
+  /// <remarks>This method uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
   public override bool Equals(object obj)
   {
     return StronglyEquals(obj as EntityTag);
+  }
+
+  /// <summary>Determines whether two entity tags exactly match.</summary>
+  /// <remarks>This method uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
+  public bool Equals(EntityTag other)
+  {
+    return StronglyEquals(other);
   }
 
   /// <inheritdoc/>
@@ -1833,9 +1862,9 @@ public sealed class EntityTag : IElementValue
   /// <summary>Determines whether two entity tags are identical in every way. This is the strong comparison function defined by RFC 7232
   /// section 2.3.2.
   /// </summary>
-  public bool StronglyEquals(EntityTag match)
+  public bool StronglyEquals(EntityTag other)
   {
-    return !IsWeak && match != null && !match.IsWeak && Tag.OrdinalEquals(match.Tag);
+    return !IsWeak && other != null && !other.IsWeak && Tag.OrdinalEquals(other.Tag);
   }
 
   /// <summary>Gets the value of the entity tag used within the HTTP <c>ETag</c> header as defined by RFC 7232 section 2.3.</summary>
@@ -1853,9 +1882,9 @@ public sealed class EntityTag : IElementValue
   /// <summary>Determines whether two entity tags have identical tag strings. (The weakness flags don't have to match.) This is the weak
   /// comparison function defined by RFC 7232 section 2.3.2.
   /// </summary>
-  public bool WeaklyEquals(EntityTag match)
+  public bool WeaklyEquals(EntityTag other)
   {
-    return match != null && Tag.OrdinalEquals(match.Tag);
+    return other != null && Tag.OrdinalEquals(other.Tag);
   }
 
   /// <summary>Attempts to parse an <see cref="EntityTag"/> based on the value of an HTTP <c>ETag</c> header. Returns null if the value

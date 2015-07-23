@@ -47,8 +47,8 @@ namespace AdamMil.WebDAV.Server
 /// </summary>
 public sealed class UriResolution
 {
-  /// <summary>Gets whether access should be denied to the resource. This will always be false if <c>performAccessChecks</c> argument to
-  /// <see cref="WebDAVModule.ResolveUri"/> was false.
+  /// <summary>Gets whether access should be denied to the resource. This will always be false if the <c>performAccessChecks</c> argument
+  /// to <see cref="WebDAVModule.ResolveUri"/> was false.
   /// </summary>
   public bool AccessDenied { get; internal set; }
 

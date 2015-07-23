@@ -32,7 +32,7 @@ namespace AdamMil.WebDAV.Server
 
 #region ByteRange
 /// <summary>Represents a range of bytes within an entity response, used to enable partial responses.</summary>
-public struct ByteRange
+public struct ByteRange : IEquatable<ByteRange>
 {
   /// <summary>Initializes a new <see cref="ByteRange"/> based on the given start position and length.</summary>
   public ByteRange(long start, long length) : this(start, length, true) { }
@@ -47,9 +47,7 @@ public struct ByteRange
   /// <inheritdoc/>
   public override bool Equals(object obj)
   {
-    if(!(obj is ByteRange)) return false;
-    ByteRange range = (ByteRange)obj;
-    return range.Length == Length && range.Start == Start;
+    return obj is ByteRange && Equals((ByteRange)obj);
   }
 
   /// <summary>Determines whether this <see cref="ByteRange"/> object equals the given <see cref="ByteRange"/> object.</summary>
@@ -136,7 +134,7 @@ public struct ByteRange
 /// </item>
 /// <item>
 ///   <term>304 <see cref="ConditionCodes.NotModified">Not Modified</see></term>
-///   <description>A <c>If-Modified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
+///   <description>An <c>If-Modified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
 /// </item>
 /// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>

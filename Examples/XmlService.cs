@@ -20,7 +20,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Xml;
 using System.Xml.Schema;
 using AdamMil.IO;
@@ -80,13 +79,14 @@ public class XmlService : WebDAVService
   {
     internal XmlResource(XmlElement element, string path)
     {
-      XmlElement childElem = element.FirstChild as XmlElement;
-      if(childElem != null && childElem.HasName(Properties))
+      XmlElement childElem = (XmlElement)element.FirstChild;
+      if(childElem.HasName(Properties)) // the first child may be the optional <properties> element
       {
-        xmlProps = childElem;
-        childElem  = childElem.NextSibling as XmlElement;
+        xmlProps  = childElem;
+        childElem = (XmlElement)childElem.NextSibling; // if so, move to the next element
       }
 
+      // after the optional <properties> element, we have a <children> or <data> element. this has already been verified by the schema
       if(childElem.HasName(Children))
       {
         children = new XmlResource[childElem.ChildNodes.Count];
@@ -130,23 +130,14 @@ public class XmlService : WebDAVService
         if(!IsCollection)
         {
           long length = 0;
-          byte[] buffer = new byte[4096];
-          using(Stream stream = OpenStream())
-          {
-            while(true)
-            {
-              int read = stream.Read(buffer, 0, buffer.Length);
-              if(read == 0) break;
-              length += read;
-            }
-          }
+          using(Stream stream = OpenStream()) stream.Process((buffer, chunkSize) => { length += chunkSize; return true; });
           local.Length    = length;
           local.MediaType = StringUtility.MakeNullIfEmpty(data.GetAttribute("mediaType"));
         }
         metadata = local;
       }
 
-      if(includeEntityTag && local.EntityTag == null)
+      if(includeEntityTag && local.EntityTag == null && !IsCollection)
       {
         using(Stream stream = OpenStream()) local.EntityTag = DAVUtility.ComputeEntityTag(stream);
       }

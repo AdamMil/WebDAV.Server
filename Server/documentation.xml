@@ -355,8 +355,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
           Since it's relative, the path must not begin with a slash. The path for a collection resource should end with a slash, but not if
           it would result in the path beginning with a slash. (The canonical relative path to the root resource is the empty string.) Since
           it's canonical, the path must not contain any unnecessarily encoded characters. In particular, you should not use the URL
-          encoding methods of <see cref="System.Web.HttpUtility"/> or <see cref="T:System.Net.WebUtility"/> to construct the path, since it
-          encodes characters unnecessarily and so does not produce a canonical path. You can normally use
+          encoding methods of <see cref="System.Web.HttpUtility"/> or <see cref="T:System.Net.WebUtility"/> to construct the path, since
+          they encode characters unnecessarily and so do not produce a canonical path. You can normally use
           <see cref="DAVUtility.CanonicalSegmentEncode"/> or <see cref="DAVUtility.CanonicalPathEncode"/> to perform the encoding.
         </para>
         <para>

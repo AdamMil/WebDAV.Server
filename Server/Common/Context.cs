@@ -33,7 +33,7 @@ using AdamMil.Utilities;
 namespace AdamMil.WebDAV.Server
 {
 
-/// <summary>Contains information about the current WebDAV request.</summary>
+/// <summary>Contains information about the current WebDAV request and facilitates writing the response.</summary>
 public sealed class WebDAVContext
 {
   internal WebDAVContext(IWebDAVService service, IAuthorizationFilter[] authFilters, string serviceRootPath, string requestPath,
