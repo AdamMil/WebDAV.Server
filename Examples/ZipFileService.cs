@@ -187,7 +187,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     if(request == null) throw new ArgumentNullException();
     if(!archive.IsReadOnly) // but if the resource is not read-only, report to the client that some additional methods are allowed
     {
-      if(!string.IsNullOrEmpty(path)) request.AllowedMethods.Add(DAVMethods.Delete); // the root can't be deleted
+      if(!string.IsNullOrEmpty(path)) request.AllowedMethods.Add(DAVMethods.Delete); // resources other than the root can be deleted
       if(!IsCollection) request.AllowedMethods.Add(DAVMethods.Put); // files can have their content replaced
       request.SupportsLocking = request.Context.LockManager != null; // support locking for writable resources if there's a lock manager
     }
@@ -245,7 +245,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
     else request.ProcessStandardRequest();
   }
 
-  /// <summary>Deletes the resource and all its descendants from the archive. This method must be called in a lock.</summary>
+  /// <summary>Deletes the resource and all its descendants from the archive. This method must be called with the archive locked.</summary>
   internal void Delete()
   {
     archive.ClearEntryLengths(path);
@@ -285,7 +285,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
   }
 
   /// <summary>Returns a dictionary containing the live properties of this resource. Dead properties are handled automatically.</summary>
-  Dictionary<XmlQualifiedName,object> GetLiveProperties(PropFindRequest request)
+  Dictionary<XmlQualifiedName,object> GetLiveProperties(PropFindRequest request) // NOTE: request will be null for non-PROPFIND requests
   {
     Dictionary<XmlQualifiedName, object> properties = new Dictionary<XmlQualifiedName, object>();
     properties[DAVNames.resourcetype] = IsCollection ? ResourceType.Collection : null; // null indicates a non-collection resource
@@ -307,7 +307,7 @@ sealed class ZipEntryResource : WebDAVResource, IStandardResource<ZipEntryResour
       }
     }
 
-    // if we support locking and we're servicing a PROPFIND request (as opposed to a COPY/MOVE request), add lock-related properties
+    // if we support locking and we're servicing a PROPFIND request (as opposed to COPY/MOVE, etc.), add lock-related properties
     if(!archive.IsReadOnly && request != null && request.Context.LockManager != null)
     {
       // here we want to include the lockdiscovery value unless it must not be returned. we'll use the MustExcludePropertyValue function

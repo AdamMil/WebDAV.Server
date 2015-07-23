@@ -228,7 +228,7 @@ public class PropFindRequest : WebDAVRequest
   /// <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see> is used, then properties
   /// will not be included unless they are supposed to be. This method is intended for use with properties that are by default included
   /// in the results but are nonetheless expensive to compute, so that a resource may avoid including the property value when it's not
-  /// going to be sent to the client.
+  /// going to be sent to the client. An example is the <c>DAV:lockdiscovery</c> property when serving PROPFIND requests.
   /// </remarks>
   public bool MustExcludeProperty(XmlQualifiedName propertyName)
   {
@@ -240,7 +240,7 @@ public class PropFindRequest : WebDAVRequest
   /// <see cref="O:AdamMil.WebDAV.Server.PropFindRequest.ProcessStandardRequest">ProcessStandardRequest</see> is used, then properties and
   /// property values will not be included unless they are supposed to be. This method is intended for use with properties that are by
   /// default included in the results but are nonetheless expensive to compute, so that a resource may avoid computing the property value
-  /// when it's not going to be sent to the client.
+  /// when it's not going to be sent to the client. An example is the <c>DAV:lockdiscovery</c> property when serving PROPFIND requests.
   /// </remarks>
   public bool MustExcludePropertyValue(XmlQualifiedName propertyName)
   {
@@ -251,7 +251,8 @@ public class PropFindRequest : WebDAVRequest
   /// of the property must be included. If <see cref="NamesOnly"/> is true, the value does not need to be computed and may be null.
   /// </summary>
   /// <remarks>This method is intended for use with properties that are by default excluded from the results because they are expensive to
-  /// compute.
+  /// compute. A common example is the <c>DAV:getetag</c> property in services that don't store a precomputed hash value or
+  /// <see cref="EntityTag"/>.
   /// </remarks>
   public bool MustIncludeProperty(XmlQualifiedName propertyName)
   {

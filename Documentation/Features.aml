@@ -122,7 +122,8 @@
           properties (since services receive strongly typed values and do not need to manually parse simple
           XML elements), and can help ensure data integrity. Services do not need to do anything to get strong
           typing of property values unless they want to support types besides those built into the server.
-          Strongly typed properties is a WebDAV extension described in RFC 4316.
+          Strongly typed properties is a WebDAV extension described in RFC
+          <externalLink><linkText>4316</linkText><linkUri>https://tools.ietf.org/html/rfc4316</linkUri></externalLink>.
         </para>
       </content>
     </section>

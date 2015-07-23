@@ -128,20 +128,34 @@ public sealed class XmlProperty
     }
   }
 
+  /// <summary>Gets whether the property has a complex element that cannot be represented by a simple <see cref="Value"/>. If true, the
+  /// element can be retrieved by calling <see cref="GetElement"/>. If false, <see cref="GetElement"/> will return null. Note that this
+  /// property may be false even if an element was passed to the constructor, if the element only represented a simple value.
+  /// </summary>
+  public bool HasElement
+  {
+    get { return Element != null; }
+  }
+
   /// <summary>Gets the language of the property value, as an xml:lang value, or null if no language was specified.</summary>
   public string Language { get; private set; }
+
   /// <summary>Gets the qualified name of the property.</summary>
   public XmlQualifiedName Name { get; private set; }
+
   /// <summary>Gets the qualified name of the property type, as an xsi:type value, or null if no type was specified and the type could not
   /// be inferred from the value.
   /// </summary>
   public XmlQualifiedName Type { get; private set; }
-  /// <summary>Gets the value of the property or null if the property has a null value, an empty element value, or a complex element value.</summary>
+
+  /// <summary>Gets the value of the property or null if the property has a null value, an empty element value, or a complex element value.
+  /// The <see cref="HasElement"/> property can be used to distinguish whether between different reasons why this property may be null.
+  /// </summary>
   public object Value { get; private set; }
 
   /// <summary>Returns a copy of the property's XML element value, or null if the value is represented by <see cref="Value"/>.</summary>
   /// <remarks>Note that this method may return null even if an element was passed to the constructor, if the element only represented a
-  /// simple value.
+  /// simple value. You can determine whether this method will return null by checking the <see cref="HasElement"/> property.
   /// </remarks>
   public XmlElement GetElement()
   {
