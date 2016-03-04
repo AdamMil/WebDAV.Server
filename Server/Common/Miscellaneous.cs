@@ -946,6 +946,14 @@ public static class DAVUtility
     return true;
   }
 
+  /// <summary>Decodes an HTTP <c>quoted-string</c>.</summary>
+  public static string UnquoteDecode(string value)
+  {
+    if(value == null) throw new ArgumentNullException();
+    if(value.Length < 2 || value[0] != '"' || value[value.Length-1] != '"') throw new ArgumentException();
+    return UnquoteDecode(value, 1, value.Length-2);
+  }
+
   /// <summary>Decodes an HTTP <c>quoted-string</c> given the span of text within the quotation marks.</summary>
   public static string UnquoteDecode(string value, int start, int length)
   {
