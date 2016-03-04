@@ -26,10 +26,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         <see cref="DAVNames.write"/> (which is the name of the write lock type) will test for write access. Null may be passed to test for
         read access. If you define additional access types, you may use those as well.
       </param>
-      <param name="denyExistence">
-        If the user is to be denied access, this variable should receive a value that indicates whether the
-        WebDAV service should deny the existence of the resource requested by the user by pretending that it was not found. If the user is
-        allowed access, this variable should be set to false.
+      <param name="response">
+        If the user is to be denied access, this variable should receive a <see cref="ConditionCode"/> that indicates the type of response
+        that should be sent to the client, or null to use the default response. If authorization filters disagree on the response, the
+        first non-null value will be used. Typical values are <see cref="ConditionCodes.Unauthorized"/> to request authorization and
+        <see cref="ConditionCodes.NotFound"/> to pretend that the resource doesn't exist. <see cref="ConditionCodes.Forbidden"/> is the
+        default and generally shouldn't be returned, but may be returned if you want to prevent another authorization filter from
+        using something else. If the user is allowed access, this variable should be set to null.
       </param>
     </ShouldDenyAccess>
   </Common>
@@ -705,7 +708,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         A collection of <see cref="IAuthorizationFilter"/> objects that should be consulted in addition to the
         <see cref="WebDAVContext.RequestResource"/>, or null if there are no authorization filters.
       </param>
-      <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/param[@name='denyExistence']" />
+      <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/param[@name='response']" />
       <returns>
         True if the user should be denied access, or false if the user may be permitted access. The user should be allowed access only
         if the request resource and all authentication filters agree.
@@ -1013,7 +1016,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         authority) or a relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is
         relative, the authority of the request URI will be used.
       </param>
-      <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='denyExistence')]" />
+      <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='response')]" />
     </ShouldDenyAccess>
   </WebDAVModule>
   

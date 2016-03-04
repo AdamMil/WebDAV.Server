@@ -63,7 +63,6 @@
     <Compile Include="Methods\PropPatch.cs" />
     <Compile Include="Methods\Put.cs" />
     <Compile Include="Methods\Unlock.cs" />
-    <Compile Include="Common\MediaTypes.cs" />
     <Compile Include="Services\Authorization.cs" />
     <Compile Include="Common\ConditionCodes.cs" />
     <Compile Include="Common\Configuration.cs" />
@@ -79,18 +78,6 @@
     <Compile Include="Common\Xml.cs" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Resources\MediaTypes.xsd">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Resources\Compression.xsd">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Resources\Compression.xml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Resources\MediaTypes.xml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
     <None Include="Resources\Web.config.minimal">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -116,6 +103,10 @@
     <ProjectReference Include="..\..\AdamMil.net\Utilities\AdamMil.Utilities.csproj">
       <Project>{29134637-6D08-432C-8161-9DEEE13C955D}</Project>
       <Name>AdamMil.Utilities</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\Web\AdamMil.Web.csproj">
+      <Project>{571d3396-5a8e-4af6-9a28-4ae2eec11081}</Project>
+      <Name>AdamMil.Web</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

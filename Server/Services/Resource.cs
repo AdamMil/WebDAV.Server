@@ -91,7 +91,7 @@ public interface IWebDAVResource
   void Put(PutRequest request);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
-  bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out bool denyExistence);
+  bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out ConditionCode response);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
   /// <example>For implementation examples, see <see cref="WebDAVResource.Unlock"/>.</example>
@@ -625,9 +625,9 @@ public abstract class WebDAVResource : IWebDAVResource
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
   /// <remarks><note type="inherit">The default implementation always grants access to the resource.</note></remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out bool denyExistence)
+  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out ConditionCode response)
   {
-    denyExistence = false;
+    response = null;
     return false;
   }
 }

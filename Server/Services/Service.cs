@@ -158,10 +158,10 @@ public interface IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ShouldDenyAccess1/node()" />
   /// <example>This example shows a typical implementation of this method - the same implementation used by <see cref="WebDAVService"/>.
   /// <code>
-  /// public bool ShouldDenyAccess(WebDAVContext context, IEnumerable&lt;IAuthorizationFilter&gt; authFilters, out bool denyExistence)
+  /// public bool ShouldDenyAccess(WebDAVContext context, IEnumerable&lt;IAuthorizationFilter&gt; authFilters, out ConditionCode response)
   /// {
   ///   if(context == null) throw new ArgumentNullException();
-  ///   return ShouldDenyAccess(context, context.RequestResource, authFilters, GetDefaultPermissionCheck(context), out denyExistence);
+  ///   return ShouldDenyAccess(context, context.RequestResource, authFilters, GetDefaultPermissionCheck(context), out response);
   /// }
   /// 
   /// protected virtual XmlQualifiedName GetDefaultPermissionCheck(WebDAVContext context)
@@ -178,38 +178,36 @@ public interface IWebDAVService
   /// }
   /// </code>
   /// </example>
-  bool ShouldDenyAccess(WebDAVContext context, IEnumerable<IAuthorizationFilter> authFilters, out bool denyExistence);
+  bool ShouldDenyAccess(WebDAVContext context, IEnumerable<IAuthorizationFilter> authFilters, out ConditionCode response);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ShouldDenyAccess2/node()" />
   /// <example>This example shows a typical implementation of this method - the same implementation used by <see cref="WebDAVService"/>.
   /// <code>
   /// public bool ShouldDenyAccess(WebDAVContext context, IWebDAVResource resource, IEnumerable&lt;IAuthorizationFilter&gt; authFilters,
-  ///                              XmlQualifiedName access, out bool denyExistence)
+  ///                              XmlQualifiedName access, out ConditionCode response)
   /// {
   ///   if(context == null) throw new ArgumentNullException();
-  ///   denyExistence = false;
+  ///   response = null;
   ///
   ///   bool denyAccess = false;
   ///   if(authFilters != null)
   ///   {
   ///     foreach(IAuthorizationFilter filter in authFilters)
   ///     {
-  ///       denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out denyExistence);
-  ///       if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
+  ///       denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out response);
+  ///       if(denyAccess &amp;&amp; response != null) break;
   ///     }
   ///   }
-  ///
-  ///   if(!denyExistence &amp;&amp; resource != null) // if existence (or access) hasn't been denied yet, give the resource a chance
-  ///   {
-  ///     denyAccess |= resource.ShouldDenyAccess(context, this, access, out denyExistence);
-  ///   }
+  /// 
+  ///   // if access hasn't been denied yet or we aren't sure what response to send, give the resource a chance to answer
+  ///   if(resource != null &amp;&amp; (!denyAccess || response == null)) denyAccess |= resource.ShouldDenyAccess(context, this, access, out response);
   ///
   ///   return denyAccess;
   /// }
   /// </code>
   /// </example>
   bool ShouldDenyAccess(WebDAVContext context, IWebDAVResource resource, IEnumerable<IAuthorizationFilter> authFilters,
-                        XmlQualifiedName access, out bool denyExistence);
+                        XmlQualifiedName access, out ConditionCode response);
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/Unlock/node()" />
   /// <example>For implementation examples, see <see cref="WebDAVService.Unlock"/>.</example>
@@ -267,11 +265,11 @@ public interface IWebDAVService
 ///   <description>Your service wants to handle <c>POST</c> requests.</description>
 /// </item>
 /// <item>
-///   <term><see cref="ShouldDenyAccess(WebDAVContext,IEnumerable{IAuthorizationFilter},out bool)"/></term>
+///   <term><see cref="ShouldDenyAccess(WebDAVContext,IEnumerable{IAuthorizationFilter},out ConditionCode)"/></term>
 ///   <description>Your service wants to change how the initial access check against the request resource is done.</description>
 /// </item>
 /// <item>
-///   <term><see cref="ShouldDenyAccess(WebDAVContext,IWebDAVResource,IEnumerable{IAuthorizationFilter},XmlQualifiedName,out bool)"/></term>
+///   <term><see cref="ShouldDenyAccess(WebDAVContext,IWebDAVResource,IEnumerable{IAuthorizationFilter},XmlQualifiedName,out ConditionCode)"/></term>
 ///   <description>Your service wants to change how all access checks are done.</description>
 /// </item>
 /// </list>
@@ -631,40 +629,38 @@ public abstract class WebDAVService : IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ShouldDenyAccess1/*[not(self::remarks)]" />
   /// <remarks><include file="documentation.xml" path="/DAV/IWebDAVService/ShouldDenyAccess1/remarks/node()" />
   /// <note type="inherit">The default implementation calls
-  /// <see cref="ShouldDenyAccess(WebDAVContext,IWebDAVResource,IEnumerable{IAuthorizationFilter},XmlQualifiedName,out bool)"/> with
-  /// <see cref="WebDAVContext.RequestResource"/> and the access check from <see cref="GetDefaultPermissionCheck"/>.
+  /// <see cref="ShouldDenyAccess(WebDAVContext,IWebDAVResource,IEnumerable{IAuthorizationFilter},XmlQualifiedName,out ConditionCode)"/>
+  /// with <see cref="WebDAVContext.RequestResource"/> and the access check from <see cref="GetDefaultPermissionCheck"/>.
   /// </note>
   /// </remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, IEnumerable<IAuthorizationFilter> authFilters, out bool denyExistence)
+  public virtual bool ShouldDenyAccess(WebDAVContext context, IEnumerable<IAuthorizationFilter> authFilters, out ConditionCode response)
   {
     if(context == null) throw new ArgumentNullException();
-    return ShouldDenyAccess(context, context.RequestResource, authFilters, GetDefaultPermissionCheck(context), out denyExistence);
+    return ShouldDenyAccess(context, context.RequestResource, authFilters, GetDefaultPermissionCheck(context), out response);
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/ShouldDenyAccess2/node()" />
   /// <remarks><note type="inherit">The default implementation queries the authorization filters and the given resource (if any), and
-  /// denies access if any filter
+  /// denies access if any filter or the resource says we should.
   /// </note></remarks>
   public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVResource resource, IEnumerable<IAuthorizationFilter> authFilters,
-                                       XmlQualifiedName access, out bool denyExistence)
+                                       XmlQualifiedName access, out ConditionCode response)
   {
     if(context == null) throw new ArgumentNullException();
-    denyExistence = false;
+    response = null;
 
     bool denyAccess = false;
     if(authFilters != null)
     {
       foreach(IAuthorizationFilter filter in authFilters)
       {
-        denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out denyExistence);
-        if(denyExistence) break; // we'll deny the existence of the resource if any authorization filter says we should
+        denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out response);
+        if(denyAccess && response != null) break;
       }
     }
 
-    if(!denyExistence && resource != null) // if existence (or access) hasn't been denied yet, give the resource a chance
-    {
-      denyAccess |= resource.ShouldDenyAccess(context, this, access, out denyExistence);
-    }
+    // if access hasn't been denied yet or we aren't sure what response to send, give the resource a chance to answer
+    if(resource != null && (!denyAccess || response == null)) denyAccess |= resource.ShouldDenyAccess(context, this, access, out response);
 
     return denyAccess;
   }

@@ -158,7 +158,6 @@ namespace AdamMil.WebDAV.Server.Tests
       {
         data = stream.ReadToEnd();
       }
-      System.Threading.Thread.Sleep(50); // TODO: get rid of this crap (below, too)
       return data;
     }
 
@@ -510,8 +509,6 @@ namespace AdamMil.WebDAV.Server.Tests
           if(processor != null) processor(response);
         }
       }
-
-      System.Threading.Thread.Sleep(50);
     }
 
     protected void Unlock(string requestPath, LockInfo info, int expectedStatus=204, string expectedXml=null, string[] extraHeaders=null)

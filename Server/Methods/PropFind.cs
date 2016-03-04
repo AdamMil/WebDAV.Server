@@ -591,10 +591,13 @@ public class PropFindRequest : WebDAVRequest
                                    Action<PropFindResource,XmlQualifiedName,V> setValue, bool isRoot) where T : IStandardResource<T>
   {
     if(resource == null) throw new ArgumentNullException();
-    bool denyExistence;
-    if(Context.ShouldDenyAccess(resource, null, out denyExistence)) // the request resource should have been checked already
+    ConditionCode authResponse;
+    if(Context.ShouldDenyAccess(resource, null, out authResponse)) // the request resource should have been checked already
     {
-      if(!denyExistence) AddResource(requestPath, resource.CanonicalPath, new Dictionary<XmlQualifiedName, V>(), setValue);
+      if(authResponse == null || authResponse.StatusCode != (int)HttpStatusCode.NotFound) // if we're not denying the resource's existence
+      {
+        AddResource(requestPath, resource.CanonicalPath, new Dictionary<XmlQualifiedName, V>(), setValue);
+      }
       return;
     }
 

@@ -385,11 +385,11 @@ public sealed class WebDAVContext
   /// <param name="relativePath">The path to a resource, relative to <see cref="ServiceRoot"/>, or null to reference the request resource.
   /// If this parameter is not equal to <see cref="RequestPath"/>, then the resource must exist.
   /// </param>
-  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='denyExistence')]" />
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='response')]" />
   public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access)
   {
-    bool denyAccess;
-    return ShouldDenyAccess(relativePath, access, out denyAccess);
+    ConditionCode response;
+    return ShouldDenyAccess(relativePath, access, out response);
   }
 
   /// <summary>Determines whether access should be denied to the resource named by the given path in the context of the current request.</summary>
@@ -397,7 +397,7 @@ public sealed class WebDAVContext
   /// If this parameter is not equal to <see cref="RequestPath"/>, then the resource must exist.
   /// </param>
   /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
-  public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access, out bool denyExistence)
+  public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access, out ConditionCode response)
   {
     IWebDAVResource resource;
     if(relativePath == null || relativePath.OrdinalEquals(RequestPath))
@@ -409,25 +409,25 @@ public sealed class WebDAVContext
       resource = Service.ResolveResource(this, relativePath);
       if(resource == null) throw new ArgumentException("The resource \"" + relativePath + "\" could not be found.");
     }
-    return Service.ShouldDenyAccess(this, resource, authFilters, access, out denyExistence);
+    return Service.ShouldDenyAccess(this, resource, authFilters, access, out response);
   }
 
   /// <summary>Determines whether access should be denied to the given resource in the context of the current request.</summary>
   /// <param name="resource">The resource to check.</param>
-  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='denyExistence')]" />
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='response')]" />
   public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access)
   {
-    bool denyAccess;
-    return ShouldDenyAccess(resource, access, out denyAccess);
+    ConditionCode response;
+    return ShouldDenyAccess(resource, access, out response);
   }
 
   /// <summary>Determines whether access should be denied to the given resource in the context of the current request.</summary>
   /// <param name="resource">The resource to check.</param>
   /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
-  public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access, out bool denyExistence)
+  public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access, out ConditionCode response)
   {
     if(resource == null) throw new ArgumentNullException();
-    return Service.ShouldDenyAccess(this, resource, authFilters, access, out denyExistence);
+    return Service.ShouldDenyAccess(this, resource, authFilters, access, out response);
   }
 
   /// <summary>Writes a response to the client based on the given <see cref="ConditionCode"/>.</summary>

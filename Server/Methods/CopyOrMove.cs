@@ -349,8 +349,8 @@ public class CopyOrMoveRequest : WebDAVRequest
       bool denyAccess = false;
       if(Service != null)
       {
-        bool denyExistence;
-        denyAccess = Service.ShouldDenyAccess(context, Service.ResolveResource(context, destPath), authFilters, access, out denyExistence);
+        ConditionCode response;
+        denyAccess = Service.ShouldDenyAccess(context, Service.ResolveResource(context, destPath), authFilters, access, out response);
       }
       return denyAccess;
     }

@@ -25,6 +25,7 @@ using System.Net;
 using System.Xml;
 using AdamMil.IO;
 using AdamMil.Utilities;
+using AdamMil.Web;
 using AdamMil.WebDAV.Server.Configuration;
 
 // TODO: authorization against the request URI (i.e. implement ShouldDenyAccess)?
