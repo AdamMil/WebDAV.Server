@@ -3,7 +3,7 @@ AdamMil.WebDAV.Server is a library providing a flexible, extensible, and fairly
 standards-compliant WebDAV server for the .NET Framework.
 
 http://www.adammil.net/
-Written 2012-2015 by Adam Milazzo.
+Written 2012-2016 by Adam Milazzo.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -29,7 +29,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("Release")]
 #endif
 [assembly: AssemblyProduct("AdamMil.net")]
-[assembly: AssemblyCopyright("Copyright © Adam Milazzo 2012-2015")]
+[assembly: AssemblyCopyright("Copyright © Adam Milazzo 2012-2016")]
 
 [assembly: CLSCompliant(false)]
 [assembly: ComVisible(false)]
