@@ -12,10 +12,10 @@ namespace AdamMil.WebDAV.Server.Tests.Helpers
     }
 
     public override bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
-                                          out bool denyExistence)
+                                          out ConditionCode response)
     {
-      denyExistence = context.RequestPath.IndexOf("hidden", StringComparison.OrdinalIgnoreCase) >= 0;
-      return denyExistence || context.RequestPath.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0 ||
+      response = context.RequestPath.IndexOf("hidden", StringComparison.OrdinalIgnoreCase) >= 0 ? ConditionCodes.NotFound : null;
+      return response != null || context.RequestPath.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0 ||
              context.RequestPath.IndexOf("readonly", StringComparison.OrdinalIgnoreCase) >= 0 && access == DAVNames.write;
     }
 

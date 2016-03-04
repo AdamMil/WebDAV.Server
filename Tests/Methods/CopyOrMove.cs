@@ -18,13 +18,13 @@ namespace AdamMil.WebDAV.Server.Tests
       // web site. this has supposedly been corrected in .NET 4 (although some people report otherwise), but we're using .NET 3.5 for the
       // test site and anyway this lets us test the directory-based storage a bit
       TypeWithParameters lockManager = new TypeWithParameters(typeof(FileLockManager));
-      lockManager["lockDir"] = "{PhysicalPath}/locks";
+      lockManager["lockDir"] = "{DataPath}/locks";
       TypeWithParameters propertyStore = new TypeWithParameters(typeof(FilePropertyStore));
-      propertyStore["propertyDir"] = "{PhysicalPath}/props";
+      propertyStore["propertyDir"] = "{DataPath}/props";
 
-      CreateWebServer(lockManager, propertyStore, new FileSystemLocation("/fs1", "{PhysicalPath}/loc1", true),
-                      new FileSystemLocation("/fs2", "{PhysicalPath}/loc2", true), new Location("/mem", typeof(TestMemoryService)),
-                      new FileSystemLocation("/fsX", "{PhysicalPath}/loc1", true)); // duplicate of /fs1
+      CreateWebServer(lockManager, propertyStore, new FileSystemLocation("/fs1", "{DataPath}/loc1", true),
+                      new FileSystemLocation("/fs2", "{DataPath}/loc2", true), new Location("/mem", typeof(TestMemoryService)),
+                      new FileSystemLocation("/fsX", "{DataPath}/loc1", true)); // duplicate of /fs1
 
       Server.CreateDirectory("locks");
       Server.CreateDirectory("props");

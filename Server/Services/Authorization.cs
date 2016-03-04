@@ -37,7 +37,7 @@ public interface IAuthorizationFilter
   bool GetCurrentUserId(WebDAVContext context, out string currentUserId);
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/ShouldDenyAccess/node()" />
   bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
-                        out bool denyExistence);
+                        out ConditionCode response);
 }
 #endregion
 
@@ -63,9 +63,9 @@ public abstract class AuthorizationFilter : IAuthorizationFilter
   /// <include file="documentation.xml" path="/DAV/IAuthorizationFilter/ShouldDenyAccess/node()" />
   /// <remarks><note type="inherit">The default implementation returns false.</note></remarks>
   public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, IWebDAVResource resource, XmlQualifiedName access,
-                                       out bool denyExistence)
+                                       out ConditionCode response)
   {
-    denyExistence = false;
+    response = null;
     return false;
   }
 }

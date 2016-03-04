@@ -146,10 +146,10 @@
             object.
           </para></listItem>
           <listItem><para>
-            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,System.Collections.Generic.IEnumerable{AdamMil.WebDAV.Server.IAuthorizationFilter},System.Boolean@)</codeEntityReference>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVService.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,System.Collections.Generic.IEnumerable{AdamMil.WebDAV.Server.IAuthorizationFilter},AdamMil.WebDAV.Server.ConditionCode@)</codeEntityReference>
             is called on the FooService to see whether the user can execute the request. Since the request mapped to a resource, the
             service is expected to call
-            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVResource.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,AdamMil.WebDAV.Server.IWebDAVService,System.Xml.XmlQualifiedName,System.Boolean@)</codeEntityReference>
+            <codeEntityReference>M:AdamMil.WebDAV.Server.IWebDAVResource.ShouldDenyAccess(AdamMil.WebDAV.Server.WebDAVContext,AdamMil.WebDAV.Server.IWebDAVService,System.Xml.XmlQualifiedName,AdamMil.WebDAV.Server.ConditionCode@)</codeEntityReference>
             on the resource as well. (Any configured authorization filters also get a chance to respond.) Access is granted.
           </para></listItem>
           <listItem><para>

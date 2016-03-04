@@ -95,7 +95,7 @@ namespace AdamMil.WebDAV.Server.Tests
       // test the ability to remove dangling locks
       Server.CreateFile("temp", "...");
       info = Lock("temp");
-      File.Delete(Path.Combine(Server.Directory, "temp")); // delete the file outside WebDAV so the resource disappears
+      File.Delete(Path.Combine(Server.DataDirectory, "temp")); // delete the file outside WebDAV so the resource disappears
       Unlock("temp", info); // make sure we can unlock the nonexistent resource
 
       // test that submitting a lock token to a tag outside the lock scope (but to an ancestor or descendant) doesn't work

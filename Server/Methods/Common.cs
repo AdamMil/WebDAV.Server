@@ -22,6 +22,7 @@ using System.Collections.Generic;
 using System.Xml;
 using AdamMil.Collections;
 using AdamMil.Utilities;
+using AdamMil.Web;
 
 namespace AdamMil.WebDAV.Server
 {

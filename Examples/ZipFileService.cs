@@ -25,6 +25,7 @@ using System.Linq;
 using System.Net;
 using System.Xml;
 using AdamMil.Utilities;
+using AdamMil.Web;
 using AdamMil.WebDAV.Server.Configuration;
 
 // this file demonstrates how to implement a WebDAV service that serves files from a .zip file and supports the full range of WebDAV

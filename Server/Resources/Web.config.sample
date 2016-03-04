@@ -4,8 +4,9 @@
      change the public key tokens to match the public key used to compile the binary, if any.
 -->
 <configuration>
-  <!-- The AdamMil.WebDAV configuration must be in the AdamMil.WebDAV section. -->
+  <!-- Declare our configuration sections so .NET knows how to parse them. -->
   <configSections>
+    <section name="AdamMil.Web" type="AdamMil.Web.Configuration.WebSection, AdamMil.Web, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     <sectionGroup name="AdamMil.WebDAV">
       <section name="server" type="AdamMil.WebDAV.Server.Configuration.WebDAVServerSection, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     </sectionGroup>
@@ -19,6 +20,71 @@
       <add name="AdamMil.WebDAV" type="AdamMil.WebDAV.Server.WebDAVModule, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     </modules>
   </system.webServer>
+
+  <!-- The AdamMil.Web element is optional. If defined, it allows you to customize the media type extension and compression mappings. -->
+  <AdamMil.Web>
+    <!-- The optional 'mediaTypeMap' element configures the mapping between file extensions and media types used by the WebDAV server.
+          If the element is omitted, a default mapping will be used. This element should generally be omitted. The element has these
+          attributes:
+          * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
+                          mapping will be used - the same mapping that would be used if the entire 'mediaTypeMap' element was omitted. For
+                          the format of the default mapping file, see Documentation/MediaTypes.xml and Documentation/MediaTypes.xsd in the
+                          WebDAV server distribution.
+          * defaultExtension - This attribute specifies the file extension that the server will use when generating a file name for a
+                              resource with an unknown media type. If omitted, the default from 'defaultFile' will be used, which is
+                              normally to not use any file extension.
+          * defaultMediaType - This attribute specifies the media type to use if no media type matches a particular file extension. If
+                              omitted, the default from 'defaultFile' will be used, which is normally to report no media type at all.
+          Within the 'mediaTypeMap' element, the standard <add>, <clear/>, and <remove/> tags can be used to modify the mapping.
+    -->
+    <mediaTypeMap defaultFile="D:\data\mediaTypeMap.xml" defaultExtension="bin" defaultMediaType="application/octet-stream">
+      <!-- Each media type map entry has the following attributes:
+            * mediaType - The media type, which is the HTTP media-type (without parameters), such as text/css. This attribute is required.
+            * extension - The file extension, without any leading period. The extension may contain periods within it, such as dll.config,
+                          which matches *.dll.config. This attribute is required.
+            * canonicalExtension - Boolean. Whether the extension is the canonical extension for the media type. If true, the media type
+                                  will map to the given file extension, and if false, it will only map to the given file extension if
+                                  this is the only extension specified for the media type. This affects the server's attempts to choose a
+                                  default file extension for a file with the given media type. The default is false.
+            * canonicalMediaType - Boolean. Whether the media type is the canonical media type for the file extension. If true, file names
+                                  ending with the extension will map to the media type. If false, they will not. The default is true.
+            For a <remove> element, only one of 'mediaType' or 'extension' is required, but both can be used. If only one is specified,
+            the other will be considered to be a wildcard.
+      -->
+      <!-- <clear/> --> <!-- clear out the default mappings -->
+      <remove mediaType="text/plain" /> <!-- remove all mappings for text/plain -->
+      <remove extension="pdf" />        <!-- remove all mappings for the .pdf extension -->
+      <remove mediaType="audio/aiff" extension="aif" /> <!-- remove the specific mapping between audio/aiff and .aif -->
+      <add mediaType="text/foobar" extension="tfb" canonicalExtension="true" />
+      <add mediaType="text/foobar" extension="xtfb" />
+      <add mediaType="text/baz" extension="baz" />
+    </mediaTypeMap>
+    <!-- The optional 'compression' element configures which media types will be compressed by default. If the element is omitted, a
+          default mapping will be used. In general, this element should be omitted. The element has these attributes:
+          * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
+                          mapping will be used - the same mapping that would be used if the entire 'compression' element was omitted. For
+                          the format of the default mapping file, see Documentation/Compression.xml and Documentation/Compression.xsd in
+                          the WebDAV server distribution.
+    -->
+    <compression defaultFile="D:\data\compressionMap.xml">
+      <!-- Each compression mapping element has the following attributes:
+            * mediaType - The media type pattern the mapping applies to. Asterisks indicate wildcards (such as "text/*" or "*"). Wildcards
+                          in <remove> tags do not allow removing multiple entries. Rather, a <remove> tag can remove at most one entry -
+                          the one whose mediaType attribute matches exactly.
+            * compress - Specifies whether resources with the given media type should be compressed. The default is true.
+            Elements will be matched in the order given. If a media type does not match any element, it will not be compressed by default.
+      -->
+      <clear/>
+      <!-- <remove mediaType="application/*" /> --> <!-- this only removes the application/* mapping, not application/xml, etc. -->
+      <add mediaType="text/*" />
+      <add mediaType="application/xml" />
+      <add mediaType="application/*+xml" />
+      <add mediaType="application/*+json" />
+      <!-- compress foo/* except for foo/bar -->
+      <add mediaType="foo/bar" compress="false" />
+      <add mediaType="foo/*" compress="true" />
+    </compression>
+  </AdamMil.Web>
 
   <AdamMil.WebDAV>
     <!-- * The 'enabled' property is optional and true by default. If false, all AdamMil.WebDAV services are disabled.
@@ -208,67 +274,6 @@
                          propertyFile="D:\data\webdav\fooprops" />
         </add>
       </locations>
-      <!-- The optional 'mediaTypeMap' element configures the mapping between file extensions and media types used by the WebDAV server.
-           If the element is omitted, a default mapping will be used. This element should generally be omitted. The element has these
-           attributes:
-           * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
-                           mapping will be used - the same mapping that would be used if the entire 'mediaTypeMap' element was omitted. For
-                           the format of the default mapping file, see Documentation/MediaTypes.xml and Documentation/MediaTypes.xsd in the
-                           WebDAV server distribution.
-           * defaultExtension - This attribute specifies the file extension that the server will use when generating a file name for a
-                                resource with an unknown media type. If omitted, the default from 'defaultFile' will be used, which is
-                                normally to not use any file extension.
-           * defaultMediaType - This attribute specifies the media type to use if no media type matches a particular file extension. If
-                                omitted, the default from 'defaultFile' will be used, which is normally to report no media type at all.
-           Within the 'mediaTypeMap' element, the standard <add>, <clear/>, and <remove/> tags can be used to modify the mapping.
-      -->
-      <mediaTypeMap defaultFile="D:\data\mediaTypeMap.xml" defaultExtension="bin" defaultMediaType="application/octet-stream">
-        <!-- Each media type map entry has the following attributes:
-             * mediaType - The media type, which is the HTTP media-type (without parameters), such as text/css. This attribute is required.
-             * extension - The file extension, without any leading period. The extension may contain periods within it, such as dll.config,
-                           which matches *.dll.config. This attribute is required.
-             * canonicalExtension - Boolean. Whether the extension is the canonical extension for the media type. If true, the media type
-                                    will map to the given file extension, and if false, it will only map to the given file extension if
-                                    this is the only extension specified for the media type. This affects the server's attempts to choose a
-                                    default file extension for a file with the given media type. The default is false.
-             * canonicalMediaType - Boolean. Whether the media type is the canonical media type for the file extension. If true, file names
-                                    ending with the extension will map to the media type. If false, they will not. The default is true.
-             For a <remove> element, only one of 'mediaType' or 'extension' is required, but both can be used. If only one is specified,
-             the other will be considered to be a wildcard.
-        -->
-        <!-- <clear/> --> <!-- clear out the default mappings -->
-        <remove mediaType="text/plain" /> <!-- remove all mappings for text/plain -->
-        <remove extension="pdf" />        <!-- remove all mappings for the .pdf extension -->
-        <remove mediaType="audio/aiff" extension="aif" /> <!-- remove the specific mapping between audio/aiff and .aif -->
-        <add mediaType="text/foobar" extension="tfb" canonicalExtension="true" />
-        <add mediaType="text/foobar" extension="xtfb" />
-        <add mediaType="text/baz" extension="baz" />
-      </mediaTypeMap>
-      <!-- The optional 'compression' element configures which media types will be compressed by default. If the element is omitted, a
-           default mapping will be used. In general, this element should be omitted. The element has these attributes:
-           * defaultFile - This attribute specifies where the default map entries will be loaded from. If omitted, an internal default
-                           mapping will be used - the same mapping that would be used if the entire 'compression' element was omitted. For
-                           the format of the default mapping file, see Documentation/Compression.xml and Documentation/Compression.xsd in
-                           the WebDAV server distribution.
-      -->
-      <compression defaultFile="D:\data\compressionMap.xml">
-        <!-- Each compression mapping element has the following attributes:
-             * mediaType - The media type pattern the mapping applies to. Asterisks indicate wildcards (such as "text/*" or "*"). Wildcards
-                           in <remove> tags do not allow removing multiple entries. Rather, a <remove> tag can remove at most one entry -
-                           the one whose mediaType attribute matches exactly.
-             * compress - Specifies whether resources with the given media type should be compressed. The default is true.
-             Elements will be matched in the order given. If a media type does not match any element, it will not be compressed by default.
-        -->
-        <clear/>
-        <!-- <remove mediaType="application/*" /> --> <!-- this only removes the application/* mapping, not application/xml, etc. -->
-        <add mediaType="text/*" />
-        <add mediaType="application/xml" />
-        <add mediaType="application/*+xml" />
-        <add mediaType="application/*+json" />
-        <!-- compress foo/* except for foo/bar -->
-        <add mediaType="foo/bar" compress="false" />
-        <add mediaType="foo/*" compress="true" />
-      </compression>
     </server>
   </AdamMil.WebDAV>
 </configuration>

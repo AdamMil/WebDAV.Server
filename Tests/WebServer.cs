@@ -6,6 +6,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using AdamMil.Utilities;
+using AdamMil.Web;
 using AdamMil.WebDAV.Server;
 using AdamMil.WebDAV.Server.Services;
 
@@ -35,18 +36,18 @@ namespace AdamMil.WebDAV.Server.Tests
 
     public override string ToString()
     {
-      return ToString("element", null);
+      return ToString("element", null, null);
     }
 
-    public string ToString(string elementName, string siteRoot)
+    public string ToString(string elementName, string siteRoot, string dataRoot)
     {
       StringBuilder sb = new StringBuilder();
       sb.Append('<').Append(elementName);
-      WriteAttributes(sb, siteRoot);
+      WriteAttributes(sb, siteRoot, dataRoot);
       if(HasChildren)
       {
         sb.AppendLine(">");
-        WriteChildren(sb, siteRoot);
+        WriteChildren(sb, siteRoot, dataRoot);
         sb.Append("</").Append(elementName).AppendLine(">");
       }
       else
@@ -61,16 +62,16 @@ namespace AdamMil.WebDAV.Server.Tests
       get { return false; }
     }
 
-    protected virtual void WriteAttributes(StringBuilder sb, string siteRoot)
+    protected virtual void WriteAttributes(StringBuilder sb, string siteRoot, string dataRoot)
     {
       if(Type != null) WriteAttribute(sb, "type", Type.AssemblyQualifiedName);
       foreach(KeyValuePair<string, string> pair in Parameters)
       {
-        WriteAttribute(sb, pair.Key, pair.Value.Replace("{PhysicalPath}", siteRoot));
+        WriteAttribute(sb, pair.Key, pair.Value.Replace("{PhysicalPath}", siteRoot).Replace("{DataPath}", dataRoot));
       }
     }
 
-    protected virtual void WriteChildren(StringBuilder sb, string siteRoot)
+    protected virtual void WriteChildren(StringBuilder sb, string siteRoot, string dataRoot)
     {
       if(!HasChildren) throw new InvalidOperationException();
     }
@@ -115,12 +116,12 @@ namespace AdamMil.WebDAV.Server.Tests
 
     public override string ToString()
     {
-      return ToString(null);
+      return ToString(null, null);
     }
 
-    public string ToString(string siteRoot)
+    public string ToString(string siteRoot, string dataRoot)
     {
-      return ToString("add", siteRoot);
+      return ToString("add", siteRoot, dataRoot);
     }
 
     protected override bool HasChildren
@@ -128,9 +129,9 @@ namespace AdamMil.WebDAV.Server.Tests
       get { return AuthFilterType != null; }
     }
 
-    protected override void WriteAttributes(StringBuilder sb, string siteRoot)
+    protected override void WriteAttributes(StringBuilder sb, string siteRoot, string dataRoot)
     {
- 	    base.WriteAttributes(sb, siteRoot);
+ 	    base.WriteAttributes(sb, siteRoot, dataRoot);
       WriteAttribute(sb, "match", Match);
       WriteAttribute(sb, "enabled", Enabled);
       if(!string.IsNullOrEmpty(ID)) WriteAttribute(sb, "id", ID);
@@ -138,10 +139,10 @@ namespace AdamMil.WebDAV.Server.Tests
       WriteAttribute(sb, "serveRootOptions", ServeRootOptions);
     }
 
-    protected override void WriteChildren(StringBuilder sb, string siteRoot)
+    protected override void WriteChildren(StringBuilder sb, string siteRoot, string dataRoot)
     {
-      base.WriteChildren(sb, siteRoot);
-      sb.AppendLine("<authorization>").AppendLine(AuthFilterType.ToString("add", siteRoot)).AppendLine("</authorization>");
+      base.WriteChildren(sb, siteRoot, dataRoot);
+      sb.AppendLine("<authorization>").AppendLine(AuthFilterType.ToString("add", siteRoot, dataRoot)).AppendLine("</authorization>");
     }
   }
   #endregion
@@ -160,17 +161,17 @@ namespace AdamMil.WebDAV.Server.Tests
       : base(match, type, true, authFilterType)
     {
       AllowInfinitePropFind = true;
-      RootDirectory = rootDirectory ?? "{PhysicalPath}";
+      RootDirectory = rootDirectory ?? "{DataPath}";
       Writable      = writable;
     }
 
     public string RootDirectory;
     public bool AllowInfinitePropFind, Writable;
 
-    protected override void WriteAttributes(StringBuilder sb, string siteRoot)
+    protected override void WriteAttributes(StringBuilder sb, string siteRoot, string dataRoot)
     {
-      base.WriteAttributes(sb, siteRoot);
-      WriteAttribute(sb, "fsRoot", RootDirectory.Replace("{PhysicalPath}", siteRoot));
+      base.WriteAttributes(sb, siteRoot, dataRoot);
+      WriteAttribute(sb, "fsRoot", RootDirectory.Replace("{PhysicalPath}", siteRoot).Replace("{DataPath}", dataRoot));
       WriteAttribute(sb, "writable", Writable);
       WriteAttribute(sb, "allowInfinitePropFind", AllowInfinitePropFind);
     }
@@ -186,8 +187,8 @@ namespace AdamMil.WebDAV.Server.Tests
       try
       {
         this.port = port;
-        Directory = PrepareServerDirectory(tempDir, port, globalLockManager, globalPropertyStore, locations);
-        string args = "/trace:e /systray:false \"/config:" + Path.Combine(Directory, "applicationhost.config") + "\"";
+        PrepareServerDirectory(tempDir, port, globalLockManager, globalPropertyStore, locations);
+        string args = "/trace:e /systray:false \"/config:" + Path.Combine(TempDirectory, "applicationhost.config") + "\"";
         ProcessStartInfo psi = new ProcessStartInfo(serverProgram, args);
         psi.CreateNoWindow  = true;
         psi.UseShellExecute = false;
@@ -203,7 +204,17 @@ namespace AdamMil.WebDAV.Server.Tests
 
     ~WebServer() { Dispose(); }
 
-    public string Directory { get; private set; }
+    public string DataDirectory
+    {
+      get { return Path.Combine(TempDirectory, "data"); }
+    }
+
+    public string TempDirectory { get; private set; }
+
+    public string WebDirectory
+    {
+      get { return Path.Combine(TempDirectory, "web"); }
+    }
 
     public IPEndPoint EndPoint
     {
@@ -213,7 +224,7 @@ namespace AdamMil.WebDAV.Server.Tests
     public void CreateDirectory(string name)
     {
       AssertStarted();
-      System.IO.Directory.CreateDirectory(Path.Combine(Directory, name));
+      Directory.CreateDirectory(Path.Combine(DataDirectory, name));
     }
 
     public byte[] CreateFile(string name, string textContent)
@@ -226,14 +237,14 @@ namespace AdamMil.WebDAV.Server.Tests
     public void CreateFile(string name, byte[] content)
     {
       AssertStarted();
-      File.WriteAllBytes(Path.Combine(Directory, name), content);
+      File.WriteAllBytes(Path.Combine(DataDirectory, name), content);
     }
 
     public void DeleteDirectory(string name)
     {
       AssertStarted();
-      string path = Path.Combine(Directory, name);
-      if(System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+      string path = Path.Combine(DataDirectory, name);
+      if(Directory.Exists(path)) Directory.Delete(path, true);
     }
 
     public void Dispose()
@@ -252,11 +263,11 @@ namespace AdamMil.WebDAV.Server.Tests
         process = null;
       }
 
-      if(Directory != null)
+      if(TempDirectory != null)
       {
-        try { System.IO.Directory.Delete(Directory, true); }
+        try { Directory.Delete(TempDirectory, true); }
         catch { }
-        Directory = null;
+        TempDirectory = null;
       }
 
       GC.SuppressFinalize(this);
@@ -265,6 +276,42 @@ namespace AdamMil.WebDAV.Server.Tests
     void AssertStarted()
     {
       if(process == null || process.HasExited) throw new InvalidOperationException("The server is not running.");
+    }
+
+    void PrepareServerDirectory(string tempDir, int port, TypeWithParameters globalLockManager,
+                                       TypeWithParameters globalPropertyStore, Location[] locations)
+    {
+      string webConfig = File.ReadAllText(Path.Combine(Globals.WebFileDirectory, "web.config"));
+      string hostConfig = File.ReadAllText(Path.Combine(Globals.WebFileDirectory, "applicationhost.config"));
+      TempDirectory = CreateTempDirectory(tempDir);
+      Directory.CreateDirectory(DataDirectory);
+      Directory.CreateDirectory(WebDirectory);
+
+      webConfig = webConfig.Replace(
+        "{GlobalLockManager}", globalLockManager == null ? "" : globalLockManager.ToString("davLockManager", WebDirectory, DataDirectory));
+      webConfig = webConfig.Replace(
+        "{GlobalPropertyStore}", globalPropertyStore == null ? "" : globalPropertyStore.ToString("propertyStore", WebDirectory, DataDirectory));
+      StringBuilder sb = new StringBuilder();
+      foreach(Location location in locations) sb.AppendLine(location.ToString(WebDirectory, DataDirectory));
+      webConfig = webConfig.Replace("{Locations}", sb.ToString());
+      webConfig = typeNameRe.Replace(webConfig, match => GetType(match.Groups[1].Value).AssemblyQualifiedName);
+
+      hostConfig = hostConfig.Replace("{PhysicalPath}", WebDirectory).Replace("{DataPath}", DataDirectory)
+                             .Replace("{Port}", port.ToStringInvariant());
+      File.WriteAllText(Path.Combine(TempDirectory, "applicationhost.config"), hostConfig);
+      File.WriteAllText(Path.Combine(WebDirectory, "web.config"), webConfig);
+
+      string binDirectory = Path.Combine(WebDirectory, "bin");
+      Directory.CreateDirectory(binDirectory);
+      foreach(string pattern in new string[] { "*.dll", "*.pdb" })
+      {
+        foreach(string file in Directory.GetFiles(Globals.BinaryDirectory, pattern))
+        {
+          File.Copy(file, Path.Combine(binDirectory, Path.GetFileName(file)));
+        }
+      }
+
+      TempDirectory = TempDirectory;
     }
 
     Process process;
@@ -282,46 +329,19 @@ namespace AdamMil.WebDAV.Server.Tests
       {
         for(int i=0; i<chars.Length; i++) chars[i] = FileChars[rand.Next(FileChars.Length)];
         string directory = Path.Combine(baseDir, prefix + new string(chars));
-        if(!System.IO.Directory.Exists(directory))
+        if(!Directory.Exists(directory))
         {
-          System.IO.Directory.CreateDirectory(directory);
+          Directory.CreateDirectory(directory);
           return directory;
         }
       }
     }
 
-    static string PrepareServerDirectory(string tempDir, int port, TypeWithParameters globalLockManager,
-                                         TypeWithParameters globalPropertyStore, Location[] locations)
+    static Type GetType(string typeName)
     {
-      string webConfig = File.ReadAllText(Path.Combine(Globals.WebFileDirectory, "web.config"));
-      string hostConfig = File.ReadAllText(Path.Combine(Globals.WebFileDirectory, "applicationhost.config"));
-      string serverDirectory = CreateTempDirectory(tempDir);
-
-      webConfig = webConfig.Replace(
-        "{GlobalLockManager}", globalLockManager == null ? "" : globalLockManager.ToString("davLockManager", serverDirectory));
-      webConfig = webConfig.Replace(
-        "{GlobalPropertyStore}", globalPropertyStore == null ? "" : globalPropertyStore.ToString("propertyStore", serverDirectory));
-      StringBuilder sb = new StringBuilder();
-      foreach(Location location in locations) sb.AppendLine(location.ToString(serverDirectory));
-      webConfig = webConfig.Replace("{Locations}", sb.ToString());
-      webConfig =
-        typeNameRe.Replace(webConfig, match => typeof(WebDAVModule).Assembly.GetType(match.Groups[1].Value, true).AssemblyQualifiedName);
-
-      hostConfig = hostConfig.Replace("{PhysicalPath}", serverDirectory).Replace("{Port}", port.ToStringInvariant());
-      File.WriteAllText(Path.Combine(serverDirectory, "applicationhost.config"), hostConfig);
-      File.WriteAllText(Path.Combine(serverDirectory, "web.config"), webConfig);
-
-      string binDirectory = Path.Combine(serverDirectory, "bin");
-      System.IO.Directory.CreateDirectory(binDirectory);
-      foreach(string pattern in new string[] { "*.dll", "*.pdb" })
-      {
-        foreach(string file in System.IO.Directory.GetFiles(Globals.BinaryDirectory, pattern))
-        {
-          File.Copy(file, Path.Combine(binDirectory, Path.GetFileName(file)));
-        }
-      }
-
-      return serverDirectory;
+      Type type = typeof(WebDAVModule).Assembly.GetType(typeName, false);
+      if(type == null) type = typeof(MediaTypes).Assembly.GetType(typeName, true);
+      return type;
     }
 
     static readonly Regex typeNameRe = new Regex(@"{TypeName:([\w\.]+)}", RegexOptions.Compiled | RegexOptions.ECMAScript);

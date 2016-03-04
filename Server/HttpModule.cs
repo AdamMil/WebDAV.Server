@@ -165,12 +165,12 @@ public class WebDAVModule : IHttpModule
         info.ServiceRoot = DAVUtility.RemoveTrailingSlash(uri.GetLeftPart(UriPartial.Authority)) + info.ServiceRoot;
       }
 
-      bool denyExistence;
+      ConditionCode response;
       if(performAccessChecks && info.Resource != null &&
-         info.Service.ShouldDenyAccess(context, info.Resource, location.AuthFilters, null, out denyExistence))
+         info.Service.ShouldDenyAccess(context, info.Resource, location.AuthFilters, null, out response))
       {
         info.AccessDenied = true;
-        if(denyExistence) info.Resource = null;
+        if(response != null && response.StatusCode == (int)HttpStatusCode.NotFound) info.Resource = null;
       }
     }
 
@@ -180,24 +180,24 @@ public class WebDAVModule : IHttpModule
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
   public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access)
   {
-    bool denyExistence;
-    return ShouldDenyAccess(context, uri, access, out denyExistence);
+    ConditionCode response;
+    return ShouldDenyAccess(context, uri, access, out response);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
-  /// <param name="denyExistence">A variable that will receive a value indicating whether the WebDAV server should deny the existence of
-  /// the resource.
+  /// <param name="response">A variable that will receive a <see cref="ConditionCode"/> indicating the type of response to send to the
+  /// client, or null if the default response (typically <see cref="ConditionCodes.Forbidden"/>) should be used.
   /// </param>
-  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access, out bool denyExistence)
+  public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access, out ConditionCode response)
   {
+    response = null;
     LocationConfig location = ResolveLocation(uri, context);
-    denyExistence = false;
     bool denyAccess = false;
     if(location != null)
     {
       IWebDAVService service = location.GetService();
       IWebDAVResource resource = service.ResolveResource(context, location.GetRelativeUrl(uri, context));
-      denyAccess = resource != null && service.ShouldDenyAccess(context, resource, location.AuthFilters, access, out denyExistence);
+      service.ShouldDenyAccess(context, resource, location.AuthFilters, access, out response);
     }
     return denyAccess;
   }
@@ -519,21 +519,22 @@ public class WebDAVModule : IHttpModule
   /// </summary>
   static bool DeniedAccess(WebDAVContext context, LocationConfig location)
   {
-    bool denyExistence;
-    if(context.Service.ShouldDenyAccess(context, location.AuthFilters, out denyExistence))
+    ConditionCode response;
+    if(context.Service.ShouldDenyAccess(context, location.AuthFilters, out response))
     {
       // issuing a 404 Not Found response when the request would normally create a new resource actually reveals its existence rather than
       // hiding it because a 404 response is never normally issued for those requests. so for requests that can create new resources,
-      // return 403 Forbidden
-      if(denyExistence &&
+      // use the default response
+      if(response != null && response.StatusCode == (int)HttpStatusCode.NotFound &&
          (context.Request.HttpMethod.OrdinalEquals(DAVMethods.Put) || context.Request.HttpMethod.OrdinalEquals(DAVMethods.Lock) ||
           context.Request.HttpMethod.OrdinalEquals(DAVMethods.MkCol)))
       {
-        denyExistence = false;
+        response = null;
       }
 
-      if(denyExistence) WriteNotFoundResponse(context.Application); // if we should deny even the existence of the resource, return a 404
-      else WriteErrorResponse(context.Application, (int)HttpStatusCode.Forbidden, "Access denied.");
+      if(response == null) WriteErrorResponse(context.Application, (int)HttpStatusCode.Forbidden, "Access denied.");
+      else if(response.StatusCode == (int)HttpStatusCode.NotFound) WriteNotFoundResponse(context.Application);
+      else WriteErrorResponse(context.Application, response.StatusCode, response.Message);
       return true;
     }
 

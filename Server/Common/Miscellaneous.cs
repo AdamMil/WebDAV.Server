@@ -609,6 +609,8 @@ public static class DAVHeaders
   public const string AcceptRanges = "Accept-Ranges";
   /// <summary>The HTTP <c>Allow</c> header, defined in RFC 7231 section 7.4.1.</summary>
   public const string Allow = "Allow";
+  /// <summary>The HTTP <c>Authorization</c> header, defined in RFC 7235 section 4.2.</summary>
+  public const string Authorization = "Authorization";
   /// <summary>The HTTP <c>Content-Encoding</c> header, defined in RFC 7231 section 3.1.2.2.</summary>
   public const string ContentEncoding = "Content-Encoding";
   /// <summary>The HTTP <c>Content-Length</c> header, defined in RFC 7230 section 3.3.2.</summary>
@@ -649,6 +651,8 @@ public static class DAVHeaders
   public const string Range = "Range";
   /// <summary>The WebDAV <c>Timeout</c> header, defined in RFC 4918 section 10.7.</summary>
   public const string Timeout = "Timeout";
+  /// <summary>The HTTP <c>WWW-Authorization</c> header, defined in RFC 7235 section 4.1.</summary>
+  public const string WWWAuthenticate = "WWW-Authenticate";
 }
 #endregion
 
@@ -942,6 +946,32 @@ public static class DAVUtility
     return true;
   }
 
+  /// <summary>Decodes an HTTP <c>quoted-string</c> given the span of text within the quotation marks.</summary>
+  public static string UnquoteDecode(string value, int start, int length)
+  {
+    if(value == null) throw new ArgumentNullException();
+    int i = value.IndexOf('\\', start, length);
+    if(i >= 0)
+    {
+      StringBuilder sb = new StringBuilder(length-1);
+      sb.Append(value, start, i-start);
+      int end = start + length;
+      do
+      {
+        char c = value[i];
+        if(c == '\\')
+        {
+          if(++i == end) throw new FormatException();
+          c = value[i];
+        }
+        sb.Append(c);
+      } while(++i < end);
+      return sb.ToString();
+    }
+
+    return value.Substring(start, length);
+  }
+
   /// <summary>Decodes a path from a URI into a minimally escaped form (see <see cref="CanonicalPathEncode"/>) that can be used in the
   /// construction of canonical paths.
   /// </summary>
@@ -1121,12 +1151,6 @@ public static class DAVUtility
     }
 
     return str;
-  }
-
-  internal static Stream GetManifestResourceStream(string path)
-  {
-    string name = typeof(WebDAVModule).Namespace + "." + path.Replace('/', '.');
-    return System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
   }
 
   /// <summary>Returns the parent of the given path, or null if the path has no parent. This works with both absolute and relative paths,
@@ -1357,32 +1381,6 @@ public static class DAVUtility
       if(path.Length != 0 && path[0] == '/') return true;
     }
     return false;
-  }
-
-  /// <summary>Decodes an HTTP <c>quoted-string</c> given the span of text within the quotation marks.</summary>
-  internal static string UnquoteDecode(string value, int start, int length)
-  {
-    if(value == null) throw new ArgumentNullException();
-    int i = value.IndexOf('\\', start, length);
-    if(i >= 0)
-    {
-      StringBuilder sb = new StringBuilder(length-1);
-      sb.Append(value, start, i-start);
-      int end = start + length;
-      do
-      {
-        char c = value[i];
-        if(c == '\\')
-        {
-          if(++i == end) throw new FormatException();
-          c = value[i];
-        }
-        sb.Append(c);
-      } while(++i < end);
-      return sb.ToString();
-    }
-
-    return value.Substring(start, length);
   }
 
   internal static void ValidateAbsolutePath(string absolutePath)
