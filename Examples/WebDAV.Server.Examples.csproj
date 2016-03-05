@@ -36,6 +36,7 @@
     <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CustomAuth.cs" />
     <Compile Include="XmlService.cs" />
     <Compile Include="ZipFileService.cs" />
   </ItemGroup>
