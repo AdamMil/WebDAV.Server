@@ -16,3 +16,8 @@ WebDAV server from http://www.adammil.net. The included examples are:
   types of WebDAV services (such as a ZipFileService or FileSystemService).
   This example exists to demonstrate how a read-only WebDAV service can be
   implemented without the extra code for writing getting in the way.
+* CustomAuth - This example demonstrates how to implement custom HTTP
+  authentication using the Basic and Digest schemes, expose user data to
+  ASP.NET, and control access based on user identity. This example can be
+  adapted to support authenticating users when their credentials are stored in
+  a SQL database, etc.
