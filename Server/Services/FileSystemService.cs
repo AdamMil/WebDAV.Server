@@ -56,7 +56,9 @@ public class FileSystemService : WebDAVService
   ///   <item>
   ///     <term>caseSensitive</term>
   ///     <description>xs:boolean</description>
-  ///     <description>Determines whether URL resolution will perform case-sensitive matches against the file system. The default is false.</description>
+  ///     <description>Determines whether URL resolution will perform case-sensitive matches against the file system. The default depends
+  ///       on the operating system and/or file system, but is generally true for Unix-like systems and false for Windows and Mac OS X.
+  ///     </description>
   ///   </item>
   ///   <item>
   ///     <term>fsRoot</term>
@@ -78,11 +80,7 @@ public class FileSystemService : WebDAVService
   {
     if(parameters == null) throw new ArgumentNullException();
 
-    string value = parameters.TryGetValue("caseSensitive");
-    CaseSensitive = !string.IsNullOrEmpty(value) && XmlConvert.ToBoolean(value);
-    comparison = CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-
-    value = parameters.TryGetValue("allowInfinitePropFind");
+    string value = parameters.TryGetValue("allowInfinitePropFind");
     InfinitePropFind = string.IsNullOrEmpty(value) || XmlConvert.ToBoolean(value); 
 
     value = parameters.TryGetValue("writable");
@@ -91,6 +89,10 @@ public class FileSystemService : WebDAVService
     RootPath = parameters.TryGetValue("fsRoot");
     if(RootPath == null && HasUnifiedFileSystem) RootPath = "/"; // for operating systems with unified file systems, just serve the root
     if(RootPath != null) RootPath = RootPath.Length == 0 ? null : PathUtility.NormalizePath(RootPath);
+
+    value = parameters.TryGetValue("caseSensitive");
+    CaseSensitive = string.IsNullOrEmpty(value) ? HasCaseSensitiveFileSystem(RootPath) : XmlConvert.ToBoolean(value);
+    comparison = CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
   }
 
   /// <summary>Gets whether URL resolution will perform case-sensitive matches against the file system.</summary>
@@ -572,6 +574,12 @@ public class FileSystemService : WebDAVService
     if(value is DateTime) return (DateTime)value;
     else if(value is DateTimeOffset) return ((DateTimeOffset)value).UtcDateTime;
     else return default(DateTime);
+  }
+
+  static bool HasCaseSensitiveFileSystem(string path)
+  {
+    // TODO: this is just a heuristic, since Unix operating systems can mount case-insensitive file systems and so can Mac OS X
+    return Environment.OSVersion.Platform == PlatformID.Unix;
   }
 }
 #endregion

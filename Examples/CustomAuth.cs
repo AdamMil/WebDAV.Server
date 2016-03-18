@@ -259,7 +259,8 @@ public sealed class CustomAuthFilter : AuthorizationFilter
     {
       // make sure they're accessing their own directory
       string resourcePath = DAVUtility.WithTrailingSlash(resource != null ? resource.CanonicalPath : context.RequestPath);
-      if(resourcePath.StartsWith(user.RootPath, StringComparison.OrdinalIgnoreCase)) accessDenied = false;
+      StringComparison comparison = context.Settings.CaseSensitivePaths ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+      if(resourcePath.StartsWith(user.RootPath, comparison)) accessDenied = false;
     }
     response = accessDenied ? ConditionCodes.Unauthorized : null; // request authorization if access is denied
     return accessDenied;
@@ -284,8 +285,7 @@ sealed class CustomPrincipal : IIdentity, IPrincipal
     WriteAccess = writeAccess;
   }
 
-  public string Name { get; private set; }
-  public readonly string RootPath;
+  public readonly string Name, RootPath;
   public readonly bool WriteAccess;
 
   #region IIdentity Members

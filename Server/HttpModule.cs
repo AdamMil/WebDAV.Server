@@ -237,7 +237,7 @@ public class WebDAVModule : IHttpModule
           Locations = new LocationConfig[config.Locations.Count];
           for(int i=0; i<Locations.Length; i++)
           {
-            Locations[i] = new LocationConfig(config.Locations[i], config.LockManager, config.PropertyStore);
+            Locations[i] = new LocationConfig(this, config.Locations[i], config.LockManager, config.PropertyStore);
             if(!ids.Add(Locations[i].ID))
             {
               throw new ConfigurationErrorsException("Duplicate ID " + Locations[i].ID + " found in location " +
@@ -247,13 +247,9 @@ public class WebDAVModule : IHttpModule
         }
       }
 
-      ContextSettings = new WebDAVContext.Configuration(ShowSensitiveErrors);
-
       AppDomain.CurrentDomain.DomainUnload += OnDomainUnloading;
     }
 
-    /// <summary>Gets the <see cref="WebDAVContext.Configuration"/> object that should be used when servicing requests.</summary>
-    public readonly WebDAVContext.Configuration ContextSettings;
     /// <summary>The <see cref="LocationConfig"/> objects representing the WebDAV services defined in the configuration, or null if
     /// the WebDAV module is disabled (i.e. <see cref="Enabled"/> is false).
     /// </summary>
@@ -278,7 +274,7 @@ public class WebDAVModule : IHttpModule
   #region LocationConfig
   sealed class LocationConfig
   {
-    public LocationConfig(LocationElement config, LockManagerElement lockManager, PropertyStoreElement propertyStore)
+    public LocationConfig(Configuration moduleConfig, LocationElement config, LockManagerElement lockManager, PropertyStoreElement propertyStore)
     {
       Enabled       = config.Enabled;
       caseSensitive = config.CaseSensitive;
@@ -286,6 +282,8 @@ public class WebDAVModule : IHttpModule
 
       if(Enabled)
       {
+        ContextSettings = new WebDAVContext.Configuration(moduleConfig.ShowSensitiveErrors, caseSensitive);
+
         ID = config.ID;
         if(string.IsNullOrEmpty(ID)) // if there's no ID, generate one in the form scheme_hostname_port_path/to/dav
         {
@@ -310,12 +308,12 @@ public class WebDAVModule : IHttpModule
       }
     }
 
-    public string ID { get; private set; }
-    public ILockManager LockManager { get; private set; }
-    public IPropertyStore PropertyStore { get; private set; }
-    public bool ResetOnError { get; private set; }
     public string RootPath { get; private set; }
-    public bool ServeRootOptions { get; private set; }
+    public readonly WebDAVContext.Configuration ContextSettings;
+    public readonly string ID;
+    public readonly ILockManager LockManager;
+    public readonly IPropertyStore PropertyStore;
+    public readonly bool ResetOnError, ServeRootOptions;
 
     public void ClearSharedService()
     {
@@ -453,7 +451,7 @@ public class WebDAVModule : IHttpModule
               (string.Equals(application.Request.Url.AbsolutePath, "/", StringComparison.Ordinal) ||
                string.Equals(application.Request.RawUrl, "*", StringComparison.Ordinal)))
       {
-        WebDAVContext context = CreateContext(location, "", application, config);
+        WebDAVContext context = CreateContext(location, "", application);
         OptionsRequest request = context.Service.CreateOptions(context);
         request.SetOutOfScope(); // enable special processing within OptionsRequest for out-of-scope requests
         ProcessMethod(context, request, context.Service.Options);
@@ -508,10 +506,10 @@ public class WebDAVModule : IHttpModule
     return obj;
   }
 
-  static WebDAVContext CreateContext(LocationConfig location, string requestPath, HttpApplication application, Configuration config)
+  static WebDAVContext CreateContext(LocationConfig location, string requestPath, HttpApplication application)
   {
     return new WebDAVContext(location.GetService(), location.AuthFilters, location.RootPath, requestPath, application,
-                             location.LockManager, location.PropertyStore, config.ContextSettings);
+                             location.LockManager, location.PropertyStore, location.ContextSettings);
   }
 
   /// <summary>Attempts to authorize the user in the context of the current request. If true is returned, the user has already been denied
@@ -632,7 +630,7 @@ public class WebDAVModule : IHttpModule
   static bool ProcessRequest(HttpApplication app, LocationConfig config)
   {
     // create the request context and service instance
-    WebDAVContext context = CreateContext(config, config.GetRelativeUrl(app.Request.Url, null), app, WebDAVModule.config);
+    WebDAVContext context = CreateContext(config, config.GetRelativeUrl(app.Request.Url, null), app);
     // resolve the request Uri into a WebDAV resource
     context.ResolveResource();
 
