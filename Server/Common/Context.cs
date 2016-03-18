@@ -56,12 +56,22 @@ public sealed class WebDAVContext
   /// <summary>Contains configuration settings that a WebDAV service should use in when processing a request.</summary>
   public sealed class Configuration
   {
-    internal Configuration(bool showSensitiveErrors)
+    internal Configuration(bool showSensitiveErrors, bool caseSensitive)
     {
       ShowSensitiveErrors = showSensitiveErrors;
+      CaseSensitivePaths  = caseSensitive;
     }
 
-    /// <summary>Gets whether error messages containing potentially sensitive information should be written to the client. If false</summary>
+    /// <summary>Gets whether the location is expected to match paths in a case-sensitive manner. This applies to the process that matches
+    /// a request URL to the service that should handle it. (I.e. it is the 'caseSensitive' attribute from the &lt;locations&gt; child
+    /// elements in Web.config.) Services may also choose to consult this value to determine how they should match URLs within their
+    /// namespace.
+    /// </summary>
+    public bool CaseSensitivePaths { get; private set; }
+
+    /// <summary>Gets whether error messages containing potentially sensitive information should be written to the client. Potentially
+    /// sensitive information should be removed from any error messages and replaced with a less specific description of the error.
+    /// </summary>
     public bool ShowSensitiveErrors { get; private set; }
   }
   #endregion
