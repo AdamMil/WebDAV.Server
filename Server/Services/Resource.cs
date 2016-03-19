@@ -28,7 +28,7 @@ namespace AdamMil.WebDAV.Server
 
 #region IWebDAVResource
 /// <summary>Represents a DAV-compliant resource. In most cases you'll want to derive from <see cref="WebDAVResource"/> rather than
-/// directly implementing this interface.
+/// directly implement this interface.
 /// </summary>
 /// <remarks>Before implementing a WebDAV resource, it is strongly recommended that you be familiar with the WebDAV specification in RFC
 /// 4918 and the HTTP specification in RFCs 7230 through 7235.
@@ -249,6 +249,7 @@ public interface IStandardResource<T> : IStandardResource where T : IStandardRes
 /// resources). If you support locking, you must implement <see cref="Lock"/>, <see cref="Unlock"/>, as well as <see cref="Options"/> (to
 /// report support for locking).
 /// </para>
+/// <para>If possible, should implement <see cref="IStandardResource{T}"/> in your derived class.</para>
 /// <note type="caution">If your resource may be used by more than one request (i.e. if <see cref="IWebDAVService.ResolveResource"/>
 /// doesn't always allocate new resource objects), then the resource must be usable on multiple threads simultaneously. Before implementing
 /// a WebDAV resource, it is strongly recommended that you be familiar with the WebDAV specification in RFC 4918 and the HTTP specification
@@ -472,7 +473,7 @@ public abstract class WebDAVResource : IWebDAVResource
   }
 
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Options/node()" />
-  /// <remarks><note type="inherit">The default implementation returns options suitable for read-only access to the resource, including the
+  /// <remarks><note type="inherit">The default implementation uses options suitable for read-only access to the resource, including the
   /// use of <c>GET</c>, <c>PROPFIND</c>, and <c>PROPPATCH</c> methods, but excluding support for locking or writing.
   /// </note></remarks>
   /// <example>This example shows the basic implementation pattern for this method.
@@ -508,17 +509,16 @@ public abstract class WebDAVResource : IWebDAVResource
   /// public override void PropFind(PropFindRequest request)
   /// {
   ///   if(request == null) throw new ArgumentNullException();
-  ///   // see the documentation for IStandardResource.GetLiveProperties for a definition of GetLiveProperties(PropFindRequest)
   ///   request.ProcessStandardRequest(this, resource => resource.GetLiveProperties(request));
   /// }
   /// </code>
   /// This example shows a typical implementation pattern for this method when the resource is a non-collection resource that does not
-  /// implement <see cref="IStandardResource{T}"/>.
+  /// implement <see cref="IStandardResource{T}"/>. See the documentation for <see cref="IStandardResource.GetLiveProperties"/> for an
+  /// example implementation of GetLiveProperties.
   /// <code>
   /// public override void PropFind(PropFindRequest request)
   /// {
   ///   if(request == null) throw new ArgumentNullException();
-  ///   // see the documentation for IStandardResource.GetLiveProperties for a definition of GetLiveProperties(PropFindRequest)
   ///   request.ProcessStandardRequest(GetLiveProperties(request));
   /// }
   /// </code>
@@ -550,8 +550,8 @@ public abstract class WebDAVResource : IWebDAVResource
   ///     (name,value) => // setProperty: sets the property. if canSetProperty returned success earlier, this function should succeed
   ///     {
   ///       if(!DAVUtility.IsDAVName(name)) return null; // if it's not a DAV: property, then it's a dead property
-  ///       if(name.Name == DAVNames.creationdate.Name) SetCreatedDate(value.Property.Value);
-  ///       else if(name.Name == DAVNames.getlastmodified.Name) SetModifiedDate(value.Property.Value);
+  ///       if(name.Name == DAVNames.creationdate.Name) SetCreationDate(value.Property.Value);
+  ///       else if(name.Name == DAVNames.getlastmodified.Name) SetModificationDate(value.Property.Value);
   ///       else return ConditionCodes.Forbidden;
   ///       return ConditionCodes.OK; // return OK for successful changes according to RFC 4918 section 9.2.1
   ///     },
@@ -601,6 +601,14 @@ public abstract class WebDAVResource : IWebDAVResource
     request.Status = new ConditionCode(HttpStatusCode.Forbidden, "This resource does not support setting its content.");
   }
 
+  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
+  /// <remarks><note type="inherit">The default implementation always grants access to the resource.</note></remarks>
+  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out ConditionCode response)
+  {
+    response = null;
+    return false;
+  }
+
   /// <include file="documentation.xml" path="/DAV/IWebDAVResource/Unlock/node()" />
   /// <remarks><note type="inherit">The default implementation responds with 405 Method Not Allowed if locking is not enabled, and 409
   /// Conflict otherwise, indicating that the resource is not locked.
@@ -621,14 +629,6 @@ public abstract class WebDAVResource : IWebDAVResource
     if(request == null) throw new ArgumentNullException();
     if(request.Context.LockManager == null) request.Status = ConditionCodes.MethodNotAllowed;
     else request.Status = new ConditionCode(HttpStatusCode.Conflict, "The resource is not locked.");
-  }
-
-  /// <include file="documentation.xml" path="/DAV/IWebDAVResource/ShouldDenyAccess/node()" />
-  /// <remarks><note type="inherit">The default implementation always grants access to the resource.</note></remarks>
-  public virtual bool ShouldDenyAccess(WebDAVContext context, IWebDAVService service, XmlQualifiedName access, out ConditionCode response)
-  {
-    response = null;
-    return false;
   }
 }
 #endregion

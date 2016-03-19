@@ -64,8 +64,8 @@ public sealed class WebDAVContext
 
     /// <summary>Gets whether the location is expected to match paths in a case-sensitive manner. This applies to the process that matches
     /// a request URL to the service that should handle it. (I.e. it is the 'caseSensitive' attribute from the &lt;locations&gt; child
-    /// elements in Web.config.) Services may also choose to consult this value to determine how they should match URLs within their
-    /// namespace.
+    /// elements in Web.config.) Services and authorization filters may also choose to consult this value to determine how they should
+    /// match URLs within their namespace, if appropriate.
     /// </summary>
     public bool CaseSensitivePaths { get; private set; }
 
@@ -172,6 +172,7 @@ public sealed class WebDAVContext
   /// <param name="enableCompression">Determines whether compression is enabled. If true, a compressed content encoding will be chosen if
   /// it's preferred by the client. Otherwise, only the uncompressed <see cref="ContentEncoding.Identity"/> encoding can be chosen.
   /// </param>
+  /// <exception cref="WebDAVException">Thrown if no content type supported by the server is acceptable to the client.</exception>
   public ContentEncoding ChooseResponseEncoding(bool enableCompression)
   {
     // the identity encoding is assumed to always be available unless it's explicitly disallowed
@@ -255,7 +256,11 @@ public sealed class WebDAVContext
   /// </summary>
   public string GetCanonicalPath()
   {
-    return RequestResource != null ? RequestResource.CanonicalPath : Service.GetCanonicalUnmappedPath(this, RequestPath);
+    if(_canonicalPath == null)
+    {
+      _canonicalPath = RequestResource != null ? RequestResource.CanonicalPath : Service.GetCanonicalUnmappedPath(this, RequestPath);
+    }
+    return _canonicalPath;
   }
 
   /// <summary>Returns an <see cref="XmlDocument"/> containing the request body loaded as XML, or null if the body is empty.</summary>
@@ -298,10 +303,11 @@ public sealed class WebDAVContext
   /// <param name="namespaces">A set of XML namespaces used within the response. These namespaces will be given prefixes defined on the
   /// root element of the response, making the namespaces prefixes available throughout the response. The DAV: namespace is always defined
   /// as the default namespace in the response, and need not be provided explicitly. If null, no additional namespaces will be defined. The
-  /// prefixes allocated during this method are "xs" and "xsi" for XML Schema and XML Schema Instance respectively, the single letters 'a'
-  /// through 'z' for the first 26 namespaces, and prefixes of the form "nsX" where "X" can be replaced by any positive integer for the
-  /// rest. If you define your own namespace prefixes within the response, be careful not to use prefixes that would clash in incompatible
-  /// ways.
+  /// prefixes allocated during this method are "xs" and "xsi" for XML Schema and XML Schema Instance respectively, "ms" for the Microsoft
+  /// WSDL types, the single letters 'a' through 'z' for the first 26 namespaces, and prefixes of the form "nsX" where "X" can be replaced
+  /// by any nonnegative integer for the rest. If you define your own namespace prefixes within the response, be careful not to use
+  /// prefixes that would clash in incompatible ways. (In general, it's best to not define any prefixes yourself, and allow this method to
+  /// allocate all prefix names.)
   /// </param>
   /// <remarks>The <see cref="MultiStatusResponse"/> object returned must be disposed to complete the response. The best practice is to use
   /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response does not terminate the web request.
@@ -313,8 +319,8 @@ public sealed class WebDAVContext
     return new MultiStatusResponse(this, OpenXmlResponse(null), namespaces);
   }
 
-  /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned should be closed
-  /// when you are done reading from it.
+  /// <summary>Returns the request stream after decoding it according to the <c>Content-Encoding</c> header. The returned stream should be
+  /// closed when you are done reading from it.
   /// </summary>
   /// <remarks>This method supports the <c>gzip</c>, <c>deflate</c>, and <c>identity</c> content encodings. Any other content encoding will
   /// cause a <see cref="WebDAVException"/> to be thrown with a 415 Unsupported Media Type status. If you need to support additional
@@ -381,7 +387,8 @@ public sealed class WebDAVContext
   /// already.
   /// </param>
   /// <remarks>The <see cref="XmlWriter"/> object returned must be disposed to complete the response. The best practice is to use
-  /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response does not terminate the web request.
+  /// a <c>using</c> statement to ensure that the response is disposed. The disposal of the response writer does not terminate the web
+  /// request.
   /// </remarks>
   public XmlWriter OpenXmlResponse(ConditionCode status)
   {
@@ -406,7 +413,10 @@ public sealed class WebDAVContext
   /// <param name="relativePath">The path to a resource, relative to <see cref="ServiceRoot"/>, or null to reference the request resource.
   /// If this parameter is not equal to <see cref="RequestPath"/>, then the resource must exist.
   /// </param>
-  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
+  /// <param name="response">If the user is to be denied access, this variable may receive a <see cref="ConditionCode"/> describing the
+  /// type of response that should be sent to the client, or null to use the default response.
+  /// </param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='response')]" />
   public bool ShouldDenyAccess(string relativePath, XmlQualifiedName access, out ConditionCode response)
   {
     IWebDAVResource resource;
@@ -433,7 +443,10 @@ public sealed class WebDAVContext
 
   /// <summary>Determines whether access should be denied to the given resource in the context of the current request.</summary>
   /// <param name="resource">The resource to check.</param>
-  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/node()" />
+  /// <param name="response">If the user is to be denied access, this variable may receive a <see cref="ConditionCode"/> describing the
+  /// type of response that should be sent to the client, or null to use the default response.
+  /// </param>
+  /// <include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/*[not(@name='response')]" />
   public bool ShouldDenyAccess(IWebDAVResource resource, XmlQualifiedName access, out ConditionCode response)
   {
     if(resource == null) throw new ArgumentNullException();
@@ -551,7 +564,7 @@ public sealed class WebDAVContext
   #endregion
 
   readonly IAuthorizationFilter[] authFilters;
-  string _currentUserId;
+  string _canonicalPath, _currentUserId;
 
   /// <summary>Returns a default preference value for a content encoding.</summary>
   static int GetDefaultPreference(string encoding)

@@ -250,7 +250,7 @@ public abstract class LockConditionCodeWithUrls : ConditionCode
 #endregion
 
 #region LockTokenSubmittedConditionCode
-/// <summary>The <c>DAV:lock-token-submitted</c> precondition, used when the request attempts to modify a locked resource, and the
+/// <summary>The <c>DAV:lock-token-submitted</c> precondition error, used when the request attempts to modify a locked resource, and the
 /// corresponding lock token was not submitted.
 /// </summary>
 public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
@@ -272,8 +272,8 @@ public class LockTokenSubmittedConditionCode : LockConditionCodeWithUrls
 #endregion
 
 #region NoConflictingLockConditionCode
-/// <summary>The DAV:no-conflicting-lock precondition, used when a LOCK request fails due to the presence of a preexisting, conflicting
-/// lock.
+/// <summary>The DAV:no-conflicting-lock precondition error, used when a LOCK request fails due to the presence of a preexisting,
+/// conflicting lock.
 /// </summary>
 public class NoConflictingLockConditionCode : LockConditionCodeWithUrls
 {

@@ -111,7 +111,7 @@ public class OptionsRequest : SimpleRequest
   /// <remarks>This property determines whether a <c>DAV</c> header will be sent to the client to advertise WebDAV support.</remarks>
   public bool IsDAVCompliant { get; set; }
 
-  /// <summary>Gets whether the <c>OPTIONS</c> request should pertain to the entire service, as opposed to just the request URI.</summary>
+  /// <summary>Gets whether the <c>OPTIONS</c> request should pertain to the entire server, as opposed to just the request URI.</summary>
   /// <remarks>This corresponds to a client sending an <c>OPTIONS *</c> request.</remarks>
   public bool IsServerQuery { get; private set; }
 
@@ -121,9 +121,9 @@ public class OptionsRequest : SimpleRequest
   /// </remarks>
   public SupportedExtensionCollection SupportedExtensions { get; private set; }
 
-  /// <summary>Gets or sets whether the resource or service provides a minimal set of WebDAV locking support. The default is false.</summary>
+  /// <summary>Gets or sets whether the resource or service provides at least minimal WebDAV locking support. The default is false.</summary>
   /// <remarks>
-  /// At a minimum, a service or resource that supports locking must support the including the <c>LOCK</c> and <c>UNLOCK</c> methods, the
+  /// At a minimum, a service or resource that supports locking must support the <c>LOCK</c> and <c>UNLOCK</c> methods, the
   /// <c>DAV:supportedlock</c> and <c>DAV:lockdiscovery</c> properties, the <c>Timeout</c> header, and the <c>Lock-Token</c> header. It
   /// should also support the <c>DAV:owner</c> element. Locking of existing resources can be accomplished by implementing the
   /// <see cref="IWebDAVResource.Lock"/> and <see cref="IWebDAVResource.Unlock"/> methods (using

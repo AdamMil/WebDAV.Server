@@ -662,11 +662,11 @@ public static class DAVMethods
 {
   /// <summary>The WebDAV <c>COPY</c> verb, defined in RFC 4918 section 9.8.</summary>
   public const string Copy = "COPY";
-  /// <summary>The HTTP <c>DELETE</c> verb, defined in RFC 7231 section 4.3.5.</summary>
+  /// <summary>The HTTP <c>DELETE</c> verb, defined in RFC 7231 section 4.3.5 and modified by RFC 4918 section 9.6.</summary>
   public const string Delete = "DELETE";
-  /// <summary>The HTTP <c>GET</c> verb, defined in RFC 7231 section 4.3.1.</summary>
+  /// <summary>The HTTP <c>GET</c> verb, defined in RFC 7231 section 4.3.1 and modified by RFC 4918 section 9.4.</summary>
   public const string Get = "GET";
-  /// <summary>The HTTP <c>HEAD</c> verb, defined in RFC 7231 section 4.3.2.</summary>
+  /// <summary>The HTTP <c>HEAD</c> verb, defined in RFC 7231 section 4.3.2 and modified by RFC 4918 section 9.4.</summary>
   public const string Head = "HEAD";
   /// <summary>The WebDAV <c>LOCK</c> verb, defined in RFC 4918 section 9.10.</summary>
   public const string Lock = "LOCK";
@@ -674,15 +674,15 @@ public static class DAVMethods
   public const string MkCol = "MKCOL";
   /// <summary>The WebDAV <c>MOVE</c> verb, defined in RFC 4918 section 9.9.</summary>
   public const string Move = "MOVE";
-  /// <summary>The HTTP <c>OPTIONS</c> verb, defined in RFC 7231 section 4.3.6.</summary>
+  /// <summary>The HTTP <c>OPTIONS</c> verb, defined in RFC 7231 section 4.3.6 and modified by RFC 4918.</summary>
   public const string Options = "OPTIONS";
-  /// <summary>The HTTP <c>POST</c> verb, defined in RFC 7231 section 4.3.3.</summary>
+  /// <summary>The HTTP <c>POST</c> verb, defined in RFC 7231 section 4.3.3 and modified by RFC 4918 section 9.5.</summary>
   public const string Post = "POST";
   /// <summary>The WebDAV <c>PROPFIND</c> verb, defined in RFC 4918 section 9.1.</summary>
   public const string PropFind = "PROPFIND";
   /// <summary>The WebDAV <c>PROPPATCH</c> verb, defined in RFC 4918 section 9.2.</summary>
   public const string PropPatch = "PROPPATCH";
-  /// <summary>The HTTP <c>PUT</c> verb, defined in RFC 7231 section 4.3.4.</summary>
+  /// <summary>The HTTP <c>PUT</c> verb, defined in RFC 7231 section 4.3.4 and modified by RFC 4918 section 9.7.</summary>
   public const string Put = "PUT";
   /// <summary>The HTTP <c>TRACE</c> verb, defined in RFC 7231 section 4.3.8.</summary>
   public const string Trace = "TRACE";
@@ -1281,56 +1281,157 @@ public static class DAVUtility
     return headerString == null ? null : headerString.Split(',', s => s.Trim(), StringSplitOptions.RemoveEmptyEntries);
   }
 
-  internal static object ParseXmlValue(string text, XmlQualifiedName type, XmlNode context)
+  internal static bool TryParseXmlValue(string text, XmlQualifiedName type, XmlNode context, out object value)
   {
     if(type == null || context == null) throw new ArgumentNullException();
 
-    object value;
-    if(string.IsNullOrEmpty(text))
+    value = null;
+    if(!string.IsNullOrEmpty(text))
     {
-      value = null;
-    }
-    else if(type.Namespace.OrdinalEquals(DAVNames.XmlSchema))
-    {
-      switch(type.Name)
+      if(type.Namespace.OrdinalEquals(DAVNames.XmlSchema))
       {
-        case "anyURI": value = new Uri(text, UriKind.RelativeOrAbsolute); break;
-        case "base64Binary": value = Convert.FromBase64String(text); break;
-        case "boolean": value = XmlConvert.ToBoolean(text); break;
-        case "byte": value = XmlConvert.ToSByte(text); break;
-        case "dateTime": case "date": value = XmlUtility.ParseDateTime(text); break;
-        case "decimal": value = XmlConvert.ToDecimal(text); break;
-        case "double": value = XmlConvert.ToDouble(text); break;
-        case "duration": value = XmlDuration.Parse(text); break;
-        case "float": value = XmlConvert.ToSingle(text); break;
-        case "hexBinary": value = BinaryUtility.ParseHex(text, true); break;
-        case "int": value = XmlConvert.ToInt32(text); break;
-        case "long": value = XmlConvert.ToInt64(text); break;
-        case "QName":
+        switch(type.Name)
         {
-          XmlQualifiedName qname = context.ParseQualifiedName(text);
-          qname.Validate();
-          value = qname;
-          break;
+          case "anyURI":
+          {
+            Uri uri;
+            if(!Uri.TryCreate(text, UriKind.RelativeOrAbsolute, out uri)) return false;
+            value = uri;
+            break;
+          }
+          case "base64Binary":
+            try { value = Convert.FromBase64String(text); }
+            catch(FormatException) { return false; }
+            break;
+          case "boolean":
+          {
+            bool val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "byte":
+          {
+            sbyte val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "date":
+          {
+            object val;
+            if(!XmlUtility.TryParseDateTime(text, out val) || val is DateTimeOffset || ((DateTime)val).TimeOfDay.Ticks != 0) return false;
+            value = DateTime.SpecifyKind((DateTime)val, DateTimeKind.Unspecified);
+            break;
+          }
+          case "dateTime": return XmlUtility.TryParseDateTime(text, out value);
+          case "decimal":
+          {
+            decimal val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "double":
+          {
+            double val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "duration":
+          {
+            XmlDuration val;
+            if(!XmlDuration.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "float":
+          {
+            float val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "hexBinary":
+          {
+            byte[] val;
+            if(!BinaryUtility.TryParseHex(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "int":
+          {
+            int val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "long":
+          {
+            long val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "QName":
+          {
+            XmlQualifiedName qname = context.ParseQualifiedName(text);
+            try { qname.Validate(); }
+            catch(FormatException) { return false; }
+            value = qname;
+            break;
+          }
+          case "short":
+          {
+            short val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "unsignedByte":
+          {
+            byte val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "unsignedInt":
+          {
+            uint val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "unsignedLong":
+          {
+            ulong val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          case "unsignedShort":
+          {
+            ushort val;
+            if(!XmlUtility.TryParse(text, out val)) return false;
+            value = val;
+            break;
+          }
+          default: value = text; break;
         }
-        case "short": value = XmlConvert.ToInt16(text); break;
-        case "string": value = text; break;
-        case "unsignedByte": value = XmlConvert.ToByte(text); break;
-        case "unsignedInt": value = XmlConvert.ToUInt32(text); break;
-        case "unsignedLong": value = XmlConvert.ToUInt64(text); break;
-        case "unsignedShort": value = XmlConvert.ToUInt16(text); break;
-        default: value = text; break;
+      }
+      else if(type == DAVNames.msGuid)
+      {
+        Guid val;
+        if(!GuidUtility.TryParse(text, out val)) return false;
+        value = val;
+      }
+      else
+      {
+        value = text;
       }
     }
-    else if(type == DAVNames.msGuid)
-    {
-      value = new Guid(text);
-    }
-    else
-    {
-      value = text;
-    }
-    return value;
+    return true;
   }
 
   internal static string RemoveTrailingSlash(string path)
@@ -1428,7 +1529,11 @@ public static class DAVUtility
           break;
         case "byte":
           return (sbyte)ValidateSignedInteger(propertyName, value, sbyte.MinValue, sbyte.MaxValue);
-        case "dateTime": case "date":
+        case "date":
+          if(value is DateTime) return ValidateDate(propertyName, (DateTime)value);
+          if(value is DateTimeOffset) return ValidateDate(propertyName, ((DateTimeOffset)value).DateTime);
+          break;
+        case "dateTime":
           if(value is DateTime || value is DateTimeOffset) return value;
           break;
         case "decimal":
@@ -1639,6 +1744,15 @@ public static class DAVUtility
            c <= ' ' || c == '"' || c == '#'; // % must also be escaped, but we'll assume it's already been
   }                                          // because 'c' comes from a minimally encoded path 
 
+  static DateTime ValidateDate(XmlQualifiedName propertyName, DateTime dateTime)
+  {
+    if(dateTime.TimeOfDay.Ticks != 0)
+    {
+      throw new ArgumentException(propertyName.ToString() + " was expected to be a date but contained a time as well.");
+    }
+    return dateTime;
+  }
+
   static long ValidateSignedInteger(XmlQualifiedName propertyName, object value, long min, long max)
   {
     long intValue;
@@ -1846,27 +1960,27 @@ public sealed class EntityTag : IElementValue, IEquatable<EntityTag>
   public bool IsWeak { get; private set; }
 
   /// <inheritdoc/>
-  /// <remarks>This method uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
   public override bool Equals(object obj)
   {
-    return StronglyEquals(obj as EntityTag);
+    return Equals(obj as EntityTag);
   }
 
   /// <summary>Determines whether two entity tags exactly match.</summary>
-  /// <remarks>This method uses the strong entity tag comparison, as if <see cref="StronglyEquals"/> was called.</remarks>
   public bool Equals(EntityTag other)
   {
-    return StronglyEquals(other);
+    return this == other || other != null && IsWeak == other.IsWeak && Tag.OrdinalEquals(other.Tag);
   }
 
   /// <inheritdoc/>
   public override int GetHashCode()
   {
-    return Tag.GetHashCode();
+    int hash = Tag.GetHashCode();
+    if(IsWeak) hash = -hash;
+    return hash;
   }
 
-  /// <summary>Determines whether two entity tags are identical in every way. This is the strong comparison function defined by RFC 7232
-  /// section 2.3.2.
+  /// <summary>Determines whether two entity tags have equal tag strings and are both strong. This is the strong comparison function
+  /// defined by RFC 7232 section 2.3.2.
   /// </summary>
   public bool StronglyEquals(EntityTag other)
   {

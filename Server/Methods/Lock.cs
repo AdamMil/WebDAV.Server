@@ -69,6 +69,12 @@ namespace AdamMil.WebDAV.Server
 ///   </description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to lock the resource, but can gain permission by authenticating with different
+///     HTTP credentials.
+///   </description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The user doesn't have permission to lock the resource, or the server refuses to lock the resource for some other reason.</description>
 /// </item>
@@ -397,10 +403,7 @@ public class LockRequest : WebDAVRequest
     ParseRequestXml(Context.LoadRequestXml());
   }
 
-  /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body. The <see cref="XmlDocument"/> will be null
-  /// if the client did not submit a body.
-  /// </summary>
-  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequestXml/node()" />
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     if(xml == null) // if there's no request body, then the client wants us to refresh a lock

@@ -128,6 +128,15 @@ public sealed class XmlProperty
     }
   }
 
+  XmlProperty(XmlQualifiedName name, object value, XmlQualifiedName type, string language, XmlElement element)
+  {
+    Name     = name;
+    Value    = value;
+    Type     = type;
+    Language = language;
+    Element  = element;
+  }
+
   /// <summary>Gets whether the property has a complex element that cannot be represented by a simple <see cref="Value"/>. If true, the
   /// element can be retrieved by calling <see cref="GetElement"/>. If false, <see cref="GetElement"/> will return null. Note that this
   /// property may be false even if an element was passed to the constructor, if the element only represented a simple value.
@@ -194,6 +203,16 @@ public sealed class XmlProperty
 
   internal XmlElement Element { get; private set; }
 
+  internal static XmlProperty TryParse(XmlElement element)
+  {
+    XmlQualifiedName name, type;
+    string language = null;
+    object value;
+    Exception ex = TryParse(ref element, ref language, out name, out type, out value);
+    if(ex != null) return null;
+    return new XmlProperty(name, value, type, language, element);
+  }
+
   /// <summary>The XML data types for the built-in WebDAV properties, or null if the properties have complex (element) values.</summary>
   internal static readonly Dictionary<XmlQualifiedName, XmlQualifiedName> builtInTypes = new Dictionary<XmlQualifiedName, XmlQualifiedName>()
   {
@@ -205,54 +224,15 @@ public sealed class XmlProperty
 
   void InitializeFromElement(XmlElement element, string language)
   {
-    Name     = element.GetQualifiedName();
-    Language = language ?? element.GetInheritedAttributeValue(DAVNames.xmlLang);
-
-    XmlQualifiedName type;
-    // determine the element type. if it's a built-in DAV property, use the well-known type
-    if(DAVUtility.IsDAVName(Name) && builtInTypes.TryGetValue(Name, out type))
-    {
-      Type = type;
-    }
-    else // otherwise, try parsing an xsi:type attribute, if any
-    {
-      string typeStr = element.GetAttribute(DAVNames.xsiType);
-      if(!string.IsNullOrEmpty(typeStr)) Type = element.ParseQualifiedName(typeStr);
-    }
-
-    if(IsSimple(element))
-    {
-      string elementText = GetInnerTextIfSimple(element);
-      if(elementText != null)
-      {
-        try
-        {
-          Value = Type == null ? elementText : DAVUtility.ParseXmlValue(elementText, Type, element);
-        }
-        catch(ArgumentException ex)
-        {
-          throw new ArgumentException(Name.ToString() + " is expected to be of type " + Type.ToString() + ". " + ex.Message);
-        }
-        catch(FormatException ex)
-        {
-          throw new ArgumentException(Name.ToString() + " is expected to be of type " + Type.ToString() + ". " + ex.Message);
-        }
-        catch(OverflowException ex)
-        {
-          throw new ArgumentException(Name.ToString() + " is expected to be of type " + Type.ToString() + ". " + ex.Message);
-        }
-      }
-    }
-    else
-    {
-      if(Type != null && Type.Namespace.OrdinalEquals(DAVNames.XmlSchema)) // if it's an xs: type...
-      {
-        throw new ArgumentException(Name.ToString() + " is expected to have a simple value."); // all xs: types are simple
-      }
-      // TODO: ideally, we'd validate complex built-in DAV properties as well
-      Element = element.Extract(); // Extract gets the inherited language...
-      if(language != null) Element.SetAttribute(DAVNames.xmlLang, language); // but if we're not using that, set the new language
-    }
+    XmlQualifiedName name, type;
+    object value;
+    Exception ex = TryParse(ref element, ref language, out name, out type, out value);
+    if(ex != null) throw ex;
+    Element  = element;
+    Language = language;
+    Name     = name;
+    Type     = type;
+    Value    = value;
   }
 
   /// <summary>Returns the inner text of an element if it contains only text, and null if it is empty or contains complex content.</summary>
@@ -289,6 +269,51 @@ public sealed class XmlProperty
 
     return true;
   }
+
+  static Exception TryParse(ref XmlElement element, ref string language,
+                            out XmlQualifiedName name, out XmlQualifiedName type, out object value)
+  {
+    name = element.GetQualifiedName();
+    if(language == null) language = element.GetInheritedAttributeValue(DAVNames.xmlLang);
+
+    // determine the element type. if it's a built-in DAV property, use the well-known type. otherwise, try parsing an xsi:type attribute
+    if(!DAVUtility.IsDAVName(name) || !builtInTypes.TryGetValue(name, out type))
+    {
+      string typeStr = element.GetAttribute(DAVNames.xsiType);
+      type = string.IsNullOrEmpty(typeStr) ? null : element.ParseQualifiedName(typeStr);
+    }
+
+    if(IsSimple(element))
+    {
+      string elementText = GetInnerTextIfSimple(element);
+      if(elementText == null)
+      {
+        value = null;
+      }
+      else if(type == null)
+      {
+        value = elementText;
+      }
+      else if(!DAVUtility.TryParseXmlValue(elementText, type, element, out value))
+      {
+        return new ArgumentException(name.ToString() + " is expected to be of type " + type.ToString() + ".");
+      }
+      element = null;
+    }
+    else
+    {
+      value = null;
+      if(type != null && type.Namespace.OrdinalEquals(DAVNames.XmlSchema)) // if it's an xs: type...
+      {
+        return new ArgumentException(name.ToString() + " is expected to have a simple value."); // all xs: types are simple
+      }
+      // TODO: ideally, we'd validate complex built-in DAV properties as well
+      element = element.Extract(); // Extract gets the inherited language...
+      if(language != null) element.SetAttribute(DAVNames.xmlLang, language); // but if we're not using that, set the new language
+    }
+
+    return null;
+  }
 }
 #endregion
 
@@ -299,6 +324,10 @@ public interface IPropertyStore
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/ClearProperties/node()" />
   void ClearProperties(string canonicalPath, bool recursive);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/GetProperties/node()" />
+  /// <remarks><note type="inherit">The dictionary may be read-only, but care must be taken when returning a read-only wrapper around an
+  /// internal dictionary because the keys or values of the returned dictionary may later be passed to <see cref="RemoveProperties"/> or
+  /// <see cref="SetProperties"/>.
+  /// </note></remarks>
   IDictionary<XmlQualifiedName,XmlProperty> GetProperties(string canonicalPath);
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
   void RemoveProperties(string canonicalPath, IEnumerable<XmlQualifiedName> propertyNames);
@@ -319,7 +348,9 @@ public interface IPropertyStore
 /// </listheader>
 /// <item>
 ///   <term><see cref="Dispose(bool)"/></term>
-///   <description>You need to clean up data when the property store is disposed.</description>
+///   <description>You need to clean up data when the property store is disposed, or need a chance to save property data before the
+///     property store is disposed.
+///   </description>
 /// </item>
 /// </list>
 /// </remarks>
@@ -375,12 +406,9 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
     DAVUtility.ValidateRelativePath(canonicalPath);
     AssertNotDisposed();
     canonicalPath = DAVUtility.RemoveTrailingSlash(canonicalPath);
-    Dictionary<XmlQualifiedName,XmlProperty> propDict;
-    lock(this)
-    {
-      if(propertiesByUrl.TryGetValue(canonicalPath, out propDict)) propDict = new Dictionary<XmlQualifiedName, XmlProperty>(propDict);
-    }
-    return propDict ?? new Dictionary<XmlQualifiedName, XmlProperty>();
+    Dictionary<XmlQualifiedName, XmlProperty> propDict;
+    lock(this) propDict = propertiesByUrl.TryGetValue(canonicalPath);
+    return propDict == null ? NoProperties : new Dictionary<XmlQualifiedName, XmlProperty>(propDict);
   }
 
   /// <include file="documentation.xml" path="/DAV/IPropertyStore/RemoveProperties/node()" />
@@ -482,6 +510,9 @@ public abstract class PropertyStore : IDisposable, IPropertyStore
   readonly Dictionary<string, Dictionary<XmlQualifiedName,XmlProperty>> propertiesByUrl =
     new Dictionary<string, Dictionary<XmlQualifiedName, XmlProperty>>();
   bool disposed;
+
+  static readonly IDictionary<XmlQualifiedName, XmlProperty> NoProperties =
+    new ReadOnlyDictionaryWrapper<XmlQualifiedName,XmlProperty>(new Dictionary<XmlQualifiedName,XmlProperty>());
 }
 #endregion
 
@@ -513,7 +544,7 @@ public class FilePropertyStore : PropertyStore
   ///   <item>
   ///     <term>propertyDir</term>
   ///     <description>xs:string</description>
-  ///     <description>The full path to a directory in which the properties will be saved. This is only suitable for global property
+  ///     <description>The full path to a directory in which the properties will be saved. This is primarily suitable for global property
   ///       stores. Files will be created in the directory with names based on the location.
   ///     </description>
   ///   </item>

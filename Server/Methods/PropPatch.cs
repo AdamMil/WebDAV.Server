@@ -125,7 +125,7 @@ public sealed class PropertyPatchValue
   /// <summary>Gets an <see cref="XmlProperty"/> representing the parsed element value (if it could be parsed).</summary>
   public XmlProperty Property { get; private set; }
 
-  /// <summary>Gets or sets the status representing the result of attempting to set the property. If null, the removal will be assumed to
+  /// <summary>Gets or sets the status representing the result of attempting to set the property. If null, the attempt will be assumed to
   /// have been successful if no other errors occurred, and will be assumed to have failed if any other property changes failed. (RFC 4918
   /// section 9.2 requires that all property changes succeed or fail together.)
   /// </summary>
@@ -157,6 +157,12 @@ public sealed class PropertyPatchValue
 ///   <description>This status code should be used along with a <c>DAV:multistatus</c> XML body to report the names and statuses of the
 ///     properties within the property patches requested by the client. This is the default status code that will be used if
 ///     <see cref="WebDAVRequest.Status"/> is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to alter any resource properties, but can gain permission by authenticating with
+///     different HTTP credentials.
 ///   </description>
 /// </item>
 /// <item>
@@ -340,6 +346,9 @@ public class PropPatchRequest : WebDAVRequest
   }
 
   /// <summary>Determines whether the named WebDAV property is protected (i.e. whether it is not allowed to be changed by the client).</summary>
+  /// <remarks><note type="inherit">The default implementation considers <c>DAV:getcontentlength</c>, <c>DAV:getetag</c>, and
+  /// <c>DAV:lockdiscovery</c> to be protected.
+  /// </note></remarks>
   protected virtual bool IsProtected(XmlQualifiedName propertyName)
   {
     if(propertyName == null) throw new ArgumentNullException();
@@ -357,7 +366,7 @@ public class PropPatchRequest : WebDAVRequest
   }
 
   /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body.</summary>
-  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequestXml/remarks" />
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     if(xml == null) throw new ArgumentNullException();
@@ -400,8 +409,7 @@ public class PropPatchRequest : WebDAVRequest
   /// </summary>
   protected virtual XmlProperty TryParseValue(XmlElement propertyElement)
   {
-    try { return new XmlProperty(propertyElement); }
-    catch(ArgumentException) { return null; }
+    return XmlProperty.TryParse(propertyElement);
   }
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/WriteResponse/node()" />

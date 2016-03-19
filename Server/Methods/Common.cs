@@ -65,8 +65,8 @@ public sealed class EntityMetadata
   /// </summary>
   public EntityTag EntityTag { get; set; }
 
-  /// <summary>Gets or sets whether the entity actually exists. The default is true. This might be set to false when, for instance,
-  /// servicing a <c>PUT</c> request to create a new resource.
+  /// <summary>Gets or sets whether the entity actually exists. The default is true. This might be set to false when servicing a <c>PUT</c>
+  /// request to create a new resource, for example.
   /// </summary>
   public bool Exists { get; set; }
 
@@ -251,7 +251,7 @@ public sealed class ResourceStatus
 public abstract class WebDAVRequest
 {
   /// <summary>Initializes a new <see cref="WebDAVRequest"/> based on a new WebDAV request.</summary>
-  /// <remarks>This constructor parses the and validates <c>Depth</c>, <c>If-Match</c>, <c>If-None-Match</c>, <c>If-Modified-Since</c>,
+  /// <remarks>This constructor parses and validates the <c>Depth</c>, <c>If-Match</c>, <c>If-None-Match</c>, <c>If-Modified-Since</c>,
   /// <c>If-Unmodified-Since</c>, and <c>If</c> headers from the client.
   /// </remarks>
   protected WebDAVRequest(WebDAVContext context)
@@ -412,10 +412,11 @@ public abstract class WebDAVRequest
 
   /// <summary>Gets whether the client has submitted any precondition headers that may require a match against an <see cref="EntityTag"/>.</summary>
   /// <remarks>The main usage of this method is to avoid computing the <see cref="EntityMetadata.EntityTag"/> in cases when it won't be
-  /// needed. If this property is false, then the <see cref="EntityMetadata"/> object passed to
+  /// needed. If this method returns false, then the <see cref="EntityMetadata"/> object passed to
   /// <see cref="CheckPreconditions(EntityMetadata)"/> will not require an <see cref="EntityTag"/>. Otherwise, it probably will.
   /// <note type="inherit">The default implementation checks the <c>If-Match</c>, <c>If-None-Match</c>, and <c>If</c> headers for clauses
-  /// that match entity tags.
+  /// that match entity tags. If you add custom precondition headers that match entity tags, you should override this method to support
+  /// them.
   /// </note>
   /// </remarks>
   public virtual bool PreconditionsMayNeedEntityTag()
@@ -538,8 +539,8 @@ public abstract class WebDAVRequest
 
   /// <include file="documentation.xml" path="/DAV/WebDAVRequest/FilterSubmittedLockToken/node()" />
   /// <remarks><note type="inherit">The default implementation filters out lock tokens that are not owned by the current user. (If the
-  /// current user is anonymous, locks created by other anonymous users will not be filtered out, since there is no way to distinguish the
-  /// two.)
+  /// current user is anonymous, locks created by other anonymous users will not be filtered out, since there is no way to distinguish
+  /// between them.)
   /// </note></remarks>
   protected virtual bool FilterSubmittedLockToken(string lockToken)
   {
@@ -753,7 +754,7 @@ public abstract class WebDAVRequest
       }
       else // otherwise, the clause doesn't obviously match the request URI, so do a full resolution step
       {
-        UriResolution info = WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, false);
+        UriResolution info = WebDAVModule.ResolveUri(Context, clause.ResourceTagUri, null, false);
         if(info.Resource != null)
         {
           canonicalClausePath = info.Resource.CanonicalPath;
@@ -770,7 +771,7 @@ public abstract class WebDAVRequest
           bool match = false;
           if(condition.EntityTag != null)
           {
-            match = metadata != null && condition.EntityTag.Equals(metadata.EntityTag);
+            match = metadata != null && condition.EntityTag.StronglyEquals(metadata.EntityTag);
           }
           else if(condition.LockToken != null)
           {
