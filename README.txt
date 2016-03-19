@@ -10,7 +10,8 @@ WebDAV server.
   or from the command using the built-in test runner.
 
 In addition, the server relies on parts of the AdamMil.net library:
-  AdamMil.Collections, AdamMil.IO, AdamMil.TestHelpers, and AdamMil.Utilities
+  AdamMil.Collections, AdamMil.IO, AdamMil.TestHelpers,
+  AdamMil.Utilities, and AdamMil.Web
 These projects can be obtained from http://www.adammil.net/AdamMil.net
 
 For more information about the server, see http://www.adammil.net/WebDAV

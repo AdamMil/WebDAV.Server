@@ -137,6 +137,10 @@ public struct ByteRange : IEquatable<ByteRange>
 ///   <description>An <c>If-Modified-Since</c> or <c>If-None-Match</c> precondition was false but other preconditions (if any) were true.</description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have access to the resource, but can gain access by authenticating with different HTTP credentials.</description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The client does not have access to the resource.</description>
 /// </item>
@@ -257,7 +261,7 @@ public class GetOrHeadRequest : WebDAVRequest
   /// body, or null if no valid Range header was supplied by the client.
   /// </summary>
   /// <remarks>If the returned array has a length of zero, the range set was unsatisfiable, which requires a special kind of response.
-  /// If any case when an array is returned, you should reply in accordance with RFC 7233 section 4.
+  /// In any case when an array is returned, you should reply in accordance with RFC 7233 section 4.
   /// </remarks>
   public ByteRange[] GetByteRanges(long entityLength)
   {

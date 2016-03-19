@@ -311,8 +311,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       <summary>Removes all dead properties associated with a resource.</summary>
       <param name="canonicalPath">The canonical, relative path to the resource whose properties will be removed.</param>
       <param name="recursive">
-        If true, the properties of descendant resources will be cleared as well. This parameter should be true unless it is impossible for
-        the resource to have descendants.
+        If true, the properties of descendant resources will be cleared as well. This parameter should generally be true unless it is
+        impossible for the resource to have descendants.
       </param>
       <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> is null.</exception>
       <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
@@ -324,7 +324,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       <exception cref="ArgumentException">Thrown if <paramref name="canonicalPath"/> is not relative.</exception>
     </GetProperties>
     <RemoveProperties>
-      <summary>Returns all dead properties associated with a resource.</summary>
+      <summary>Returns dead properties associated with a resource.</summary>
       <param name="canonicalPath">The canonical, relative path to the resource whose properties will be removed.</param>
       <param name="propertyNames">A set of property names to remove.</param>
       <exception cref="ArgumentNullException">Thrown if <paramref name="canonicalPath"/> or <paramref name="propertyNames"/> is null.</exception>
@@ -363,8 +363,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
           <see cref="DAVUtility.CanonicalSegmentEncode"/> or <see cref="DAVUtility.CanonicalPathEncode"/> to perform the encoding.
         </para>
         <para>
-          If the service treats paths case-insensitively, this method must also normalize the case (e.g. to all uppercase), so that
-          canonical URLs can be safely compared case-sensitively.
+          If the service treats paths case-insensitively, this method must also normalize the case (e.g. to all uppercase or lowercase), so
+          that canonical URLs can be safely compared case-sensitively.
         </para>
       </remarks>
     </CanonicalPath>
@@ -485,10 +485,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
           <see cref="CopyOrMoveRequest.PostProcessOverwrite"/> method), and this is the way that it must effectively be done if the request
           is a move. If the request is a copy, the service may choose to effectively delete the existing resource and its properties before
           the copy, or to merge properties from the source into the destination (so that source properties overwrite destination properties
-          with the same name, but other properties remain intact). However, this choice does not apply to the members of collections. After
-          a successful recursive request, the members of any destination collection must be the same as those of the corresponding source
-          collection, regardless of whether the request was a copy or a move. It is not valid behavior to merge the members of a source
-          collection into a destination collection.
+          with the same name, but other properties remain intact). After a successful recursive request, the members of any destination
+          collection must be the same as those of the corresponding source collection, regardless of whether the request was a copy or a
+          move. It is not valid behavior to merge the members of a source collection into a destination collection.
         </para>
       </param>
       <param name="destinationPath">
@@ -535,7 +534,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         <para>
           Basic access checks should have already been performed for the source and destination paths by calling <c>ShouldDenyAccess</c>,
           but if the current user does not have access to modify the <paramref name="destinationPath"/>,
-          <see cref="ConditionCodes.Forbidden"/> should be returned.
+          <see cref="ConditionCodes.Forbidden"/> or <see cref="ConditionCodes.Unauthorized"/> should be returned.
         </para>
         <para>See also RFC 4918 section 8.8.</para>
         <note type="caution">
@@ -792,7 +791,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
   <LockRequest>
     <ProcessStandardRequest>
-      <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all locks will be allowed.</param>
+      <param name="supportedLocks">A collection of the lock types supported by the resource. If null, all lock types will be allowed.</param>
       <param name="canonicalPath">
         The canonical, relative path of the resource to lock. If null, the path to the <see cref="WebDAVContext.RequestResource"/> will
         be used, if it's available. If null and the request resource is not available, an exception will be thrown.
@@ -907,7 +906,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         readable, seekable stream if <see cref="ContentRange"/> is not null (indicating a partial <c>PUT</c> request).
         <para>
           This method does not provide any headers to the client (except the <c>Content-Range</c> header when the requested range is 
-          invalid), but you can add additional headers either before or after the method returns. In particular, you should add the
+          invalid), but you can add additional headers after the method returns. In particular, you should add the
           <c>ETag</c> and <c>Last-Modified</c> headers if the <c>PUT</c> request was successfully processed (i.e. if
           <see cref="DAVUtility.IsSuccess"/> returns true when given the <see cref="WebDAVRequest.Status"/> after this method returns).
           If you do not have your own method for computing entity tags, you should use the
@@ -932,7 +931,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       </returns>
       <remarks>
         This method does not provide any headers to the client (except the <c>Content-Range</c> header when the requested range is 
-        invalid), but you can add additional headers either before or after the method returns. In particular, you should add the
+        invalid), but you can add additional headers after the method returns. In particular, you should add the
         <c>ETag</c> and <c>Last-Modified</c> headers if the <c>PUT</c> request was successfully processed (i.e. if
         <see cref="DAVUtility.IsSuccess"/> called with the <see cref="WebDAVRequest.Status"/> is true after this method returns).
         If the request was not successfully processed, any file created by <paramref name="createFile"/> should be deleted.
@@ -957,7 +956,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       </param>
       <remarks>
         <note type="caution">
-          The lock manager remains locked while this method is called, so the method should not perform slow operations such
+          The property store remains locked while this method is called, so the method should not perform slow operations such
           as accessing a disk, database, or network service. It's recommended to perform such operations asynchronously.
         </note>
       </remarks>      
@@ -1060,7 +1059,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
       <summary>Checks that the client has submitted all required lock tokens.</summary>
       <returns>
         If all required lock tokens were submitted, this method should return null. Otherwise, it should return a
-        <see cref="ConditionCode"/> containing the error that should be returned to the client, typically a
+        <see cref="ConditionCode"/> representing the error that should be returned to the client, typically a
         <see cref="LockTokenSubmittedConditionCode"/>.
       </returns>
     </CheckSubmittedLockTokens>
@@ -1099,13 +1098,23 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     </FilterSubmittedLockToken>
     <ParseRequest>
       <summary>Parses and validates the request.</summary>
-      <remarks>
-        If the request is invalid, may throw an exception (preferably of type <see cref="System.Xml.XmlException"/> or
-        <see cref="WebDAVException"/>) or set the request's <see cref="WebDAVRequest.Status"/> to an error code.
-      </remarks>
+      <remarks><note type="inherit">
+        If the request is invalid, this method may throw an exception (preferably of type <see cref="System.Xml.XmlException"/> or
+        <see cref="WebDAVException"/>) or set the request's <see cref="WebDAVRequest.Status"/> to an error code. Setting the
+        <see cref="WebDAVRequest.Status"/> is preferable for improved performance.
+      </note></remarks>
       <exception cref="System.Xml.XmlException">Possibly thrown if the request body XML is invalid.</exception>
       <exception cref="WebDAVException">Possibly thrown if the request is invalid.</exception>
     </ParseRequest>
+    <ParseRequestXml>
+      <summary>
+        Called by <see cref="ParseRequest"/> to parse and validate the XML request body. The <see cref="XmlDocument"/> will be null
+        if the client did not submit a body.
+      </summary>
+      <remarks><note type="inherit">
+        If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.
+      </note></remarks>
+    </ParseRequestXml>
     <WriteResponse>
       <summary>
         Validates the processing performed by the <see cref="IWebDAVService"/> and writes the response to the client.
@@ -1176,7 +1185,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
     <SetValueNIRemarks>
       <remarks>
         If the property is a built-in WebDAV property (i.e. one defined in RFC 4918), the specified type will be ignored as per RFC 4316
-        which states in section 5 that the property must not have a data type already defined in the WebDAV specification.
+        which states in section 5 that a property must not have a data type if the property is defined in the WebDAV specification.
         If the value is not null and the property data type is known, the value will be validated against the the data type. Currently, the
         known property types are the types of built-in WebDAV properties as well as most types defined in the
         <c>http://www.w3.org/2001/XMLSchema</c> namespace (e.g. xs:boolean, xs:int, etc).

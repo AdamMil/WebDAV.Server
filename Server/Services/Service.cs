@@ -194,8 +194,16 @@ public interface IWebDAVService
   ///   {
   ///     foreach(IAuthorizationFilter filter in authFilters)
   ///     {
-  ///       denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out response);
-  ///       if(denyAccess &amp;&amp; response != null) break;
+  ///       ConditionCode resp;
+  ///       if(filter.ShouldDenyAccess(context, this, resource, access, out resp))
+  ///       {
+  ///         denyAccess = true;
+  ///         if(resp != null)
+  ///         {
+  ///           response = resp;
+  ///           break;
+  ///         }
+  ///       }
   ///     }
   ///   }
   /// 
@@ -515,9 +523,8 @@ public abstract class WebDAVService : IWebDAVService
   /// <include file="documentation.xml" path="/DAV/IWebDAVService/GetCurrentUserId/node()" />
   /// <remarks><note type="inherit">The default implementation returns a user ID based on ASP.NET authentication providers by combining the
   /// currently authenticated user's <see cref="IIdentity.AuthenticationType"/> and <see cref="IIdentity.Name"/> in the format
-  /// <c>authType:userName</c>. If you have a better mechanism to identify users, you should override this method as well as the
-  /// <see cref="CanDeleteLock"/> method. The <see cref="IIdentity.AuthenticationType"/> is "Negotiate" for basic/digest
-  /// authentication and "NTLM" for NTLM authentication.
+  /// <c>authType:userName</c>. If you have a better mechanism to identify users, you should override this method.
+  /// The <see cref="IIdentity.AuthenticationType"/> is "Negotiate" for basic/digest authentication and "NTLM" for NTLM authentication.
   /// </note></remarks>
   public virtual string GetCurrentUserId(WebDAVContext context)
   {
@@ -564,7 +571,7 @@ public abstract class WebDAVService : IWebDAVService
   /// public override void Options(OptionsRequest request)
   /// {
   ///   if(request == null) throw new ArgumentNullException();
-  ///   if(!isReadOnly) // the defaults are usually sufficient for services in read-only mode
+  ///   if(!IsReadOnly) // the defaults are usually sufficient for services in read-only mode
   ///   {
   ///     // if IsServerQuery is true, it's asking about the capabilities of the service in general, so report that we support
   ///     // MKCOL and PUT. otherwise, it's asking about a specific (non-existent) resource, so look at the URL to see what
@@ -654,8 +661,16 @@ public abstract class WebDAVService : IWebDAVService
     {
       foreach(IAuthorizationFilter filter in authFilters)
       {
-        denyAccess |= filter.ShouldDenyAccess(context, this, resource, access, out response);
-        if(denyAccess && response != null) break;
+        ConditionCode resp;
+        if(filter.ShouldDenyAccess(context, this, resource, access, out resp))
+        {
+          denyAccess = true;
+          if(resp != null)
+          {
+            response = resp;
+            break;
+          }
+        }
       }
     }
 

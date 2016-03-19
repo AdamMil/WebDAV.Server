@@ -82,9 +82,9 @@ public class ResourceType : IElementValue
   }
 
   /// <summary>Writes the resource type XML. The XML namespaces needed by the value will have already been added to an enclosing tag, so
-  /// no new <c>xmlns</c> attributes should be added.
+  /// no <c>xmlns</c> attributes should be added.
   /// </summary>
-  /// <remarks><note type="inherit">The default implementation writes an empty element named <see cref="Name"/>.</note></remarks>
+  /// <remarks><note type="inherit">The default implementation writes an empty element named after <see cref="Name"/>.</note></remarks>
   public virtual void WriteValue(XmlWriter writer, WebDAVContext context)
   {
     writer.WriteEmptyElement(Name);
@@ -122,6 +122,12 @@ public class ResourceType : IElementValue
 ///   <description>This status code should be used along with a <c>DAV:multistatus</c> XML body to report the names, values, and statuses
 ///     for the properties requested by the client. This is the default status code that will be used if <see cref="WebDAVRequest.Status"/>
 ///     is null.
+///   </description>
+/// </item>
+/// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to access the resource, but can gain permission by authenticating with different
+///     HTTP credentials.
 ///   </description>
 /// </item>
 /// <item>
@@ -316,7 +322,7 @@ public class PropFindRequest : WebDAVRequest
   /// <param name="getProperties">Given a value representing a resource and its path, returns a dictionary containing the resource's
   /// properties. Live Properties that are expensive to compute or transmit only need to be returned if they are referenced by the
   /// <see cref="Properties"/> collection or if <see cref="NamesOnly"/> is true (but in the latter case, the property values are ignored
-  /// and can be null). Dead properties should not be added unless you need to override properties from the configured
+  /// and can be null). Dead properties should not be returned unless you need to override properties from the configured
   /// <see cref="IPropertyStore"/>.
   /// </param>
   public void ProcessStandardRequest<T>(T rootResource, Func<T, IDictionary<XmlQualifiedName, PropFindValue>> getProperties)
@@ -393,10 +399,7 @@ public class PropFindRequest : WebDAVRequest
     ParseRequestXml(Context.LoadRequestXml());
   }
 
-  /// <summary>Called by <see cref="ParseRequest"/> to parse and validate the XML request body. The <see cref="XmlDocument"/> will be null
-  /// if the client did not submit a body.
-  /// </summary>
-  /// <remarks>If the request body is invalid, this method should set <see cref="WebDAVRequest.Status"/> to an appropriate error code.</remarks>
+  /// <include file="documentation.xml" path="/DAV/WebDAVRequest/ParseRequestXml/node()" />
   protected virtual void ParseRequestXml(XmlDocument xml)
   {
     // the body of the request must either be empty (in which case we default to an allprop request) or an XML fragment describing the

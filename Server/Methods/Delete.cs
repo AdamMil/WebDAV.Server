@@ -70,6 +70,12 @@ namespace AdamMil.WebDAV.Server
 ///   </description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to delete the resource, but can gain permission by authenticating with different
+///     HTTP credentials.
+///   </description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The user doesn't have permission to delete the resource, or the server refuses to delete the resource for some
 ///     other reason.

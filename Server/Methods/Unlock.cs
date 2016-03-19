@@ -50,6 +50,12 @@ namespace AdamMil.WebDAV.Server
 /// </description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to delete the lock, but can gain permission by authenticating with different
+///     HTTP credentials.
+///   </description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The user doesn't have permission to delete the lock, or the server refuses to remove the lock for some other reason.</description>
 /// </item>

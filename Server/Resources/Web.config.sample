@@ -108,7 +108,7 @@
                                                         This serves no purpose as a server-wide default, but may be useful below when
                                                         configuring individual locations to override the server-wide default.
            * AdamMil.WebDAV.Server.FileLockManager - A lock manager that stores the locks in a file on disk. It has these parameters:
-             o lockDir       - The path to a directory in which the locks will be saved. This is mostly suitable for lock managers
+             o lockDir       - The path to a directory in which the locks will be saved. This is primarily suitable for lock managers
                                specified on a global (server-wide) level. Files will be created in the directory with names based on the
                                location. The directory must exist.
              o lockFile      - The path to the file in which the locks will be saved. This is only suitable for lock managers specified
@@ -148,9 +148,9 @@
                                                           be useful below when configuring individual locations to override the server-wide
                                                           default.
            * AdamMil.WebDAV.Server.FilePropertyStore - A property store that stores properties in a file on disk. It has these parameters:
-             o propertyDir   - The path to a directory in which dead properties will be saved. This is mostly suitable for property stores
-                               specified on a global (server-wide) level. Files will be created in the directory with names based on the
-                               location. The directory must exist.
+             o propertyDir   - The path to a directory in which dead properties will be saved. This is primarily suitable for property
+                               stores specified on a global (server-wide) level. Files will be created in the directory with names based on
+                               the location. The directory must exist.
              o propertyFile  - The path to the file in which the dead properties will be saved. This is only suitable for property stores
                                specified on a per-location basis. If specified, this overrides the 'propertyDir' attribute.
              o revertToSelf  - Boolean. Determines whether the property store will revert to the process identity before opening the file
@@ -199,8 +199,10 @@
                          property store) and may be lost if the ID changes.
              * caseSensitive      If true, URI path matches (but not hostname matches) will be done case-sensitively. If false, case will
                                   be ignored. The default is false. Note that this only affects the matching of the URI against the 'match'
-                                  attribute. It does not affect how the service handles paths within its namespace, but services should
-                                  consult this parameter if appropriate. (It is accessible from WebDAVContext.Settings.CaseSensitivePaths.)
+                                  attribute. It does not necessarily affect how the service handles paths within its namespace, but
+                                  services should consult this parameter if appropriate. (For example, the built-in FileSystemService
+                                  examines this attribute, since there exist both case-sensitive and case-insensitive file systems, but it
+                                  uses a different default value if the parameter is omitted. See below for details.)
              * resetOnError       If true, the service object will be recreated if an internal error occurs. An internal error occurs when
                                   the service throws an exception that is not related to HTTP, authentication, or the ASP.NET request
                                   lifecycle (i.e. not HttpException, UnauthorizedAccessException, or ThreadAbortException, or a derived

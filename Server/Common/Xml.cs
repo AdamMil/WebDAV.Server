@@ -198,7 +198,7 @@ public static class DAVNames
   /// <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsDuration = new XmlQualifiedName("duration", XmlSchema);
-  /// <summary>The <c>xs:dateTime</c> type, which represents <see cref="DateTime"/> or <see cref="DateTimeOffset"/>data, where <c>xs</c>
+  /// <summary>The <c>xs:dateTime</c> type, which represents <see cref="DateTime"/> or <see cref="DateTimeOffset"/> data, where <c>xs</c>
   /// refers to the <c>http://www.w3.org/2001/XMLSchema</c> namespace.
   /// </summary>
   public static readonly XmlQualifiedName xsDateTime = new XmlQualifiedName("dateTime", XmlSchema);

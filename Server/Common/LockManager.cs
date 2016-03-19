@@ -340,7 +340,7 @@ public enum LockSelection
 #endregion
 
 #region LockType
-/// <summary>Represents a type and scope of a lock. This object is used with the <c>DAV:supportedlock</c> property.</summary>
+/// <summary>Represents a type and scope of a lock. This object is used with the <c>DAV:supportedlock</c> live property.</summary>
 public sealed class LockType : IElementValue
 {
   /// <summary>Initializes a new <see cref="LockType"/> given the type and scope of the lock.</summary>
@@ -496,7 +496,9 @@ public interface ILockManager
 /// </listheader>
 /// <item>
 ///   <term><see cref="Dispose(bool)"/></term>
-///   <description>You need to clean up data when the lock manager is disposed.</description>
+///   <description>You need to clean up data when the lock manager is disposed, or need a chance to save lock data before the lock
+///     manager is disposed.
+///   </description>
 /// </item>
 /// <item>
 ///   <term><see cref="GetRefreshTimeout"/></term>
@@ -943,7 +945,7 @@ public class FileLockManager : LockManager
   ///   <item>
   ///     <term>lockDir</term>
   ///     <description>xs:string</description>
-  ///     <description>The full path to a directory in which the locks will be saved. This is only suitable for global lock managers.
+  ///     <description>The full path to a directory in which the locks will be saved. This is primarily suitable for global lock managers.
   ///       Files will be created in the directory with names based on the location.
   ///     </description>
   ///   </item>

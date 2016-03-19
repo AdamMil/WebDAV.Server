@@ -47,6 +47,8 @@ namespace AdamMil.WebDAV.Server
 /// </summary>
 public sealed class UriResolution
 {
+  internal UriResolution() { }
+
   /// <summary>Gets whether access should be denied to the resource. This will always be false if the <c>performAccessChecks</c> argument
   /// to <see cref="WebDAVModule.ResolveUri"/> was false.
   /// </summary>
@@ -80,7 +82,7 @@ public sealed class UriResolution
   public IWebDAVResource Resource { get; internal set; }
 
   /// <summary>Gets the <see cref="IWebDAVService"/> corresponding to the URI, or null if the URI did not correspond to any defined service
-  /// location. This variable may be set to a valid service even if the URI could not be resolved to a resource.
+  /// location.
   /// </summary>
   public IWebDAVService Service { get; internal set; }
 
@@ -100,9 +102,8 @@ public sealed class UriResolution
 
 #region WebDAVModule
 /// <summary>Implements an <see cref="IHttpModule"/> that provides WebDAV services.</summary>
-/// <remarks>You can derive from this class to customize the integration with ASP.NET by overriding the <see cref="Initialize"/> method
-/// and potentially the <see cref="Dispose"/> method. If you derive from this class, you may want to override the following virtual
-/// members.
+/// <remarks>You can derive from this class to customize the integration with ASP.NET. If you derive from this class, you may want to
+/// override the following virtual members.
 /// <list type="table">
 /// <listheader>
 ///   <term>Member</term>
@@ -135,14 +136,16 @@ public class WebDAVModule : IHttpModule
   ///   relative URI with an absolute path (i.e. a URI constructed from a path beginning with a slash). If the URI is relative, the
   ///   authority of the request URI will be used.
   /// </param>
-  /// <param name="performAccessChecks">If true, authorization checks will be performed against the resource using the null (read)
-  /// permission. If access is denied, the resource may not be resolved. The result of the check will be placed in the
-  /// <see cref="UriResolution.AccessDenied"/> property.Note that authorization checks may consider details of the request, such as the
-  /// HTTP method, when deciding whether to grant or deny access, so if just validating an <c>If</c> header, for example, you should skip
-  /// the access checks. If you need to check a different permission, you should skip access checks and call
-  /// <see cref="ShouldDenyAccess(WebDAVContext,Uri,XmlQualifiedName)"/> if the resource resolves.
+  /// <param name="access"><include file="documentation.xml" path="/DAV/Common/ShouldDenyAccess/param[@name='access']/node()" />
+  /// In most cases, you should pass null. If <paramref name="performAccessChecks"/> is false, this parameter will be ignored.
   /// </param>
-  public static UriResolution ResolveUri(WebDAVContext context, Uri uri, bool performAccessChecks)
+  /// <param name="performAccessChecks">If true, authorization checks will be performed against the resource using the access type given by
+  /// the <paramref name="access"/> parameter. If access is denied, the resource may not be resolved. The result of the check will be
+  /// placed in the <see cref="UriResolution.AccessDenied"/> property. Note that authorization checks may consider details of the request,
+  /// such as the HTTP method, when deciding whether to grant or deny access, so if just validating an <c>If</c> header, for example, you
+  /// should skip the access checks.
+  /// </param>
+  public static UriResolution ResolveUri(WebDAVContext context, Uri uri, XmlQualifiedName access, bool performAccessChecks)
   {
     if(context == null || uri == null) throw new ArgumentNullException();
 
@@ -167,7 +170,7 @@ public class WebDAVModule : IHttpModule
 
       ConditionCode response;
       if(performAccessChecks && info.Resource != null &&
-         info.Service.ShouldDenyAccess(context, info.Resource, location.AuthFilters, null, out response))
+         info.Service.ShouldDenyAccess(context, info.Resource, location.AuthFilters, access, out response))
       {
         info.AccessDenied = true;
         if(response != null && response.StatusCode == (int)HttpStatusCode.NotFound) info.Resource = null;
@@ -186,7 +189,8 @@ public class WebDAVModule : IHttpModule
 
   /// <include file="documentation.xml" path="/DAV/WebDAVModule/ShouldDenyAccess/node()" />
   /// <param name="response">A variable that will receive a <see cref="ConditionCode"/> indicating the type of response to send to the
-  /// client, or null if the default response (typically <see cref="ConditionCodes.Forbidden"/>) should be used.
+  /// client, or null if the default response (typically <see cref="ConditionCodes.Forbidden"/>) should be used. This value should be
+  /// ignored if the client should be granted access.
   /// </param>
   public static bool ShouldDenyAccess(WebDAVContext context, Uri uri, XmlQualifiedName access, out ConditionCode response)
   {
@@ -205,15 +209,15 @@ public class WebDAVModule : IHttpModule
   /// <summary>Disposes resources related to the <see cref="IHttpModule"/>. Note that this method is distinct from
   /// <see cref="IDisposable.Dispose"/>.
   /// </summary>
-  /// <remarks><note type="inherit">Derived classes that override this method must call the base class implementation.</note></remarks>
+  /// <remarks><note type="inherit">Derived classes that override this method must call the base class implementation as well.</note></remarks>
   protected virtual void Dispose()
   {
     // we have nothing to dispose (and we don't need to remove the event handler delegate because we hold no reference to HttpApplication)
   }
 
   /// <summary>Initializes the WebDAV module, hooking into the ASP.NET pipeline.</summary>
-  /// <remarks><note type="inherit">Derived classes that override this method must call the base implementation, and if you store a
-  /// reference to <paramref name="context"/>, you must release the reference in <see cref="Dispose"/>.
+  /// <remarks><note type="inherit">Derived classes that override this method must call the base implementation as well, and if you store
+  /// any references to <paramref name="context"/>, you must release them in <see cref="Dispose"/>.
   /// </note></remarks>
   protected virtual void Initialize(HttpApplication context)
   {

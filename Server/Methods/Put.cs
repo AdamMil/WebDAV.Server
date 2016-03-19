@@ -76,6 +76,12 @@ namespace AdamMil.WebDAV.Server
 ///   </description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to create or alter the resource, but can gain permission by authenticating with
+///     different HTTP credentials.
+///   </description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The user doesn't have permission to create or alter the resource, or the server refuses to create or alter the resource
 ///     for some other reason.
@@ -102,7 +108,8 @@ namespace AdamMil.WebDAV.Server
 /// <item>
 ///   <term>415 <see cref="ConditionCodes.UnsupportedMediaType">Unsupported Media Type</see></term>
 ///   <description>The entity body or <c>Content-Type</c> header sent by the client is incompatible with the resource due to its media
-///     type.
+///     type. An example would be a client attempting to update a resource representing an image with non-image data, if the resource is
+///     incapable of changing its type.
 ///   </description>
 /// </item>
 /// <item>
@@ -113,7 +120,7 @@ namespace AdamMil.WebDAV.Server
 /// </item>
 /// <item>
 ///   <term>507 <see cref="ConditionCodes.InsufficientStorage">Insufficient Storage</see></term>
-///   <description>The collection could not be created because there was insufficient storage space.</description>
+///   <description>The resource could not be created or updated because there was insufficient storage space.</description>
 /// </item>
 /// </list>
 /// If you derive from this class, you may want to override the following virtual members, in addition to those from the base class.

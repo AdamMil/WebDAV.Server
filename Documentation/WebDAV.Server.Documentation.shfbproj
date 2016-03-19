@@ -85,6 +85,10 @@
       <Name>AdamMil.Web</Name>
       <Project>{571D3396-5A8E-4AF6-9A28-4AE2EEC11081}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\..\AdamMil.net\Utilities\AdamMil.Utilities.csproj">
+      <Name>AdamMil.Utilities</Name>
+      <Project>{29134637-6D08-432C-8161-9DEEE13C955D}</Project>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <ContentLayout Include="Layout.content" />

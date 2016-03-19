@@ -79,6 +79,12 @@ namespace AdamMil.WebDAV.Server
 ///   </description>
 /// </item>
 /// <item>
+///   <term>401 <see cref="ConditionCodes.Unauthorized"/></term>
+///   <description>The user doesn't have permission to execute the request, but can gain permission by authenticating with different
+///     HTTP credentials.
+///   </description>
+/// </item>
+/// <item>
 ///   <term>403 <see cref="ConditionCodes.Forbidden"/></term>
 ///   <description>The user doesn't have access to the request resource or the server refuses to execute the request for some other reason,
 ///     such as a <c>MOVE</c> request issued to a read-only resource. If the user doesn't have access to the destination resource, that
@@ -172,7 +178,7 @@ public class CopyOrMoveRequest : WebDAVRequest
     }
 
     // resolve the destination URL to see which service it's under (if any), and see if we can resolve it to a specific resource there
-    UriResolution info = WebDAVModule.ResolveUri(context, destination, true);
+    UriResolution info = WebDAVModule.ResolveUri(context, destination, DAVNames.write, true);
     IWebDAVService destService = info.Service;
     if(destService != null && info.ServiceRoot.OrdinalEquals(context.ServiceRoot)) destService = context.Service; // normalize destService
     string canonicalDestPath = info.Resource != null ? info.Resource.CanonicalPath : // get the canonical path to the destination
@@ -226,13 +232,13 @@ public class CopyOrMoveRequest : WebDAVRequest
       authFilters   = uriInfo.AuthorizationFilters;
     }
 
-    /// <summary>Gets whether access to the destination resource was in general denied to the user. If false, the copy or move should fail
+    /// <summary>Gets whether permission to execute the request was denied to the user. If true, the copy or move should fail
     /// with a <see cref="ConditionCodes.Forbidden"/> status on the destination URL.
     /// (<see cref="ProcessStandardRequest{T}(T, Func{T,ConditionCode}, Func{string,T,ConditionCode}, Func{T,IEnumerable{T}})"/> will do
-    /// this for you.) Even if true, this does not imply that the user has access to create or overwrite the destination resource or any
-    /// descendant resources. That must be checked separately. You may check whether the user is denied access to a descendant resource
-    /// using <see cref="ShouldDenyAccess"/>. Once again, this only checks access in general. It does not check for the right to modify the
-    /// resource in particular.
+    /// this for you.) Even if false, this does not imply that the user has access to create or overwrite any descendant resources. That
+    /// must be checked separately. You may check whether the user is denied access to a descendant resource using
+    /// <see cref="ShouldDenyAccess"/>. Once again, this only checks permission to access the destination resource and execute the
+    /// request. It does not check for the right to modify any particular resource.
     /// </summary>
     public bool AccessDenied { get; private set; }
 
@@ -296,8 +302,7 @@ public class CopyOrMoveRequest : WebDAVRequest
     /// <summary>Gets the destination resource, if the <see cref="RequestPath"/> could be resolved to a specific resource within the
     /// destination <see cref="Service"/>. Access checks may not have been performed against the destination resource, so you should
     /// perform them yourself. If null, <see cref="RequestPath"/> could not be resolved to any existing resource. This is a common case as
-    /// the destination usually does not exist before the request is made. Even if this property is null, <see cref="Service"/> may not be
-    /// null.
+    /// the destination usually does not exist before the request is made.
     /// </summary>
     public IWebDAVResource Resource { get; private set; }
 
