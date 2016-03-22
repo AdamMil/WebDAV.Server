@@ -127,7 +127,7 @@ namespace AdamMil.WebDAV.Server.Tests
           <b64 xsi:type=""xs:base64Binary"">SGVsbG8sIH{}dvcmxkIQ==</b64>
           <bool xsi:type=""xs:boolean"">maybe</bool>
           <byte xsi:type=""xs:unsignedByte"">300</byte>
-          <date xsi:type=""xs:date"">some day</date>
+          <date xsi:type=""xs:date"">2002-10-10T12:00:00</date>
           <dateTime xsi:type=""xs:dateTime"">some time</dateTime>
           <decimal xsi:type=""xs:decimal"">bazillions</decimal>
           <double xsi:type=""xs:double"">dubba dubba</double>
@@ -163,7 +163,7 @@ namespace AdamMil.WebDAV.Server.Tests
           "<T:bool xsi:type=\"xs:boolean\"> \t\n1\t\n </T:bool>" +
           "<T:byte xsi:type=\"xs:unsignedByte\"> \t\n250\t\n </T:byte>" +
           "<T:custom xml:lang=\"en\" xmlns:f=\"foo:\" xmlns:g=\"bar:\" g:attr=\"atv\" xsi:type=\"f:bar\"> \t\nhi\t\n </T:custom>" + // custom types shouldn't get an xsi:type attribute in the response
-          "<T:date xsi:type=\"xs:date\"> \t\n2002-10-10\t\n </T:date>" +
+          "<T:date xsi:type=\"xs:date\"> \t\n2002-10-10T00:00:00\t\n </T:date>" +
           "<T:dateTime xsi:type=\"xs:dateTime\"> \t\n2002-10-10T12:00:00\t\n </T:dateTime>" +
           "<T:dateTimeZ xsi:type=\"xs:dateTime\"> \t\n2002-10-10T12:00:00Z\t\n </T:dateTimeZ>" +
           "<T:decimal xsi:type=\"xs:decimal\"> \t\n+12678967.543233\t\n </T:decimal>" +

@@ -129,6 +129,9 @@
                                   indicates that there is no limit. The default is zero.
            * maximumTimeout     - Nonnegative integer. The maximum lock timeout, in seconds. A value of zero indicates that there is no
                                   maximum. The default is zero.
+           Note that Microsoft WebDAV clients have bugs that cause them to malfunction if the server doesn't support locking, so even if
+           you don't care about locking support you may need to enable it (with a MemoryLockManager at least) if you want to support
+           Microsoft WebDAV clients.
       -->
       <davLockManager type="AdamMil.WebDAV.Server.FileLockManager, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
                       lockDir="D:\data\webdav\locks\" maximumLocksPerUrl="10" maximumTimeout="1209600" writeInterval="300" />
@@ -160,6 +163,9 @@
                                and the maximum is 2147483.
            * AdamMil.WebDAV.Server.MemoryPropertyStore - A property store that stores properties in memory while the services is running
                                                          but does not persist them to any permanent storage device.
+           Note that Microsoft WebDAV clients have non-optimal behavior if the server doesn't support dead properties, although they will
+           still work without them, so even if you don't care about dead properties you may want to enable them (with a MemoryPropertyStore
+           at least) if you want to fully support Microsoft WebDAV clients.
       -->
       <propertyStore type="AdamMil.WebDAV.Server.FilePropertyStore, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
                      propertyDir="D:\data\webdav\props\" writeInterval="300" />
