@@ -163,10 +163,6 @@ public sealed class CustomAuthDAVModule : WebDAVModule
     HttpApplication app = (HttpApplication)obj;
     if(app.Response.StatusCode == (int)HttpStatusCode.Unauthorized)
     {
-      // NOTE: use this line instead if you want Basic authentication. this may be necessary if you don't have access to plaintext
-      // passwords on the server. although Basic authentication is generally insecure, it can be secured by using SSL
-      //app.Response.AppendHeader(DAVHeaders.WWWAuthenticate, "Basic realm=" + DAVUtility.QuoteString(Realm));
-
       object wasNonceStale = app.Context.Items["AWSE.Auth.StaleNonce"];
       StringBuilder sb = new StringBuilder();
       sb.Append("Digest realm=").Append(DAVUtility.QuoteString(Realm));
@@ -174,6 +170,10 @@ public sealed class CustomAuthDAVModule : WebDAVModule
       sb.Append(", opaque=\"\", stale=").Append(wasNonceStale is bool && (bool)wasNonceStale ? "true" : "false");
       sb.Append(", algorithm=MD5, qop=\"auth\"");
       app.Response.AppendHeader(DAVHeaders.WWWAuthenticate, sb.ToString());
+
+      // NOTE: use this instead of the above if you want Basic authentication. this may be necessary if you don't have access to plaintext
+      // passwords on the server. although Basic authentication is generally insecure, it can be secured by using SSL
+      //app.Response.AppendHeader(DAVHeaders.WWWAuthenticate, "Basic realm=" + DAVUtility.QuoteString(Realm));
     }
   }
 
@@ -285,7 +285,8 @@ sealed class CustomPrincipal : IIdentity, IPrincipal
     WriteAccess = writeAccess;
   }
 
-  public readonly string Name, RootPath;
+  public string Name { get; private set; }
+  public readonly string RootPath;
   public readonly bool WriteAccess;
 
   #region IIdentity Members
