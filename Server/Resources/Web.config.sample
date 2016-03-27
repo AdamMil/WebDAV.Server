@@ -90,7 +90,7 @@
     <!-- * The 'enabled' property is optional and true by default. If false, all AdamMil.WebDAV services are disabled.
          * The 'showSensitiveErrors' property is optional and false by default. If true, additional error information may be included with
            responses. This information can help you troubleshoot problems with a WebDAV service but it's possible that in certain cases the
-           messages could contain sensitive information.
+           messages could contain sensitive information. As such, it's best enabled in testing environments and disabled elsewhere.
     -->
     <server enabled="true" showSensitiveErrors="false">
       <!-- The 'davLockManager' element configures the default lock manager used for the WebDAV server. (It is possible to override the
@@ -116,8 +116,9 @@
              o revertToSelf  - Boolean. Determines whether the lock manager will revert to the process identity before opening the file on
                                disk. This allows the file to be opened with the IIS process account, which is usually more privileged.
                                The default is true.
-             o writeInterval - Positive integer. The number of seconds to wait before flushing pending changes to disk. The default is 60
-                               and the maximum is 2147483.
+             o writeInterval - Positive integer. The frequency with which pending changes are written to disk. The default is 60 and the
+                               maximum is 2147483. Smaller values reduce both performance and the chance of lock data being lost if the
+                               server process is apruptly terminated.
            * AdamMil.WebDAV.Server.MemoryLockManager - A lock manager that holds locks in memory while the service is running but does not
                                                        persist them to any permanent storage device.
            In addition to the manager-specific parameters mentioned above, all built-in lock managers support the following parameters:
@@ -129,9 +130,9 @@
                                   indicates that there is no limit. The default is zero.
            * maximumTimeout     - Nonnegative integer. The maximum lock timeout, in seconds. A value of zero indicates that there is no
                                   maximum. The default is zero.
-           Note that Microsoft WebDAV clients have bugs that cause them to malfunction if the server doesn't support locking, so even if
-           you don't care about locking support you may need to enable it (with a MemoryLockManager at least) if you want to support
-           Microsoft WebDAV clients.
+           Note that Microsoft WebDAV clients have bugs that cause them to malfunction when writing if the server doesn't support locking,
+           so even if you don't care about locking support you may need to enable it (with a MemoryLockManager at least) if you want to
+           support write access with Microsoft WebDAV clients. It is not required for read-only access.
       -->
       <davLockManager type="AdamMil.WebDAV.Server.FileLockManager, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
                       lockDir="D:\data\webdav\locks\" maximumLocksPerUrl="10" maximumTimeout="1209600" writeInterval="300" />
@@ -143,7 +144,7 @@
            The locationId is a case-insensitive string that uniquely identifies a location. (See below.) This ID should be used as a kind
            of namespace to disambiguate resources that have the same path. (For instance, http://name1/file and http://name2/file both
            have a path of /file, but they might have different location IDs.) The parameters collection allows additional configuration
-           attributes to be processed by the lock manager. If the element is omitted, no default property store will be available,
+           attributes to be processed by the property store. If the element is omitted, no default property store will be available,
            disabling dead properties on services and locations that don't specify their own property store. These are the built-in property
            stores:
            * AdamMil.WebDAV.Server.DisablePropertyStore - A property store that indicates to the WebDAV server that it should disable
@@ -159,13 +160,14 @@
              o revertToSelf  - Boolean. Determines whether the property store will revert to the process identity before opening the file
                                on disk. This allows the file to be opened with the IIS process account, which is usually more privileged.
                                The default is true.
-             o writeInterval - Positive integer. The number of seconds to wait before flushing pending changes to disk. The default is 60
-                               and the maximum is 2147483.
-           * AdamMil.WebDAV.Server.MemoryPropertyStore - A property store that stores properties in memory while the services is running
+             o writeInterval - Positive integer. The frequency with which pending changes are written to disk. The default is 60 and the
+                               maximum is 2147483. Smaller values reduce both performance and the chance of property data being lost if the
+                               server process is apruptly terminated.
+           * AdamMil.WebDAV.Server.MemoryPropertyStore - A property store that stores properties in memory while the service is running
                                                          but does not persist them to any permanent storage device.
-           Note that Microsoft WebDAV clients have non-optimal behavior if the server doesn't support dead properties, although they will
-           still work without them, so even if you don't care about dead properties you may want to enable them (with a MemoryPropertyStore
-           at least) if you want to fully support Microsoft WebDAV clients.
+           Note that Microsoft WebDAV clients have non-optimal behavior when writing if the server doesn't support dead properties,
+           although they will still work without them, so even if you don't care about dead properties you may want to enable them (with a
+           MemoryPropertyStore at least) if you want the best support for write access with Microsoft WebDAV clients.
       -->
       <propertyStore type="AdamMil.WebDAV.Server.FilePropertyStore, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62"
                      propertyDir="D:\data\webdav\props\" writeInterval="300" />
