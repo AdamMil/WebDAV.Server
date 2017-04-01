@@ -318,9 +318,9 @@ public abstract class WebDAVRequest
       // doesn't strongly match the entity tag, or 3) If-None-Match (weakly) matches the entity tag and the method is not GET or HEAD.
       // otherwise, if the entity doesn't exist, the precondition fails if If-Match was provided. if the entity exists and If-None-Match
       // (weakly) matches it and the method is GET or HEAD, 304 Not Modified should be returned instead. that is handled later
-      if(requestMetadata.Exists ?
-            ifMatch != null && requestMetadata.EntityTag != null && !Matches(ifMatch, requestMetadata.EntityTag, true) ||
-            Matches(ifNoneMatch, requestMetadata.EntityTag, false) && !IsGetOrHead()
+      if(requestMetadata.Exists
+          ? ifMatch != null && requestMetadata.EntityTag != null && !Matches(ifMatch, requestMetadata.EntityTag, true) ||
+            Matches(ifNoneMatch, requestMetadata.EntityTag, false) && (ifNoneMatch == MatchAny || !IsGetOrHead())
           : ifMatch != null)
       {
         return ConditionCodes.PreconditionFailed;

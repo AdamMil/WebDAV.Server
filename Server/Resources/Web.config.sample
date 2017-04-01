@@ -2,6 +2,12 @@
 <!-- This is a sample configuration file, parts of which can be merged into a web application's configuration file to configure it for use
      with AdamMil.WebDAV.Server. Note that if you compile the server yourself or receive a binary from a third party, you may need to
      change the public key tokens to match the public key used to compile the binary, if any.
+     
+     WARNING: Don't use this file blindly to set up a WebDAV site! It contains example settings that change the defaults in ways you don't
+     want. The purpose of this file is to provide examples and documentation to help you create your own web.config file. Please read this
+     file and make intelligent decisions as to which settings to keep and which to change or omit. In general, optional elements and
+     attributes that override the defaults should be omitted unless you really need them; they are included here for exemplary purposes
+     only.
 -->
 <configuration>
   <!-- Declare our configuration sections so .NET knows how to parse them. -->
@@ -12,6 +18,14 @@
     </sectionGroup>
   </configSections>
 
+  <system.web>
+    <!-- You may want to increase the maximum request size to allow uploading large files, since the default is 4MB. This sets it to 100MB,
+         but you must also change the system.webServer/security/requestFiltering element below. This element also increases the request
+         timeout from the default of 110 seconds to one hour (3600 seconds), to allow for uploads over slow connections.
+    -->
+    <httpRuntime executionTimeout="3600" maxRequestLength="102400" /> <!-- the length is in kilobytes -->
+  </system.web>
+
   <system.webServer>
     <!-- It's required to add the AdamMil.WebDAV module to process the requests. If you're using the Classic pipeline, you would add it to
          system.web/httpModules instead.
@@ -19,6 +33,17 @@
     <modules>
       <add name="AdamMil.WebDAV" type="AdamMil.WebDAV.Server.WebDAVModule, AdamMil.WebDAV.Server, Version=1.0.0.0, Culture=neutral, PublicKeyToken=fc73e8d20ddf3c62" />
     </modules>
+    <!-- You may want to increase the maximum content length to allow uploading large files, since the default is 30MB (limited further by
+         the maximum request length, above). This sets it to 100MB, but you must also change the system.web/httpRuntime element above.
+         In some cases (for instance, if you host the site using IIS Express), you may need to modify the applicationhost.config file to
+         allow the request limits to be overridden. If IIS returns a zero-byte 500 Internal Server Error response, this may be the culprit.
+         Try removing the <security> element to confirm.
+    -->
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="104857600" /> <!-- the length is in bytes -->
+      </requestFiltering>
+    </security>
   </system.webServer>
 
   <!-- The AdamMil.Web element is optional. If defined, it allows you to customize the media type extension and compression mappings. -->
